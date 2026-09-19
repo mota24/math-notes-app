@@ -198,7 +198,7 @@ export class InputClassifier {
 
   get effectiveMode(): 'active' | 'capacitive' | 'finger' {
     const m = this.config.mode;
-    if (m === 'auto') return this.penSeen ? 'active' : 'capacitive';
+    if (m === 'auto') return 'finger';
     return m;
   }
 
@@ -285,26 +285,26 @@ export class InputClassifier {
     if (this.config.handTool || forcePan) return this.joinGesture(t);
     if (kind === 'pen') {
       this.markPen();
-      // Le stylet actif a priorité : tout contact tactile en cours est une paume
-      for (const o of this.tracks.values()) if (o !== t && o.kind === 'touch') this.toPalm(o, 'stylet actif posé');
       return this.startDraw(t, 'stylet actif');
     }
     if (kind === 'mouse') return this.startDraw(t, 'souris');
 
     const mode = this.effectiveMode;
-    if (mode !== 'active' && this.inRestZone(s)) return this.toPalm(t, 'zone de repos');
-    if (this.anyDrawing('pen')) return this.toPalm(t, 'stylet actif en cours');
-    if (mode === 'capacitive' && this.gestureInfo && s.t - this.gestureInfo.lastMove > GESTURE_STALE) {
-      this.dropGesture();
+    if (mode === 'capacitive') {
+      if (this.inRestZone(s)) return this.toPalm(t, 'zone de repos');
+      if (this.anyDrawing('pen')) return this.toPalm(t, 'stylet actif en cours');
+      if (this.gestureInfo && s.t - this.gestureInfo.lastMove > GESTURE_STALE) {
+        this.dropGesture();
+      }
+      if (this.firstInState('gesture', t)) return this.toPalm(t, 'geste en cours');
+      this.armHold(t);
+      this.reviewPens(s.t, t);
+      if (this.isPalmSized(t)) return this.toPalm(t, 'taille de paume');
+    } else {
+      // Tactile normal : acceptation directe sans rejet logiciel basé sur pointerType (rejet paume géré par l'OS)
+      if (this.firstInState('gesture', t)) return this.joinGesture(t);
+      return this.downFinger(t);
     }
-    if (this.firstInState('gesture', t)) return mode === 'capacitive' ? this.toPalm(t, 'geste en cours') : this.joinGesture(t);
-    if (mode === 'active') return this.joinGesture(t);
-    if (mode === 'finger') return this.downFinger(t);
-    // Le stylet peut se poser sans rien tracer : le minuteur de l'appui long démarre dès la pose
-    this.armHold(t);
-
-    this.reviewPens(s.t, t);
-    if (this.isPalmSized(t)) return this.toPalm(t, 'taille de paume');
     // Un trait qui vient à peine de commencer quand un second contact se pose : les deux se sont
     // peut-être posés ensemble (paume en deux points, deux doigts). On le remet en observation.
     for (const o of this.tracks.values()) {

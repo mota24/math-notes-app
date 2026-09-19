@@ -8,6 +8,7 @@ import type { ConversionResult, Page, ResultSource } from '../db/schema';
 import { hasBackground, pageBackground } from '../ink/background';
 import { strokeBBox, unionBBox } from '../ink/geometry';
 import { InkCanvas } from '../ink/InkCanvas';
+import type { CanvasPage } from '../ink/InkCanvas';
 import { liveStats } from '../ink/liveStats';
 import { imageFileToEncoded, rasterizeForAi, rasterizeRegion } from '../ink/rasterize';
 import type { EncodedImage } from '../ink/rasterize';
@@ -102,6 +103,13 @@ export function NotebookEditor({ notebookId, pageIndex, settings, update, onOpen
   const index = Math.min(pageIndex, Math.max(0, pageCount - 1));
   const pageId = notebook?.pageIds[index];
 
+  const allNotebookPages = useQuery(() => db.pagesOf(notebookId), [notebookId], ['pages']);
+  const pagesMap = useMemo(() => new Map((allNotebookPages ?? []).map((p) => [p.id, p])), [allNotebookPages]);
+  const orderedPages = useMemo(() => {
+    if (!notebook) return [];
+    return notebook.pageIds.map((id) => pagesMap.get(id)).filter((p): p is Page => !!p);
+  }, [notebook, pagesMap]);
+
   // ------------------------------------------------------------ page courante
   const [page, setPage] = useState<Page | null>(null);
   const [strokes, setStrokes] = useState<Stroke[]>([]);
@@ -130,7 +138,8 @@ export function NotebookEditor({ notebookId, pageIndex, settings, update, onOpen
   useEffect(() => {
     if (!pageId) return;
     let alive = true;
-    setPage(null);
+    const fromMap = pagesMap.get(pageId);
+    if (fromMap && !pageRef.current) loadPage(fromMap);
     void db.getPage(pageId).then((p) => alive && p && loadPage(p));
     // Une version plus récente arrive par la synchronisation : on recharge si rien n'est en attente
     const off = onDbChange((stores) => {
@@ -408,6 +417,26 @@ export function NotebookEditor({ notebookId, pageIndex, settings, update, onOpen
     };
   }, [bgKey, bgScale, flash]);
 
+  const [backgrounds, setBackgrounds] = useState<Record<string, HTMLCanvasElement>>({});
+  useEffect(() => {
+    if (!orderedPages.length) return;
+    let alive = true;
+    for (const p of orderedPages) {
+      if (hasBackground(p) && !backgrounds[p.id]) {
+        pageBackground(p, bgScale || 4)
+          .then((canvas) => {
+            if (alive && canvas) {
+              setBackgrounds((prev) => ({ ...prev, [p.id]: canvas }));
+            }
+          })
+          .catch(() => {});
+      }
+    }
+    return () => {
+      alive = false;
+    };
+  }, [orderedPages, bgScale, backgrounds]);
+
   // ------------------------------------------------------------ Gemini
   const callGemini = async (image: EncodedImage, onStatus: (s: string) => void) => {
     if (demo) {
@@ -613,6 +642,62 @@ export function NotebookEditor({ notebookId, pageIndex, settings, update, onOpen
   // Formes et lignes : la couleur choisie, sinon celle qui tranche sur le papier (noir sur clair, blanc sur sombre)
   const shapeColor = settings.shapeColor ?? autoShapeColor(paperColor);
 
+  const canvasPages: CanvasPage[] = useMemo(() => {
+    if (!orderedPages.length && page) {
+      return [
+        {
+          id: page.id,
+          width: page.width,
+          height: page.height,
+          paper: page.paper,
+          paperColor: paperColor,
+          background: background,
+          strokes: strokes,
+        },
+      ];
+    }
+    return orderedPages.map((p) => {
+      const isCurrent = p.id === pageId;
+      return {
+        id: p.id,
+        width: p.width,
+        height: isCurrent ? (page ? page.height : p.height) : p.height,
+        paper: isCurrent ? (page ? page.paper : p.paper) : p.paper,
+        paperColor: isCurrent ? paperColor : (p.paperColor ?? notebook?.paperColor ?? 'light'),
+        background: isCurrent ? (background ?? backgrounds[p.id] ?? null) : (backgrounds[p.id] ?? null),
+        strokes: isCurrent ? strokes : p.strokes,
+      };
+    });
+  }, [orderedPages, page, paperColor, background, backgrounds, strokes, pageId, notebook?.paperColor]);
+
+  const onAddStrokeMulti = useCallback((s: Stroke, targetPageId?: string) => {
+    if (!targetPageId || targetPageId === pageRef.current?.id) {
+      addStrokes([s]);
+    } else {
+      void db.getPage(targetPageId).then((targetP) => {
+        if (!targetP) return;
+        const nextStrokes = [...targetP.strokes, s];
+        void db.putPage({ ...targetP, strokes: nextStrokes, updatedAt: Date.now() });
+      });
+    }
+  }, []);
+
+  const handleAddPageAtEnd = useCallback(() => {
+    void addPage(notebookId, pageCount - 1).then((i) => {
+      goToPage(i);
+      flash('Nouvelle page ajoutée.');
+    });
+  }, [notebookId, pageCount, goToPage, flash]);
+
+  const handlePageIndexChange = useCallback(
+    (newIdx: number) => {
+      if (newIdx !== index && newIdx >= 0 && newIdx < pageCount) {
+        goToPage(newIdx);
+      }
+    },
+    [index, pageCount, goToPage],
+  );
+
   return (
     <div className="app">
       <header className="editor-header">
@@ -638,6 +723,15 @@ export function NotebookEditor({ notebookId, pageIndex, settings, update, onOpen
         </div>
         <span className="header-gap" />
         <SyncChip />
+        <button className="tb-btn" onClick={() => pdfInput.current?.click()} title="Importer un document PDF">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+            <polyline points="14 2 14 8 20 8" />
+            <line x1="12" y1="18" x2="12" y2="12" />
+            <line x1="9" y1="15" x2="15" y2="15" />
+          </svg>
+          Importer PDF
+        </button>
         <button className="tb-primary" onClick={() => pageId && void convertPageById(pageId).catch(() => undefined)} disabled={!!pageBusy}>
           {pageBusy ? <span className="spinner" /> : ICONS.sigma}
           Convertir la page
@@ -783,7 +877,11 @@ export function NotebookEditor({ notebookId, pageIndex, settings, update, onOpen
           />
           {page ? (
             <InkCanvas
-              key={`${page.id}-${settings.lowLatency ? 'rapide' : 'standard'}`}
+              key={`${notebookId}-${settings.lowLatency ? 'rapide' : 'standard'}`}
+              pages={canvasPages}
+              currentPageIndex={index}
+              onPageIndexChange={handlePageIndexChange}
+              onAddPage={handleAddPageAtEnd}
               strokes={strokes}
               tool={tool}
               color={settings.color}
@@ -810,7 +908,7 @@ export function NotebookEditor({ notebookId, pageIndex, settings, update, onOpen
               selection={selection}
               selectionRegion={selectionRegion}
               stats={liveStats}
-              onAddStroke={(s) => addStrokes([s])}
+              onAddStroke={onAddStrokeMulti}
               onErase={removeStrokes}
               onReplaceStrokes={replaceStrokes}
               onTransformStrokes={(changed) => {

@@ -270,13 +270,12 @@ test('13. sans taille de contact (toujours 1 px) : la position suffit', () => {
   assert.equal(t.count('start:2'), 1);
 });
 
-test('14. stylet actif détecté : le doigt déplace la page', () => {
+test('14. stylet actif détecté : le doigt écrit normalement (pas de rejet par pointerType)', () => {
   const t = setup({ mode: 'auto' }).at(0).down(1, 200, 300, 1, 'pen').drag(1, [200, 300], [230, 300], 1).up(1, 230, 300, 1);
   t.at(500).down(2, 100, 100, 20).drag(2, [100, 100], [100, 160], 20).up(2, 100, 160, 20);
   assert.equal(t.count('pen!'), 1);
   assert.equal(t.count('start:1:pen'), 1);
-  assert.equal(t.count('start:2'), 0);
-  assert.ok(t.count('pan') > 5);
+  assert.equal(t.count('start:2:touch'), 1);
 });
 
 test('15. après un zoom, le doigt restant n’écrit pas', () => {

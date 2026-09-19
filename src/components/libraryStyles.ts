@@ -24,14 +24,14 @@ export const glassIconButton = `${glassBase} size-11 min-h-0 p-0 ${glassTone}`;
 /** Bouton « verre » teinté d'accent */
 export const glassButtonAccent = `${glassBase} h-11 px-4 py-0 ${accentTone}`;
 
-/** Panneau de verre : la surface des cartes, des listes et des états vides */
+/** Panneau de verre : surface des cartes de cahiers et des panneaux (fond gris très foncé, backdrop-blur, ombre douce) */
 export const glassPanel =
-  'rounded-2xl border border-zinc-200/80 bg-white/70 shadow-lg shadow-zinc-900/5 backdrop-blur-md dark:border-zinc-700/80 dark:bg-zinc-800/50 dark:shadow-black/30';
+  'rounded-2xl border border-gray-700/50 bg-gray-800/50 shadow-xl shadow-black/25 backdrop-blur-xl text-zinc-100 dark:border-gray-700/60 dark:bg-gray-800/50';
 
 const roundBase = `grid size-9 min-h-0 place-items-center rounded-full border p-0 backdrop-blur-md transition-all duration-200 active:scale-90 ${focusRing}`;
 
 /** Petit bouton rond posé sur une carte (options, favori) */
-export const roundButton = `${roundBase} border-black/10 bg-white/70 text-zinc-600 hover:bg-white hover:text-zinc-900 dark:border-white/10 dark:bg-black/30 dark:text-zinc-300 dark:hover:bg-black/50 dark:hover:text-white`;
+export const roundButton = `${roundBase} border-white/10 bg-gray-900/60 text-zinc-300 hover:bg-gray-900 hover:text-white`;
 
 /** Le même, allumé : l'étoile d'un favori */
 export const roundButtonOn = `${roundBase} border-amber-500/40 bg-amber-100/80 text-amber-600 hover:bg-amber-100 dark:border-amber-300/40 dark:bg-amber-300/20 dark:text-amber-300 dark:hover:bg-amber-300/30`;

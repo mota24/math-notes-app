@@ -8,7 +8,7 @@ import { RESPONSE_SCHEMA, SYSTEM_PROMPT, userPrompt } from './prompt';
  * ancien et le plus largement disponible, il reste accessible même quand un nom plus récent a été
  * retiré ou renommé par Google.
  */
-export const FREE_MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.5-flash-lite', 'gemini-2.0-flash-lite', 'gemini-1.5-flash'];
+export const FREE_MODELS = ['gemini-3.8-flash', 'gemini-3.8', 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.5-flash-lite', 'gemini-2.0-flash-lite', 'gemini-1.5-flash'];
 
 const REQUEST_TIMEOUT_MS = 90_000;
 // On essaie toute la liste : un modèle « introuvable » (nom retiré ou renommé côté Google) ne doit

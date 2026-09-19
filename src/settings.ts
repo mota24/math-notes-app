@@ -115,9 +115,6 @@ function load(): Settings {
     const saved = JSON.parse(raw) as Partial<Settings>;
     // Ancien seuil fixe de 50 px, inadapté aux stylets vus comme de gros doigts
     if (saved.sizeMode === undefined) delete saved.palmSize;
-    // D'anciens noms de modèle Gemini inventés (gemini-3.x) n'existent pas côté Google et
-    // renvoyaient systématiquement « modèle introuvable » : on repart sur un modèle réel.
-    if (saved.model && !FREE_MODELS.includes(saved.model) && /^gemini-3\./.test(saved.model)) delete saved.model;
     // Réglages d'anciennes versions (trousse, ruban d'étude) : abandonnés
     for (const legacy of ['pencilCase', 'tapeColor', 'tapeSize', 'tapeHintSeen']) delete (saved as Record<string, unknown>)[legacy];
     return { ...DEFAULTS, ...saved, selectionColors: normalizeSelectionColors(saved.selectionColors), shapeColor: normalizeShapeColor(saved.shapeColor) };

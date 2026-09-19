@@ -507,7 +507,15 @@ export function SettingsDialog({
           <select value={customModel ? '__custom' : settings.model} onChange={(e) => update({ model: e.target.value === '__custom' ? '' : e.target.value })}>
             {FREE_MODELS.map((m) => (
               <option key={m} value={m}>
-                {m}
+                {m === 'gemini-3.8-flash'
+                  ? 'Gemini 3.8 Flash'
+                  : m === 'gemini-3.8'
+                  ? 'Gemini 3.8'
+                  : m === 'gemini-2.5-flash'
+                  ? 'Gemini 2.5 Flash'
+                  : m === 'gemini-2.0-flash'
+                  ? 'Gemini 2.0 Flash'
+                  : m}
               </option>
             ))}
             <option value="__custom">Autre…</option>

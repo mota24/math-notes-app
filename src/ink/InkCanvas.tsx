@@ -37,7 +37,21 @@ export interface InkStats {
   };
 }
 
+export interface CanvasPage {
+  id: string;
+  width: number;
+  height: number;
+  paper: PaperStyle;
+  paperColor?: PaperColor;
+  background?: HTMLCanvasElement | null;
+  strokes: Stroke[];
+}
+
 interface Props {
+  pages?: CanvasPage[];
+  currentPageIndex?: number;
+  onPageIndexChange?(index: number): void;
+  onAddPage?(): void;
   strokes: Stroke[];
   tool: Tool;
   color: string;
@@ -80,7 +94,7 @@ interface Props {
   eraserSize: number;
   /** Zone du Lasso de capture (mm), encore ajustable par ses poignées tant qu'elle n'est pas copiée */
   captureRegion: BBox | null;
-  onAddStroke(s: Stroke): void;
+  onAddStroke(s: Stroke, pageId?: string): void;
   onErase(ids: string[]): void;
   /** Gomme de précision : chaque trait touché est remplacé par ses morceaux restants (liste vide = effacé) */
   onReplaceStrokes(replacements: Map<string, Stroke[]>): void;
@@ -141,6 +155,8 @@ interface Live {
   edited?: { from: Stroke[]; to: Stroke[]; m: Similarity | null };
   /** tool === 'shape' : où était le stylet au « snap » et le coin qu'il tire, pour ajuster en glissant */
   follow?: { from: InkPoint; far: InkPoint };
+  pageId?: string;
+  pageTop?: number;
 }
 
 /** Identifiant de l'aperçu d'une poignée (aucun vrai contact n'a cet id). */
@@ -193,7 +209,12 @@ function shapeBBoxFromPoints(pts: InkPoint[]): [number, number, number, number] 
 
 const MIN_SCALE = 1;
 const MAX_SCALE = 25;
-const OUTSIDE = '#e6e2da';
+const OUTSIDE = '#18181b';
+/** Espace sombre visible entre les feuilles physiques façon JNotes (mm) */
+const PAGE_GAP = 16;
+/** Seuil de défilement (px) pour déclencher l'ajout d'une feuille par overscroll */
+const OVERSCROLL_PULL_PX = 65;
+const OVERSCROLL_MAX_PX = 130;
 /** Place laissée en haut pour la pilule d'outils flottante */
 const TOP_GAP = 76;
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
@@ -318,6 +339,79 @@ function trackDrag(e: ReactPointerEvent<HTMLElement>, move: (ev: PointerEvent) =
   window.addEventListener('pointercancel', onEnd);
 }
 
+export interface Sheet {
+  index: number;
+  id: string;
+  page: CanvasPage;
+  top: number;
+  bottom: number;
+  width: number;
+  height: number;
+}
+
+function getSheets(p: Props, minH: number): Sheet[] {
+  if (p.pages && p.pages.length > 0) {
+    let currentTop = 0;
+    return p.pages.map((page, index) => {
+      const top = currentTop;
+      const bottom = top + page.height;
+      currentTop = bottom + PAGE_GAP;
+      return {
+        index,
+        id: page.id,
+        page,
+        top,
+        bottom,
+        width: page.width,
+        height: page.height,
+      };
+    });
+  }
+  const h = p.extendable ? Math.max(p.pageHeight, minH) : p.pageHeight;
+  return [
+    {
+      index: 0,
+      id: 'single',
+      page: {
+        id: 'single',
+        width: p.pageWidth,
+        height: h,
+        paper: p.paper,
+        paperColor: p.paperColor,
+        background: p.background,
+        strokes: p.strokes,
+      },
+      top: 0,
+      bottom: h,
+      width: p.pageWidth,
+      height: h,
+    },
+  ];
+}
+
+function docH(sheets: Sheet[]): number {
+  return sheets.length > 0 ? sheets[sheets.length - 1].bottom : 0;
+}
+
+function docW(sheets: Sheet[], defaultW: number): number {
+  return sheets.length > 0 ? Math.max(...sheets.map((s) => s.width)) : defaultW;
+}
+
+function findSheet(sheets: Sheet[], docY: number): Sheet {
+  if (sheets.length <= 1) return sheets[0];
+  if (docY <= sheets[0].top) return sheets[0];
+  if (docY >= sheets[sheets.length - 1].bottom) return sheets[sheets.length - 1];
+  for (let i = 0; i < sheets.length; i++) {
+    const s = sheets[i];
+    if (docY >= s.top && docY <= s.bottom) return s;
+    if (i < sheets.length - 1 && docY > s.bottom && docY < sheets[i + 1].top) {
+      const mid = (s.bottom + sheets[i + 1].top) / 2;
+      return docY < mid ? s : sheets[i + 1];
+    }
+  }
+  return sheets[sheets.length - 1];
+}
+
 export function InkCanvas(props: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const displayRef = useRef<HTMLCanvasElement>(null);
@@ -326,6 +420,8 @@ export function InkCanvas(props: Props) {
   const hiddenRef = useRef(new Set<string>());
   const redrawRef = useRef<() => void>(() => {});
   const applyConfigRef = useRef<() => void>(() => {});
+  const activePageIndexRef = useRef(props.currentPageIndex ?? 0);
+  const clampViewRef = useRef<(v: View, allowOverscroll?: boolean) => View>((v) => v);
   /** Passerelle vers le canevas pour les poignées de la sélection : aperçu en direct, validation, papier qui s'allonge */
   const editApiRef = useRef<{
     begin(strokes: Stroke[]): void;
@@ -355,6 +451,19 @@ export function InkCanvas(props: Props) {
   };
 
   useEffect(() => {
+    if (props.currentPageIndex !== undefined && props.currentPageIndex !== activePageIndexRef.current) {
+      activePageIndexRef.current = props.currentPageIndex;
+      const sheets = getSheets(propsRef.current, minHeightRef.current);
+      const targetSheet = sheets[props.currentPageIndex];
+      if (targetSheet) {
+        const targetTy = TOP_GAP - targetSheet.top * viewRef.current.scale;
+        viewRef.current = clampViewRef.current({ ...viewRef.current, ty: targetTy }, false);
+        redrawRef.current();
+      }
+    }
+  }, [props.currentPageIndex]);
+
+  useEffect(() => {
     const container = containerRef.current!;
     const displayCanvas = displayRef.current!;
     // Une seule toile visible, opaque : une toile transparente « desynchronized » sous d'autres
@@ -377,22 +486,38 @@ export function InkCanvas(props: Props) {
       window.clearTimeout(scaleTimer);
       scaleTimer = window.setTimeout(() => propsRef.current.onScaleChange?.(viewRef.current.scale), 250);
     };
-    const clampView = (v: View): View => {
-      const pw = propsRef.current.pageWidth * v.scale;
-      const ph = pageH() * v.scale;
+    let currentOverscroll = 0;
+    const clampView = (v: View, allowOverscroll = false): View => {
+      const sheets = getSheets(propsRef.current, minHeightRef.current);
+      const pw = docW(sheets, propsRef.current.pageWidth) * v.scale;
+      const ph = docH(sheets) * v.scale;
       const m = 48;
       const tx = pw + 2 * m <= size.w ? (size.w - pw) / 2 : clamp(v.tx, size.w - pw - m, m);
-      const ty = ph + TOP_GAP + m <= size.h ? clamp(v.ty, TOP_GAP, size.h - ph - m) : clamp(v.ty, size.h - ph - m, TOP_GAP);
+      const minTy = ph + TOP_GAP + m <= size.h ? TOP_GAP : size.h - ph - m;
+      const maxOverscroll = allowOverscroll && propsRef.current.onAddPage ? OVERSCROLL_MAX_PX : 0;
+      const ty = clamp(v.ty, minTy - maxOverscroll, TOP_GAP);
+      currentOverscroll = Math.max(0, minTy - ty);
       return { scale: v.scale, tx, ty };
     };
+    clampViewRef.current = clampView;
+
     const setTransform = (ctx: CanvasRenderingContext2D) => {
       const v = viewRef.current;
       ctx.setTransform(size.dpr * v.scale, 0, 0, size.dpr * v.scale, size.dpr * v.tx, size.dpr * v.ty);
     };
-    const toPage = (s: Sample, kind: InputKind): InkPoint => {
+    const toDoc = (s: Sample): [number, number] => {
       const v = viewRef.current;
+      return [(s.x - rect.left - v.tx) / v.scale, (s.y - rect.top - v.ty) / v.scale];
+    };
+    const toPage = (s: Sample, kind: InputKind, targetSheet?: Sheet): InkPoint => {
       const p = kind === 'pen' ? clamp(s.p || 0.5, 0.05, 1) : 0.5;
-      return [(s.x - rect.left - v.tx) / v.scale, (s.y - rect.top - v.ty) / v.scale, p];
+      const [docX, docY] = toDoc(s);
+      const sheets = getSheets(propsRef.current, minHeightRef.current);
+      const sheet = targetSheet ?? findSheet(sheets, docY);
+      return [docX, docY - sheet.top, p];
+    };
+    const clampToSheet = (pt: InkPoint, sheet: Sheet): InkPoint => {
+      return [clamp(pt[0], 0, sheet.width), clamp(pt[1], 0, sheet.height), pt[2]];
     };
     const eraserRadius = () => Math.max(0.4, propsRef.current.eraserSize / viewRef.current.scale);
 
@@ -403,9 +528,14 @@ export function InkCanvas(props: Props) {
       setTransform(display);
       const scale = viewRef.current.scale;
       for (const l of lives.values()) {
+        display.save();
+        display.translate(0, l.pageTop ?? 0);
         if (l.tool === 'pen' || l.tool === 'highlighter') {
           const pts = l.predicted.length ? l.points.concat(l.predicted) : l.points;
-          if (pts.length === 0) continue;
+          if (pts.length === 0) {
+            display.restore();
+            continue;
+          }
           const path = buildPath(pts, l.kind, l.size, false, l.tool, l.dashed);
           display.save();
           if (l.tool === 'highlighter') {
@@ -505,8 +635,42 @@ export function InkCanvas(props: Props) {
           display.fillStyle = '#6b7280';
           display.fill();
         }
+        display.restore();
       }
       if (propsRef.current.showContacts) drawContacts();
+
+      // Badge overscroll pull-to-add façon JNotes
+      if (currentOverscroll > 5 && propsRef.current.onAddPage) {
+        display.setTransform(size.dpr, 0, 0, size.dpr, 0, 0);
+        display.save();
+        const ready = currentOverscroll >= OVERSCROLL_PULL_PX;
+        const text = ready ? '✓ Relâcher pour ajouter une page' : '↓ Tirer pour ajouter une page';
+        display.font = '600 13px system-ui, -apple-system, sans-serif';
+        const tw = display.measureText(text).width;
+        const pw = tw + 32;
+        const ph = 34;
+        const px = (size.w - pw) / 2;
+        const py = size.h - ph - 24;
+
+        display.beginPath();
+        if (display.roundRect) {
+          display.roundRect(px, py, pw, ph, ph / 2);
+        } else {
+          display.rect(px, py, pw, ph);
+        }
+        display.fillStyle = ready ? 'rgba(37, 99, 235, 0.92)' : 'rgba(24, 24, 27, 0.88)';
+        display.fill();
+        display.lineWidth = 1;
+        display.strokeStyle = ready ? 'rgba(147, 197, 253, 0.5)' : 'rgba(255, 255, 255, 0.18)';
+        display.stroke();
+
+        display.fillStyle = '#ffffff';
+        display.textAlign = 'center';
+        display.textBaseline = 'middle';
+        display.fillText(text, size.w / 2, py + ph / 2);
+        display.restore();
+        setTransform(display);
+      }
     };
 
     /** Diagnostic : chaque contact posé sur l'écran, avec la couleur de sa décision. */
@@ -564,49 +728,69 @@ export function InkCanvas(props: Props) {
     const redrawBase = () => {
       const p = propsRef.current;
       const v = viewRef.current;
-      const ph = pageH();
-      // Partie de la page réellement à l'écran (mm) : le reste d'une longue page n'a pas à être dessiné
-      const top = -v.ty / v.scale - 2;
-      const bottom = (size.h - v.ty) / v.scale + 2;
+      const sheets = getSheets(p, minHeightRef.current);
+      const viewTop = -v.ty / v.scale - 2;
+      const viewBottom = (size.h - v.ty) / v.scale + 2;
+
       base.setTransform(1, 0, 0, 1, 0, 0);
       base.fillStyle = OUTSIDE;
       base.fillRect(0, 0, baseCanvas.width, baseCanvas.height);
       setTransform(base);
-      base.save();
-      base.shadowColor = 'rgba(0,0,0,0.18)';
-      base.shadowBlur = 10 * size.dpr;
-      base.shadowOffsetY = 2 * size.dpr;
-      base.fillStyle = p.background ? '#fff' : PAPER_BACKGROUND[p.paperColor];
-      base.fillRect(0, 0, p.pageWidth, ph);
-      base.restore();
-      if (p.background) base.drawImage(p.background, 0, 0, p.pageWidth, ph);
-      else drawPaper(base, p.paper, v.scale, p.pageWidth, ph, p.paperColor, [top, bottom]);
-      // Où la page se coupe à l'impression et à l'export PDF : un trait fin, discret
-      if (p.extendable && ph > SHEET_H + 0.5) {
-        const dark = p.paperColor === 'dark';
+
+      for (const sh of sheets) {
+        if (sh.bottom < viewTop || sh.top > viewBottom) continue;
+
         base.save();
-        base.setLineDash([6 / v.scale, 4 / v.scale]);
-        base.lineWidth = 1 / v.scale;
-        base.strokeStyle = dark ? 'rgba(255,255,255,0.28)' : 'rgba(0,0,0,0.25)';
-        base.fillStyle = dark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.42)';
-        base.font = `600 ${10 / v.scale}px system-ui, sans-serif`;
-        for (let k = 1; k * SHEET_H < ph - 0.5; k++) {
-          const y = k * SHEET_H;
-          if (y < top - 2 || y > bottom + 2) continue;
-          base.beginPath();
-          base.moveTo(0, y);
-          base.lineTo(p.pageWidth, y);
-          base.stroke();
-          base.fillText(`Feuille ${k + 1}`, 3 / v.scale, y + 12 / v.scale);
+        base.translate(0, sh.top);
+
+        // Ombre portée de papier physique (JNotes style)
+        base.save();
+        base.shadowColor = 'rgba(0,0,0,0.45)';
+        base.shadowBlur = 12 * size.dpr;
+        base.shadowOffsetY = 4 * size.dpr;
+        const paperCol = sh.page.paperColor ?? p.paperColor ?? 'light';
+        base.fillStyle = sh.page.background ? '#ffffff' : PAPER_BACKGROUND[paperCol];
+        base.fillRect(0, 0, sh.width, sh.height);
+        base.restore();
+
+        if (sh.page.background) {
+          base.drawImage(sh.page.background, 0, 0, sh.width, sh.height);
+        } else {
+          const sheetViewTop = Math.max(0, viewTop - sh.top);
+          const sheetViewBottom = Math.min(sh.height, viewBottom - sh.top);
+          drawPaper(base, sh.page.paper, v.scale, sh.width, sh.height, paperCol, [sheetViewTop, sheetViewBottom]);
         }
+
+        if (sheets.length === 1 && p.extendable && sh.height > SHEET_H + 0.5) {
+          const dark = paperCol === 'dark';
+          base.save();
+          base.setLineDash([6 / v.scale, 4 / v.scale]);
+          base.lineWidth = 1 / v.scale;
+          base.strokeStyle = dark ? 'rgba(255,255,255,0.28)' : 'rgba(0,0,0,0.25)';
+          base.fillStyle = dark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.42)';
+          base.font = `600 ${10 / v.scale}px system-ui, sans-serif`;
+          for (let k = 1; k * SHEET_H < sh.height - 0.5; k++) {
+            const y = k * SHEET_H;
+            if (y < viewTop - sh.top - 2 || y > viewBottom - sh.top + 2) continue;
+            base.beginPath();
+            base.moveTo(0, y);
+            base.lineTo(sh.width, y);
+            base.stroke();
+            base.fillText(`Feuille ${k + 1}`, 3 / v.scale, y + 12 / v.scale);
+          }
+          base.restore();
+        }
+
+        for (const s of sh.page.strokes) {
+          if (hiddenRef.current.has(s.id)) continue;
+          const bb = strokeBBox(s);
+          if (sh.top + bb.maxY < viewTop || sh.top + bb.minY > viewBottom) continue;
+          drawStroke(base, s);
+        }
+
         base.restore();
       }
-      for (const s of p.strokes) {
-        if (hiddenRef.current.has(s.id)) continue;
-        const bb = strokeBBox(s);
-        if (bb.maxY < top || bb.minY > bottom) continue;
-        drawStroke(base, s);
-      }
+
       present();
     };
     const scheduleBase = () => {
@@ -682,11 +866,11 @@ export function InkCanvas(props: Props) {
       }
       return touched ? pieces : null;
     };
-    /** Ce que la gomme peut toucher : les images posées sur la page ne s'effacent jamais (on écrit souvent par-dessus). */
-    const erasable = () => propsRef.current.strokes.filter(isErasable);
     const eraseAt = (l: Live, pts: InkPoint[]) => {
       const r = eraserRadius();
       let changed = false;
+      const sheets = getSheets(propsRef.current, minHeightRef.current);
+      const pageTop = l.pageTop ?? 0;
       if (propsRef.current.eraserMode === 'precision') {
         // La trajectoire, depuis la dernière position : un coup de gomme rapide ne laisse pas de trou
         const trail: InkPoint[] = l.cursor ? [l.cursor, ...pts] : pts;
@@ -710,37 +894,40 @@ export function InkCanvas(props: Props) {
           }
         }
         if (trail.length) {
-          for (const s of erasable()) {
-            if (hiddenRef.current.has(s.id)) continue;
-            const pieces = precisionPieces(s, trail, r);
-            if (!pieces) continue;
-            hiddenRef.current.add(s.id);
-            edits.set(s.id, pieces);
-            changed = true;
+          for (const sh of sheets) {
+            const shTrail = trail.map(([x, y, p]) => [x, y + pageTop - sh.top, p] as InkPoint);
+            for (const s of sh.page.strokes.filter(isErasable)) {
+              if (hiddenRef.current.has(s.id)) continue;
+              const pieces = precisionPieces(s, shTrail, r);
+              if (!pieces) continue;
+              hiddenRef.current.add(s.id);
+              edits.set(s.id, pieces);
+              changed = true;
+            }
           }
         }
       } else {
-        const targets = erasable();
-        for (const [x, y] of pts) {
-          for (const s of targets) {
-            if (hiddenRef.current.has(s.id) || !strokeHit(s, x, y, r)) continue;
-            hiddenRef.current.add(s.id);
-            l.erased.add(s.id);
-            changed = true;
+        for (const pt of pts) {
+          const docX = pt[0];
+          const docY = pt[1] + pageTop;
+          for (const sh of sheets) {
+            const localX = docX;
+            const localY = docY - sh.top;
+            for (const s of sh.page.strokes.filter(isErasable)) {
+              if (hiddenRef.current.has(s.id) || !strokeHit(s, localX, localY, r)) continue;
+              hiddenRef.current.add(s.id);
+              l.erased.add(s.id);
+              changed = true;
+            }
           }
         }
       }
       if (pts.length) l.cursor = pts[pts.length - 1];
       if (changed) scheduleBase();
     };
-    /** L'encre ne doit jamais sortir de la page : un trait qui glisse dans la marge s'arrête net au bord. */
-    const clampToPage = (pt: InkPoint): InkPoint => {
-      const p = propsRef.current;
-      return [clamp(pt[0], 0, p.pageWidth), clamp(pt[1], 0, pageH()), pt[2]];
-    };
     /** Canevas infini : déroule assez de feuilles pour qu'il reste `ahead` mm de papier sous `y`. */
     const growFor = (y: number, ahead: number) => {
-      if (!propsRef.current.extendable) return;
+      if (!propsRef.current.extendable || (propsRef.current.pages && propsRef.current.pages.length > 1)) return;
       const current = pageH();
       const grown = growHeight(current, y, ahead);
       if (grown === current) return;
@@ -750,11 +937,16 @@ export function InkCanvas(props: Props) {
     const addPoints = (l: Live, samples: Sample[]) => {
       const inking = l.tool === 'pen' || l.tool === 'highlighter' || l.tool === 'shape' || l.tool === 'shapes' || l.tool === 'capture';
       const added: InkPoint[] = [];
+      const sheets = getSheets(propsRef.current, minHeightRef.current);
+      const sheet = sheets.find((s) => s.id === l.pageId) ?? sheets[0];
+      const pageTop = l.pageTop ?? sheet.top;
       for (const s of samples) {
-        const raw = toPage(s, l.kind);
-        // Écrire vers le bas : la feuille suivante est déjà là avant d'atteindre le bord
-        if (inking) growFor(raw[1], GROW_AHEAD_INK);
-        const pt = inking ? clampToPage(raw) : raw;
+        const [docX, docY] = toDoc(s);
+        const raw: InkPoint = [docX, docY - pageTop, l.kind === 'pen' ? clamp(s.p || 0.5, 0.05, 1) : 0.5];
+        if (inking && propsRef.current.extendable && (!propsRef.current.pages || propsRef.current.pages.length <= 1)) {
+          growFor(raw[1], GROW_AHEAD_INK);
+        }
+        const pt = inking ? clampToSheet(raw, sheet) : raw;
         const last = l.points[l.points.length - 1];
         if (last && Math.hypot(pt[0] - last[0], pt[1] - last[1]) < 0.03) continue;
         l.points.push(pt);
@@ -769,12 +961,25 @@ export function InkCanvas(props: Props) {
       const py = (cy - dy - rect.top - v.ty) / v.scale;
       const scale = clamp(v.scale * factor, MIN_SCALE, MAX_SCALE);
       const next = { scale, tx: cx - rect.left - px * scale, ty: cy - rect.top - py * scale };
-      // Défiler vers le bas (pas zoomer) : le papier se déroule avant que le bas de l'écran atteigne son bord
-      if (dy < 0 && Math.abs(factor - 1) < 0.02) growFor((size.h - next.ty) / next.scale, GROW_AHEAD_SCROLL);
-      viewRef.current = clampView(next);
+      if (dy < 0 && Math.abs(factor - 1) < 0.02) {
+        if (propsRef.current.extendable && (!propsRef.current.pages || propsRef.current.pages.length <= 1)) {
+          growFor((size.h - next.ty) / next.scale, GROW_AHEAD_SCROLL);
+        }
+      }
+      viewRef.current = clampView(next, true);
       scheduleBase();
       bumpTick();
       if (factor !== 1) reportScale();
+
+      const sheets = getSheets(propsRef.current, minHeightRef.current);
+      if (sheets.length > 1) {
+        const centerDocY = (size.h / 2 - viewRef.current.ty) / viewRef.current.scale;
+        const currentSheet = findSheet(sheets, centerDocY);
+        if (currentSheet.index !== activePageIndexRef.current) {
+          activePageIndexRef.current = currentSheet.index;
+          propsRef.current.onPageIndexChange?.(currentSheet.index);
+        }
+      }
     };
 
     const listener: ClassifierListener = {
@@ -782,15 +987,21 @@ export function InkCanvas(props: Props) {
         const p = propsRef.current;
         const tool: LiveTool = eraserPointers.has(id) ? 'eraser' : p.tool;
         const highlighter = tool === 'highlighter';
+        const sheets = getSheets(p, minHeightRef.current);
+        const [, docY] = samples.length ? toDoc(samples[0]) : [0, 0];
+        const targetSheet = findSheet(sheets, docY);
         const l: Live = {
           kind, tool, color: highlighter ? p.highlightColor : tool === 'shapes' ? p.shapeColor : p.color, size: highlighter ? p.highlightSize : p.size,
           points: [], predicted: [], erased: new Set(), cursor: null, dx: 0, dy: 0, moving: [],
+          pageId: targetSheet.id,
+          pageTop: targetSheet.top,
         };
         if (tool === 'lasso' && p.selection.length && samples.length) {
           // Appui dans la sélection : on la déplace au lieu de tracer un nouveau lasso
-          const first = toPage(samples[0], kind);
+          const first = toPage(samples[0], kind, targetSheet);
           const chosen = new Set(p.selection);
-          const moving = p.strokes.filter((s) => chosen.has(s.id));
+          const allStrokes = p.pages ? p.pages.flatMap((pg) => pg.strokes) : p.strokes;
+          const moving = allStrokes.filter((s) => chosen.has(s.id));
           const bb = unionBBox(moving.map(strokeBBox));
           const pad = 3;
           if (bb && first[0] >= bb.minX - pad && first[0] <= bb.maxX + pad && first[1] >= bb.minY - pad && first[1] <= bb.maxY + pad) {
@@ -812,8 +1023,12 @@ export function InkCanvas(props: Props) {
       drawMove(id, samples, predicted) {
         const l = lives.get(id);
         if (!l) return;
+        const sheets = getSheets(propsRef.current, minHeightRef.current);
+        const sheet = sheets.find((s) => s.id === l.pageId) ?? sheets[0];
+        const pageTop = l.pageTop ?? sheet.top;
         if (l.tool === 'move') {
-          const current = toPage(samples[samples.length - 1], l.kind);
+          const [docX, docY] = toDoc(samples[samples.length - 1]);
+          const current = [docX, docY - pageTop];
           l.dx = current[0] - l.points[0][0];
           l.dy = current[1] - l.points[0][1];
           present();
@@ -821,16 +1036,19 @@ export function InkCanvas(props: Props) {
         }
         if (l.tool === 'shape' && l.follow) {
           // Ajustement en direct : le coin suit le déplacement du stylet depuis le « snap »
-          const now = toPage(samples[samples.length - 1], l.kind);
+          const [docX, docY] = toDoc(samples[samples.length - 1]);
+          const now = [docX, docY - pageTop];
           const { from, far } = l.follow;
-          const p = propsRef.current;
-          l.points = [l.points[0], [clamp(far[0] + now[0] - from[0], 0, p.pageWidth), clamp(far[1] + now[1] - from[1], 0, pageH()), 0.5]];
+          l.points = [l.points[0], [clamp(far[0] + now[0] - from[0], 0, sheet.width), clamp(far[1] + now[1] - from[1], 0, sheet.height), 0.5]];
           present();
           return;
         }
         const added = addPoints(l, samples);
         if (l.tool === 'eraser') eraseAt(l, added);
-        l.predicted = l.tool === 'pen' || l.tool === 'highlighter' ? predicted.map((s) => toPage(s, l.kind)) : [];
+        l.predicted = l.tool === 'pen' || l.tool === 'highlighter' ? predicted.map((s) => {
+          const [docX, docY] = toDoc(s);
+          return [docX, docY - pageTop, l.kind === 'pen' ? clamp(s.p || 0.5, 0.05, 1) : 0.5] as InkPoint;
+        }) : [];
         // Dessin immédiat dans le gestionnaire d'événement : latence minimale
         present();
       },
@@ -839,13 +1057,19 @@ export function InkCanvas(props: Props) {
         lives.delete(id);
         if (!l) return;
         const p = propsRef.current;
+        const sheets = getSheets(p, minHeightRef.current);
+        const sheet = sheets.find((s) => s.id === l.pageId) ?? sheets[0];
+        const pageTop = l.pageTop ?? sheet.top;
         if ((l.tool === 'pen' || l.tool === 'highlighter') && l.points.length) {
           const stroke: Stroke = { id: newId(), points: l.points, color: l.color, size: l.size, input: l.kind };
           if (l.tool === 'highlighter') stroke.tool = 'highlighter';
           else if (l.dashed) stroke.dashed = true;
           setTransform(base);
-          drawStroke(base, stroke); // évite un clignotement avant le rendu React
-          p.onAddStroke(stroke);
+          base.save();
+          base.translate(0, pageTop);
+          drawStroke(base, stroke);
+          base.restore();
+          p.onAddStroke(stroke, l.pageId);
         } else if ((l.tool === 'shape' || l.tool === 'shapes') && l.shapeKind && l.points.length) {
           let a = l.points[0];
           let b = l.points[l.points.length - 1];
@@ -853,14 +1077,17 @@ export function InkCanvas(props: Props) {
           if (l.tool === 'shapes' && Math.hypot(b[0] - a[0], b[1] - a[1]) < 3) {
             const [dw, dh] = DEFAULT_SHAPE_SIZE[l.shapeKind];
             const [cx, cy] = b;
-            a = [clamp(cx - dw / 2, 0, p.pageWidth), clamp(cy - dh / 2, 0, pageH()), 0.5];
-            b = [clamp(cx + dw / 2, 0, p.pageWidth), clamp(cy + dh / 2, 0, pageH()), 0.5];
+            a = [clamp(cx - dw / 2, 0, sheet.width), clamp(cy - dh / 2, 0, sheet.height), 0.5];
+            b = [clamp(cx + dw / 2, 0, sheet.width), clamp(cy + dh / 2, 0, sheet.height), 0.5];
           }
           const stroke: Stroke = { id: newId(), tool: 'shape', shape: l.shapeKind, points: [a, b], color: l.color, size: l.size, input: l.kind };
           if (l.dashed) stroke.dashed = true;
           setTransform(base);
+          base.save();
+          base.translate(0, pageTop);
           drawStroke(base, stroke);
-          p.onAddStroke(stroke);
+          base.restore();
+          p.onAddStroke(stroke, l.pageId);
           // La forme reste sélectionnée, avec ses poignées : on peut ajuster ses dimensions exactes
           p.onSelect([stroke.id]);
           // Un tampon posé rend la main au stylo : la prochaine écriture ne dessine pas une forme par mégarde
@@ -879,6 +1106,7 @@ export function InkCanvas(props: Props) {
           if (Math.abs(l.dx) + Math.abs(l.dy) > 0.2) {
             setTransform(base);
             base.save();
+            base.translate(0, pageTop);
             base.translate(l.dx, l.dy);
             for (const s of l.moving) drawStroke(base, s);
             base.restore();
@@ -888,7 +1116,10 @@ export function InkCanvas(props: Props) {
           }
         } else if (l.tool === 'eraser' && l.edits?.size) {
           setTransform(base);
+          base.save();
+          base.translate(0, pageTop);
           for (const pieces of l.edits.values()) for (const piece of pieces) drawStroke(base, piece); // évite un clignotement
+          base.restore();
           p.onReplaceStrokes(new Map(l.edits));
         } else if (l.tool === 'eraser' && l.erased.size) {
           p.onErase([...l.erased]);
@@ -903,7 +1134,7 @@ export function InkCanvas(props: Props) {
                   maxY: Math.max(...l.points.map((pt) => pt[1])),
                 }
               : null;
-          p.onSelect(strokesInLasso(p.strokes, l.points.map(([x, y]) => [x, y])), region);
+          p.onSelect(strokesInLasso(sheet.page.strokes, l.points.map(([x, y]) => [x, y])), region);
         }
         present();
       },
@@ -1030,9 +1261,10 @@ export function InkCanvas(props: Props) {
       // Bouton latéral (2) ou gomme (32) d'un stylet actif : gomme temporaire
       if (kind === 'pen' && (e.buttons & 2 || e.buttons & 32)) eraserPointers.add(e.pointerId);
       // Posé dans la marge (hors de la feuille) : ça déplace la vue, comme sur GoodNotes, jamais un trait
-      const pt = toPage(sample, kind);
-      const p = propsRef.current;
-      const inMargin = pt[0] < 0 || pt[0] > p.pageWidth || pt[1] < 0 || pt[1] > pageH();
+      const [docX, docY] = toDoc(sample);
+      const sheets = getSheets(propsRef.current, minHeightRef.current);
+      const sheet = findSheet(sheets, docY);
+      const inMargin = docX < 0 || docX > sheet.width || docY < sheet.top || docY > sheet.bottom;
       classifier.down(kind, e.pointerId, sample, (kind === 'mouse' && e.button !== 0) || inMargin);
     };
     const onMove = (e: PointerEvent) => {
@@ -1064,6 +1296,16 @@ export function InkCanvas(props: Props) {
       eraserPointers.delete(e.pointerId);
       // Le contact levé doit disparaître du diagnostic même s'il n'a rien dessiné
       if (propsRef.current.showContacts) schedulePresent();
+
+      // Déclenchement de l'ajout d'une page par overscroll
+      if (currentOverscroll > 0) {
+        if (currentOverscroll >= OVERSCROLL_PULL_PX && propsRef.current.onAddPage) {
+          propsRef.current.onAddPage();
+        }
+        viewRef.current = clampView(viewRef.current, false);
+        scheduleBase();
+        bumpTick();
+      }
     };
     const onCancel = (e: PointerEvent) => {
       stats.cancels++;
@@ -1096,9 +1338,12 @@ export function InkCanvas(props: Props) {
       applyConfig();
       if (!fitted) {
         fitted = true;
-        const pw = propsRef.current.pageWidth;
+        const sheets = getSheets(propsRef.current, minHeightRef.current);
+        const pw = docW(sheets, propsRef.current.pageWidth);
         const scale = clamp((w - 32) / pw, MIN_SCALE, pw > propsRef.current.pageHeight ? 6 : 4.2);
-        viewRef.current = { scale, tx: (w - pw * scale) / 2, ty: TOP_GAP };
+        const targetSheet = sheets[propsRef.current.currentPageIndex ?? 0] ?? sheets[0];
+        const targetTy = targetSheet ? TOP_GAP - targetSheet.top * scale : TOP_GAP;
+        viewRef.current = { scale, tx: (w - pw * scale) / 2, ty: targetTy };
         // Tout de suite (sans attendre) : le PDF de la page s'affiche dès l'ouverture
         propsRef.current.onScaleChange?.(scale);
       }
@@ -1134,34 +1379,55 @@ export function InkCanvas(props: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const { config, tool, penSeen, restZone, strokes, paper, paperColor, selection, background, showContacts } = props;
+  const { config, tool, penSeen, restZone, strokes, pages, paper, paperColor, selection, background, showContacts } = props;
   useEffect(() => {
     applyConfigRef.current();
   }, [config, tool, penSeen, restZone]);
 
   useEffect(() => {
     // Les traits effacés restent masqués jusqu'à leur retrait effectif de la page
-    const ids = new Set(strokes.map((s) => s.id));
+    const all = pages ? pages.flatMap((p) => p.strokes) : strokes;
+    const ids = new Set(all.map((s) => s.id));
     for (const id of hiddenRef.current) if (!ids.has(id)) hiddenRef.current.delete(id);
     redrawRef.current();
-  }, [strokes, paper, paperColor, background, showContacts]);
+  }, [pages, strokes, paper, paperColor, background, showContacts]);
 
   const { selectionRegion } = props;
+  const allStrokes = useMemo(() => {
+    return props.pages ? props.pages.flatMap((p) => p.strokes) : props.strokes;
+  }, [props.pages, props.strokes]);
+
   /** Les traits choisis, dans l'ordre d'empilement de la page */
   const chosen = useMemo(() => {
     const ids = new Set(selection);
-    return strokes.filter((s) => ids.has(s.id));
-  }, [selection, strokes]);
+    return allStrokes.filter((s) => ids.has(s.id));
+  }, [selection, allStrokes]);
   /** Poignée en cours de glissé : cadre et poignées suivent l'aperçu au lieu de rester sur la sélection d'origine */
   const [xf, setXf] = useState<TransformDrag | null>(null);
   const dragging = xf !== null;
   const shown = xf?.strokes ?? chosen;
+
+  const strokeSheetOffset = useMemo(() => {
+    const map = new Map<string, number>();
+    const sheets = getSheets(props, minHeightRef.current);
+    for (const sh of sheets) {
+      for (const s of sh.page.strokes) {
+        map.set(s.id, sh.top);
+      }
+    }
+    return map;
+  }, [props.pages, props.strokes]);
+
   /** Le cadre de la sélection (mm) : ses traits, plus la zone du lasso tant qu'on ne les transforme pas */
   const selMm = useMemo(() => {
-    const boxes = shown.map(strokeBBox);
+    const boxes = shown.map((s) => {
+      const bb = strokeBBox(s);
+      const topOffset = strokeSheetOffset.get(s.id) ?? 0;
+      return { minX: bb.minX, maxX: bb.maxX, minY: bb.minY + topOffset, maxY: bb.maxY + topOffset };
+    });
     if (selectionRegion && !dragging) boxes.push(selectionRegion);
     return unionBBox(boxes);
-  }, [shown, selectionRegion, dragging]);
+  }, [shown, strokeSheetOffset, selectionRegion, dragging]);
   const selBox = useMemo(() => {
     if (!selMm) return null;
     const v = viewRef.current;
@@ -1213,8 +1479,9 @@ export function InkCanvas(props: Props) {
       e,
       (ev) => {
         const p = propsRef.current;
+        const sheets = getSheets(p, minHeightRef.current);
         // La sélection ne sort pas de la page ; sur une page d'écriture, le papier s'allonge vers le bas
-        const room = { width: p.pageWidth, height: p.extendable ? MAX_PAGE_HEIGHT : pageH() };
+        const room = { width: docW(sheets, p.pageWidth), height: p.extendable ? MAX_PAGE_HEIGHT : docH(sheets) };
         const now = toPage(ev);
         let m: Similarity;
         if (kind === 'rotate') m = { px: pivot[0], py: pivot[1], k: 1, theta: rotationDelta(pivot, from, now, base) };
@@ -1264,9 +1531,10 @@ export function InkCanvas(props: Props) {
       (ev) => {
         const v = viewRef.current;
         const p = propsRef.current;
+        const sheets = getSheets(p, minHeightRef.current);
         const points = resizedPoints(target.points, handle, (ev.clientX - startX) / v.scale, (ev.clientY - startY) / v.scale, {
-          width: p.pageWidth,
-          height: p.extendable ? MAX_PAGE_HEIGHT : pageH(),
+          width: docW(sheets, p.pageWidth),
+          height: p.extendable ? MAX_PAGE_HEIGHT : docH(sheets),
         });
         latest = { ...target, points };
         api.grow(Math.max(points[0][1], points[1][1]));
@@ -1305,13 +1573,14 @@ export function InkCanvas(props: Props) {
     trackDrag(e, (ev) => {
       const v = viewRef.current;
       const p = propsRef.current;
+      const sheets = getSheets(p, minHeightRef.current);
       const dxMm = (ev.clientX - startX) / v.scale;
       const dyMm = (ev.clientY - startY) / v.scale;
       let { minX, minY, maxX, maxY } = orig;
       if (corner.includes('w')) minX = clamp(orig.minX + dxMm, 0, orig.maxX - 4);
-      if (corner.includes('e')) maxX = clamp(orig.maxX + dxMm, orig.minX + 4, p.pageWidth);
+      if (corner.includes('e')) maxX = clamp(orig.maxX + dxMm, orig.minX + 4, docW(sheets, p.pageWidth));
       if (corner.includes('n')) minY = clamp(orig.minY + dyMm, 0, orig.maxY - 4);
-      if (corner.includes('s')) maxY = clamp(orig.maxY + dyMm, orig.minY + 4, pageH());
+      if (corner.includes('s')) maxY = clamp(orig.maxY + dyMm, orig.minY + 4, docH(sheets));
       p.onCaptureRegion({ minX, minY, maxX, maxY });
     });
   };
