@@ -147,12 +147,6 @@ export function buildPath(
   return new Path2D(outlinePathData(points, input, size, last, tool, dashed));
 }
 
-/** Points régulièrement espacés d'un segment (outil règle). */
-export function linePoints(a: InkPoint, b: InkPoint): InkPoint[] {
-  const steps = Math.max(2, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1])));
-  return Array.from({ length: steps + 1 }, (_, i): InkPoint => [a[0] + ((b[0] - a[0]) * i) / steps, a[1] + ((b[1] - a[1]) * i) / steps, 0.5]);
-}
-
 const dataCache = new WeakMap<Stroke, string>();
 const pathCache = new WeakMap<Stroke, Path2D>();
 
@@ -408,11 +402,28 @@ export function drawShapeOn(
   ctx.restore();
 }
 
+/**
+ * Ce que dessine `draw`, tourné de l'angle du trait autour du centre de son rectangle : une forme à
+ * deux coins ou une image tourne ainsi (les autres traits tournent en réécrivant leurs points).
+ */
+function rotated(ctx: CanvasRenderingContext2D, s: Stroke, draw: () => void) {
+  if (!s.angle || s.points.length < 2) return draw();
+  const cx = (s.points[0][0] + s.points[1][0]) / 2;
+  const cy = (s.points[0][1] + s.points[1][1]) / 2;
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(s.angle);
+  ctx.translate(-cx, -cy);
+  draw();
+  ctx.restore();
+}
+
 export function drawStroke(ctx: CanvasRenderingContext2D, s: Stroke) {
   if (s.tool === 'shape' && s.shape && s.points.length >= 2) {
+    const shape = s.shape;
     const [ax, ay] = s.points[0];
     const [bx, by] = s.points[1];
-    drawShapeOn(ctx, s.shape, ax, ay, bx, by, s.color, Math.max(0.35, s.size), s.dashed);
+    rotated(ctx, s, () => drawShapeOn(ctx, shape, ax, ay, bx, by, s.color, Math.max(0.35, s.size), s.dashed));
     return;
   }
   if (s.tool === 'image') {
@@ -420,7 +431,7 @@ export function drawStroke(ctx: CanvasRenderingContext2D, s: Stroke) {
     if (!img || s.points.length < 2) return;
     const [x0, y0] = s.points[0];
     const [x1, y1] = s.points[1];
-    ctx.drawImage(img, Math.min(x0, x1), Math.min(y0, y1), Math.abs(x1 - x0), Math.abs(y1 - y0));
+    rotated(ctx, s, () => ctx.drawImage(img, Math.min(x0, x1), Math.min(y0, y1), Math.abs(x1 - x0), Math.abs(y1 - y0)));
     return;
   }
   if (s.tool === 'highlighter') {

@@ -1,4 +1,4 @@
-import { BlendMode, PDFDocument, StandardFonts, degrees, rgb } from 'pdf-lib';
+import { BlendMode, PDFDocument, StandardFonts, concatTransformationMatrix, degrees, popGraphicsState, pushGraphicsState, rgb } from 'pdf-lib';
 import type { PDFFont, PDFImage, PDFPage } from 'pdf-lib';
 import { db } from '../db/db';
 import type { Page } from '../db/schema';
@@ -31,6 +31,23 @@ async function fileBytes(fileId: string, what: string) {
   const file = await db.getFile(fileId);
   if (!file) throw new Error(`${what} n’est pas sur cet appareil (synchronisation en cours ?).`);
   return { bytes: await file.blob.arrayBuffer(), type: file.type };
+}
+
+/**
+ * Ce que dessine `draw`, tourné de l'angle du trait (sens horaire à l'écran) autour du centre de son
+ * rectangle, dans le même repère mm → points que le reste de la page : une forme à deux coins ou une
+ * image tourne ainsi (les autres traits tournent en réécrivant leurs points).
+ */
+function rotated(target: PDFPage, box: { x: number; y: number; height: number }, scale: number, s: Stroke, draw: () => void) {
+  if (!s.angle || s.points.length < 2) return draw();
+  const cx = box.x + ((s.points[0][0] + s.points[1][0]) / 2) * scale;
+  const cy = box.y + box.height - ((s.points[0][1] + s.points[1][1]) / 2) * scale;
+  // L'axe y d'un PDF monte : ce qui tourne dans le sens horaire à l'écran tourne de −angle
+  const cos = Math.cos(s.angle);
+  const sin = Math.sin(s.angle);
+  target.pushOperators(pushGraphicsState(), concatTransformationMatrix(cos, -sin, sin, cos, cx - cos * cx - sin * cy, cy + sin * cx - cos * cy));
+  draw();
+  target.pushOperators(popGraphicsState());
 }
 
 /**
@@ -236,7 +253,7 @@ export async function exportInkPdf(
       }
       const s = print ? forPrint(original) : original;
       if (s.tool === 'shape') {
-        drawShapeOnPdf(target, box, scale, s, shapeFonts);
+        rotated(target, box, scale, s, () => drawShapeOnPdf(target, box, scale, s, shapeFonts));
         continue;
       }
       if (s.tool === 'image') {
@@ -246,12 +263,14 @@ export async function exportInkPdf(
         const y0 = Math.min(s.points[0][1], s.points[1][1]);
         const x1 = Math.max(s.points[0][0], s.points[1][0]);
         const y1 = Math.max(s.points[0][1], s.points[1][1]);
-        target.drawImage(img, {
-          x: box.x + x0 * scale,
-          y: box.y + box.height - y1 * scale,
-          width: (x1 - x0) * scale,
-          height: (y1 - y0) * scale,
-        });
+        rotated(target, box, scale, s, () =>
+          target.drawImage(img, {
+            x: box.x + x0 * scale,
+            y: box.y + box.height - y1 * scale,
+            width: (x1 - x0) * scale,
+            height: (y1 - y0) * scale,
+          }),
+        );
         continue;
       }
       const highlight = s.tool === 'highlighter';

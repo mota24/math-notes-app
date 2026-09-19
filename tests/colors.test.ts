@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { DEFAULT_SELECTION_COLORS, SELECTION_SLOTS, normalizeSelectionColors, pushRecentColor } from '../src/colors.ts';
+import { DEFAULT_SELECTION_COLORS, SELECTION_SLOTS, autoShapeColor, normalizeSelectionColors, normalizeShapeColor, pushRecentColor } from '../src/colors.ts';
 
 const NOIR = '#1d2433';
 const BLEU = '#1f4fbf';
@@ -60,6 +60,21 @@ test('palette abîmée ou trop courte : complétée avec les couleurs d’origin
   assert.deepEqual(normalizeSelectionColors([VIOLET]), [VIOLET, NOIR, BLEU]);
   assert.deepEqual(normalizeSelectionColors([VIOLET, VIOLET, NOIR]), [VIOLET, NOIR, BLEU]);
   assert.deepEqual(normalizeSelectionColors([VIOLET, 'pas une couleur', BLEU, ROUGE, NOIR]), [VIOLET, BLEU, ROUGE]);
+});
+
+test('formes et lignes : noires sur papier clair, blanches sur papier sombre', () => {
+  assert.equal(autoShapeColor('light'), NOIR);
+  assert.equal(autoShapeColor('dark'), '#ffffff');
+});
+
+test('couleur des formes enregistrée : une couleur valide (en minuscules), sinon automatique (null)', () => {
+  assert.equal(normalizeShapeColor('#C0392B'), ROUGE);
+  assert.equal(normalizeShapeColor(VIOLET), VIOLET);
+  assert.equal(normalizeShapeColor(null), null);
+  assert.equal(normalizeShapeColor(undefined), null);
+  assert.equal(normalizeShapeColor('rouge'), null);
+  assert.equal(normalizeShapeColor('#12'), null);
+  assert.equal(normalizeShapeColor(42), null);
 });
 
 let failed = 0;

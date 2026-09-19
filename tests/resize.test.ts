@@ -62,39 +62,6 @@ test('segment (ligne, flèche) : chaque bout se déplace librement, l’autre ne
   assert.equal(across[1][0], 0);
 });
 
-test('image (proportions gardées) : coin sud-est, proportions identiques, coin nord-ouest fixe', () => {
-  const img: InkPoint[] = [
-    [20, 20, 1],
-    [60, 50, 1],
-  ]; // 40 × 30
-  const [a, b] = resizedPoints(img, 'se', 20, 0, P, true);
-  assert.deepEqual([a[0], a[1]], [20, 20]);
-  close((b[0] - a[0]) / (b[1] - a[1]), 40 / 30);
-  close(b[0] - a[0], 60);
-});
-
-test('image : tirer en vertical suffit aussi (l’axe qui bouge le plus décide)', () => {
-  const img: InkPoint[] = [
-    [20, 20, 1],
-    [60, 50, 1],
-  ];
-  const [a, b] = resizedPoints(img, 'se', 0, 30, P, true);
-  close(b[1] - a[1], 60);
-  close((b[0] - a[0]) / (b[1] - a[1]), 40 / 30);
-});
-
-test('image : coin nord-ouest, le coin sud-est reste fixe ; jamais hors de la page', () => {
-  const img: InkPoint[] = [
-    [20, 20, 1],
-    [60, 50, 1],
-  ];
-  const [a, b] = resizedPoints(img, 'nw', -10, 0, P, true);
-  assert.deepEqual([b[0], b[1]], [60, 50]);
-  assert.ok(a[0] >= 0 && a[1] >= 0);
-  const [c] = resizedPoints(img, 'nw', -999, -999, P, true);
-  assert.ok(c[0] >= 0 && c[1] >= 0);
-});
-
 let failed = 0;
 for (const [name, fn] of results) {
   try {

@@ -1,4 +1,4 @@
-import { drawShapeOn, drawStroke, strokePath } from './draw';
+import { drawStroke } from './draw';
 import { strokeBBox, unionBBox } from './geometry';
 import type { BBox, Stroke } from './types';
 
@@ -51,16 +51,7 @@ export function rasterizeForAi(options: {
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.setTransform(k, 0, 0, k, (pad - region.minX) * k, (pad - region.minY) * k);
   if (background) ctx.drawImage(background, 0, 0, options.page.width, options.page.height);
-  for (const s of ink) {
-    if (s.tool === 'shape' && s.shape && s.points.length >= 2) {
-      const [ax, ay] = s.points[0];
-      const [bx, by] = s.points[1];
-      drawShapeOn(ctx, s.shape, ax, ay, bx, by, s.color, Math.max(0.35, s.size), s.dashed);
-      continue;
-    }
-    ctx.fillStyle = s.color;
-    ctx.fill(strokePath(s));
-  }
+  for (const s of ink) drawStroke(ctx, s);
   return background ? encode(canvas, 'image/jpeg', 0.92) : encode(canvas, 'image/png');
 }
 

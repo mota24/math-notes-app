@@ -2,9 +2,16 @@ import type { BBox, InkPoint, Stroke } from './types';
 
 const bboxCache = new WeakMap<Stroke, BBox>();
 
-export function strokeBBox(s: Stroke): BBox {
-  let bb = bboxCache.get(s);
-  if (bb) return bb;
+/**
+ * Une forme à deux coins (cercle, rectangle, volumes…) ou une image tourne par son `angle` ; une ligne,
+ * une flèche et un trait à main levée tournent en réécrivant leurs points.
+ */
+export function rotates(s: Stroke): boolean {
+  return s.tool === 'image' || (s.tool === 'shape' && s.shape !== 'line' && s.shape !== 'arrow');
+}
+
+/** Boîte des points, épaisseur du trait comprise, sans tenir compte d'une éventuelle rotation. */
+function pointsBounds(s: Stroke): BBox {
   let minX = Infinity;
   let minY = Infinity;
   let maxX = -Infinity;
@@ -16,7 +23,46 @@ export function strokeBBox(s: Stroke): BBox {
     if (y > maxY) maxY = y;
   }
   const r = s.size / 2;
-  bb = { minX: minX - r, minY: minY - r, maxX: maxX + r, maxY: maxY + r };
+  return { minX: minX - r, minY: minY - r, maxX: maxX + r, maxY: maxY + r };
+}
+
+/** Un point tourné de `angle` autour de (cx, cy). */
+function rotatePoint(x: number, y: number, cx: number, cy: number, angle: number): [number, number] {
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  return [cx + (x - cx) * cos - (y - cy) * sin, cy + (x - cx) * sin + (y - cy) * cos];
+}
+
+/** Les quatre coins du rectangle d'une forme ou d'une image, tournés s'il y a lieu (sens horaire depuis le haut-gauche). */
+export function strokeCorners(s: Stroke): [number, number][] {
+  const b = pointsBounds(s);
+  const corners: [number, number][] = [
+    [b.minX, b.minY],
+    [b.maxX, b.minY],
+    [b.maxX, b.maxY],
+    [b.minX, b.maxY],
+  ];
+  if (!rotates(s) || !s.angle) return corners;
+  const cx = (b.minX + b.maxX) / 2;
+  const cy = (b.minY + b.maxY) / 2;
+  const angle = s.angle;
+  return corners.map(([x, y]) => rotatePoint(x, y, cx, cy, angle));
+}
+
+export function strokeBBox(s: Stroke): BBox {
+  let bb = bboxCache.get(s);
+  if (bb) return bb;
+  if (rotates(s) && s.angle && s.points.length >= 2) {
+    const c = strokeCorners(s);
+    bb = {
+      minX: Math.min(...c.map((p) => p[0])),
+      minY: Math.min(...c.map((p) => p[1])),
+      maxX: Math.max(...c.map((p) => p[0])),
+      maxY: Math.max(...c.map((p) => p[1])),
+    };
+  } else {
+    bb = pointsBounds(s);
+  }
   bboxCache.set(s, bb);
   return bb;
 }
@@ -59,7 +105,19 @@ export function strokeHit(s: Stroke, x: number, y: number, r: number): boolean {
   const bb = strokeBBox(s);
   if (x < bb.minX - r || x > bb.maxX + r || y < bb.minY - r || y > bb.maxY + r) return false;
   // Une image ou une forme occupe tout son rectangle, pas juste la diagonale entre ses deux coins mesurés
-  if (s.tool === 'image' || s.tool === 'shape') return true;
+  if (s.tool === 'image' || s.tool === 'shape') {
+    if (s.tool === 'shape' && (s.shape === 'line' || s.shape === 'arrow') && s.points.length >= 2) {
+      // Sa seule diagonale (et la pointe d'une flèche), pas toute la boîte qui l'entoure
+      const wing = s.shape === 'arrow' ? 0.44 * Math.max(Math.max(0.35, s.size) * 3.4, 3) : 0;
+      const reach = r + s.size / 2 + wing;
+      return distToSegmentSq(x, y, s.points[0][0], s.points[0][1], s.points[1][0], s.points[1][1]) <= reach * reach;
+    }
+    if (!rotates(s) || !s.angle) return true;
+    // Tournée : on ramène le point dans le repère de la forme, où son rectangle est à nouveau droit
+    const own = pointsBounds(s);
+    const [lx, ly] = rotatePoint(x, y, (own.minX + own.maxX) / 2, (own.minY + own.maxY) / 2, -s.angle);
+    return lx >= own.minX - r && lx <= own.maxX + r && ly >= own.minY - r && ly <= own.maxY + r;
+  }
   const reach = r + s.size / 2;
   const reachSq = reach * reach;
   const pts = s.points;
@@ -167,14 +225,9 @@ export function strokesInLasso(strokes: Stroke[], poly: [number, number][]): str
     }
 
     if (s.tool === 'image' || s.tool === 'shape') {
-      const corners: [number, number][] = [
-        [bb.minX, bb.minY],
-        [bb.maxX, bb.minY],
-        [bb.maxX, bb.maxY],
-        [bb.minX, bb.maxY],
-      ];
-      // Un sommet du lasso dans le rectangle, un coin du rectangle dans le lasso, ou un bord qui se croisent
-      const vertexInside = lasso.some(([x, y]) => x >= bb.minX && x <= bb.maxX && y >= bb.minY && y <= bb.maxY);
+      const corners = strokeCorners(s);
+      // Un sommet du lasso dans le rectangle (tourné s'il l'est), un coin du rectangle dans le lasso, ou un bord qui se croisent
+      const vertexInside = lasso.some(([x, y]) => pointInPolygon(x, y, corners));
       const cornerInside = corners.some(([x, y]) => pointInPolygon(x, y, lasso));
       let crossing = false;
       for (let i = 0; i < 4 && !crossing; i++) {
@@ -256,6 +309,26 @@ export function eraseFromPolyline(points: InkPoint[], trail: InkPoint[], r: numb
  * ne se découpe pas (image, repères, torseur, matrice, volumes : effacés en entier).
  */
 export function shapePolylines(s: Stroke): InkPoint[][] | null {
+  const lines = ownShapePolylines(s);
+  return lines && spun(s, lines);
+}
+
+/** Les mêmes polylignes, tournées de l'angle de la forme autour de son centre (rien à faire sans rotation). */
+function spun(s: Stroke, lines: InkPoint[][]): InkPoint[][] {
+  if (!rotates(s) || !s.angle) return lines;
+  const own = pointsBounds(s);
+  const cx = (own.minX + own.maxX) / 2;
+  const cy = (own.minY + own.maxY) / 2;
+  const angle = s.angle;
+  return lines.map((line) =>
+    line.map(([x, y, p]): InkPoint => {
+      const [nx, ny] = rotatePoint(x, y, cx, cy, angle);
+      return [nx, ny, p];
+    }),
+  );
+}
+
+function ownShapePolylines(s: Stroke): InkPoint[][] | null {
   if (s.tool !== 'shape' || !s.shape || s.points.length < 2) return null;
   const [ax, ay] = s.points[0];
   const [bx, by] = s.points[1];
@@ -309,7 +382,7 @@ function shapeHitLines(s: Stroke): InkPoint[][] | null {
   const x1 = Math.max(ax, bx);
   const y0 = Math.min(ay, by);
   const y1 = Math.max(ay, by);
-  return [
+  return spun(s, [
     [
       [x0, y0, 0.5],
       [x0, y1, 0.5],
@@ -318,10 +391,13 @@ function shapeHitLines(s: Stroke): InkPoint[][] | null {
       [x1, y0, 0.5],
       [x1, y1, 0.5],
     ],
-  ];
+  ]);
 }
 
-/** Poignées de redimensionnement d'un objet sélectionné (forme ou image) : 8 autour du rectangle, ou les 2 bouts d'un segment. */
+/**
+ * Poignées d'étirement d'une forme seule : les 4 bords (et, pour l'API, les coins), ou les 2 bouts d'un
+ * segment. Les coins de l'interface, eux, mettent à l'échelle sans déformer (voir `cornerScale`).
+ */
 export type ResizeHandle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'start' | 'end';
 
 /** Taille minimale (mm) d'un objet redimensionné : il ne s'écrase jamais en un simple trait. */
@@ -329,8 +405,7 @@ export const MIN_OBJECT_SIZE = 3;
 
 /**
  * Nouveaux points d'un objet (deux points : coins opposés d'un rectangle, ou bouts d'un segment) quand
- * on tire une poignée de (dx, dy) mm. L'objet reste dans la page. `keepAspect` (images, coins seulement) :
- * le rectangle garde ses proportions, le coin opposé à la poignée reste fixe.
+ * on tire une poignée de (dx, dy) mm. L'objet reste dans la page.
  */
 export function resizedPoints(
   points: InkPoint[],
@@ -338,7 +413,6 @@ export function resizedPoints(
   dx: number,
   dy: number,
   page: { width: number; height: number },
-  keepAspect = false,
 ): InkPoint[] {
   const clampX = (v: number) => Math.min(page.width, Math.max(0, v));
   const clampY = (v: number) => Math.min(page.height, Math.max(0, v));
@@ -359,32 +433,147 @@ export function resizedPoints(
   const east = handle.includes('e');
   const north = handle.includes('n');
   const south = handle.includes('s');
-  if (keepAspect) {
-    const w0 = Math.max(1e-6, maxX0 - minX0);
-    const h0 = Math.max(1e-6, maxY0 - minY0);
-    const sW = (west ? w0 - dx : w0 + dx) / w0;
-    const sH = (north ? h0 - dy : h0 + dy) / h0;
-    let s = Math.abs(sW - 1) > Math.abs(sH - 1) ? sW : sH;
-    const fixedX = west ? maxX0 : minX0;
-    const fixedY = north ? maxY0 : minY0;
-    const roomW = west ? fixedX : page.width - fixedX;
-    const roomH = north ? fixedY : page.height - fixedY;
-    s = Math.min(s, roomW / w0, roomH / h0);
-    s = Math.max(s, MIN_OBJECT_SIZE / w0, MIN_OBJECT_SIZE / h0);
-    const w = w0 * s;
-    const h = h0 * s;
-    minX = west ? fixedX - w : fixedX;
-    maxX = west ? fixedX : fixedX + w;
-    minY = north ? fixedY - h : fixedY;
-    maxY = north ? fixedY : fixedY + h;
-  } else {
-    if (west) minX = Math.min(clampX(minX0 + dx), maxX0 - MIN_OBJECT_SIZE);
-    if (east) maxX = Math.max(clampX(maxX0 + dx), minX0 + MIN_OBJECT_SIZE);
-    if (north) minY = Math.min(clampY(minY0 + dy), maxY0 - MIN_OBJECT_SIZE);
-    if (south) maxY = Math.max(clampY(maxY0 + dy), minY0 + MIN_OBJECT_SIZE);
-  }
+  if (west) minX = Math.min(clampX(minX0 + dx), maxX0 - MIN_OBJECT_SIZE);
+  if (east) maxX = Math.max(clampX(maxX0 + dx), minX0 + MIN_OBJECT_SIZE);
+  if (north) minY = Math.min(clampY(minY0 + dy), maxY0 - MIN_OBJECT_SIZE);
+  if (south) maxY = Math.max(clampY(maxY0 + dy), minY0 + MIN_OBJECT_SIZE);
   return [
     [minX, minY, a[2]],
     [maxX, maxY, b[2]],
   ];
+}
+
+/** La gomme n'efface jamais les images posées sur la page (on écrit souvent par-dessus) : seuls les traits et les formes. */
+export const isErasable = (s: Stroke): boolean => s.tool !== 'image';
+
+const TAU = Math.PI * 2;
+
+/** Un angle ramené à ]-π, π] ; un angle quasi nul devient 0. */
+export function normalizeAngle(a: number): number {
+  let x = a % TAU;
+  if (x > Math.PI) x -= TAU;
+  else if (x <= -Math.PI) x += TAU;
+  return Math.abs(x) < 1e-9 ? 0 : x;
+}
+
+/**
+ * Une similitude : mise à l'échelle uniforme `k` et rotation `theta` autour de (px, py), puis
+ * translation (dx, dy). p' = pivot + k · R(theta) · (p - pivot) + (dx, dy).
+ */
+export interface Similarity {
+  px: number;
+  py: number;
+  k: number;
+  theta: number;
+  dx?: number;
+  dy?: number;
+}
+
+/** Épaisseurs limites (mm) d'un trait qu'on agrandit ou réduit */
+const MIN_STROKE = 0.1;
+const MAX_STROKE = 40;
+
+/**
+ * Le trait transformé. Un trait à main levée, une ligne ou une flèche : ses points sont réécrits (et
+ * l'épaisseur d'un trait à main levée suit l'échelle). Une forme à deux coins ou une image : son centre
+ * suit la similitude, ses demi-côtés suivent l'échelle et la rotation s'ajoute à son `angle` (un rectangle
+ * défini par deux coins ne peut pas tourner autrement). L'épaisseur d'une forme ne change pas.
+ */
+export function transformStroke(s: Stroke, m: Similarity): Stroke {
+  const cos = Math.cos(m.theta);
+  const sin = Math.sin(m.theta);
+  const map = (x: number, y: number): [number, number] => {
+    const vx = x - m.px;
+    const vy = y - m.py;
+    return [m.px + m.k * (vx * cos - vy * sin) + (m.dx ?? 0), m.py + m.k * (vx * sin + vy * cos) + (m.dy ?? 0)];
+  };
+  if (rotates(s) && s.points.length >= 2) {
+    const own = pointsBounds({ ...s, size: 0 });
+    const cx = (own.minX + own.maxX) / 2;
+    const cy = (own.minY + own.maxY) / 2;
+    const [nx, ny] = map(cx, cy);
+    const out: Stroke = { ...s, points: s.points.map(([x, y, p]): InkPoint => [nx + (x - cx) * m.k, ny + (y - cy) * m.k, p]) };
+    const angle = normalizeAngle((s.angle ?? 0) + m.theta);
+    if (angle) out.angle = angle;
+    else delete out.angle;
+    return out;
+  }
+  const points = s.points.map(([x, y, p]): InkPoint => {
+    const [nx, ny] = map(x, y);
+    return [nx, ny, p];
+  });
+  const freehand = s.tool !== 'shape' && s.tool !== 'image';
+  return { ...s, points, size: freehand ? Math.min(MAX_STROKE, Math.max(MIN_STROKE, s.size * m.k)) : s.size };
+}
+
+/**
+ * L'orientation (radians, sens horaire à l'écran) d'un trait seul : l'angle de sa ligne ou de sa flèche,
+ * son `angle` pour une forme ou une image, 0 pour le reste. Sert de repère à l'aimantation de la rotation.
+ */
+export function orientation(s: Stroke): number {
+  if (s.tool === 'shape' && (s.shape === 'line' || s.shape === 'arrow') && s.points.length >= 2) {
+    return Math.atan2(s.points[1][1] - s.points[0][1], s.points[1][0] - s.points[0][0]);
+  }
+  return s.angle ?? 0;
+}
+
+/** Les quatre coins d'une sélection, où se tirent les poignées de mise à l'échelle. */
+export type ScaleCorner = 'nw' | 'ne' | 'se' | 'sw';
+
+/**
+ * Mise à l'échelle proportionnelle par un coin : le coin opposé reste fixe, le facteur est la projection
+ * du pointeur sur la diagonale (le coin suit le doigt sans jamais déformer). Le facteur reste assez grand
+ * pour que la sélection ne s'écrase pas en un point, et assez petit pour qu'elle ne sorte pas de la page.
+ */
+export function cornerScale(
+  box: BBox,
+  corner: ScaleCorner,
+  pointer: [number, number],
+  page: { width: number; height: number },
+): { k: number; anchor: [number, number] } {
+  const west = corner.includes('w');
+  const north = corner.includes('n');
+  const anchor: [number, number] = [west ? box.maxX : box.minX, north ? box.maxY : box.minY];
+  const dx = (west ? box.minX : box.maxX) - anchor[0];
+  const dy = (north ? box.minY : box.maxY) - anchor[1];
+  const len2 = dx * dx + dy * dy;
+  if (len2 === 0) return { k: 1, anchor };
+  let k = ((pointer[0] - anchor[0]) * dx + (pointer[1] - anchor[1]) * dy) / len2;
+  const w = Math.abs(dx);
+  const h = Math.abs(dy);
+  // La sélection s'étend du coin fixe vers le haut/bas et la gauche/droite : elle atteint le bord de page la première
+  let kMax = Infinity;
+  if (w > 0) kMax = Math.min(kMax, (west ? anchor[0] : page.width - anchor[0]) / w);
+  if (h > 0) kMax = Math.min(kMax, (north ? anchor[1] : page.height - anchor[1]) / h);
+  const kMin = Math.max(0.05, MIN_OBJECT_SIZE / Math.max(w, h));
+  k = Math.max(kMin, k);
+  return { k: Math.min(kMax, k), anchor };
+}
+
+/**
+ * De combien tourner la sélection quand le pointeur passe de `from` à `to` autour de `pivot`. Près d'un
+ * multiple de 15° (angle final, en comptant l'orientation de départ `base`), la rotation s'aimante dessus :
+ * remettre une ligne à l'horizontale ou à la verticale se fait sans viser.
+ */
+export function rotationDelta(
+  pivot: [number, number],
+  from: [number, number],
+  to: [number, number],
+  base = 0,
+  step = Math.PI / 12,
+  window = (3 * Math.PI) / 180,
+): number {
+  const theta = Math.atan2(to[1] - pivot[1], to[0] - pivot[0]) - Math.atan2(from[1] - pivot[1], from[0] - pivot[0]);
+  const target = base + theta;
+  const snapped = Math.round(target / step) * step;
+  return normalizeAngle(Math.abs(target - snapped) <= window ? snapped - base : theta);
+}
+
+/** Le décalage (dx, dy) qui ramène des traits transformés dans la page, sans les déformer. */
+export function fitShift(strokes: Stroke[], page: { width: number; height: number }): [number, number] {
+  const box = unionBBox(strokes.map(strokeBBox));
+  if (!box) return [0, 0];
+  const dx = box.minX < 0 ? -box.minX : box.maxX > page.width ? Math.max(page.width - box.maxX, -box.minX) : 0;
+  const dy = box.minY < 0 ? -box.minY : box.maxY > page.height ? Math.max(page.height - box.maxY, -box.minY) : 0;
+  return [dx, dy];
 }

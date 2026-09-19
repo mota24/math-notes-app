@@ -28,7 +28,7 @@ export function WelcomeDialog({ onClose, onOpenSettings }: { onClose(): void; on
             <li>
               <strong>Appui long</strong> : garde le stylet posé sans bouger une seconde, il gomme jusqu'à ce que tu le lèves.
             </li>
-            <li>Outils : stylo, surligneur, gomme (par trait ou de précision), lasso (déplacer, recolorer, copier une zone), capture, formes et volumes 3D.</li>
+            <li>Outils : stylo, surligneur, gomme (par trait ou de précision), lasso (déplacer, redimensionner, pivoter, recolorer, copier une zone), capture, formes et volumes 3D.</li>
           </ul>
         </section>
         <section className="welcome-step">

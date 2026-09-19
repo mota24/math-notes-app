@@ -53,9 +53,15 @@ export interface Stroke {
   shape?: ShapeKind;
   /** Trait en pointillés (arêtes cachées, lignes de projection) : trait au stylo et formes. */
   dashed?: boolean;
+  /**
+   * Rotation en radians (sens des aiguilles d'une montre à l'écran) autour du centre du rectangle
+   * points[0]–points[1] : formes à deux coins (cercle, rectangle, volumes…) et images. Absent = 0. Les
+   * traits à main levée, les lignes et les flèches, eux, tournent en réécrivant leurs points.
+   */
+  angle?: number;
 }
 
-export type Tool = 'pen' | 'highlighter' | 'line' | 'eraser' | 'lasso' | 'hand' | 'shapes' | 'capture';
+export type Tool = 'pen' | 'highlighter' | 'eraser' | 'lasso' | 'hand' | 'shapes' | 'capture';
 
 export type PaperStyle = 'grid' | 'seyes' | 'lined' | 'blank';
 

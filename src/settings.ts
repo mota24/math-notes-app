@@ -2,7 +2,7 @@ import { useCallback, useState } from 'react';
 import { FREE_MODELS } from './ai/gemini';
 import type { SizeMode } from './ink/palm';
 import type { Handedness, PaperStyle, StylusMode } from './ink/types';
-import { DEFAULT_SELECTION_COLORS, normalizeSelectionColors } from './colors';
+import { DEFAULT_SELECTION_COLORS, normalizeSelectionColors, normalizeShapeColor } from './colors';
 
 export interface Settings {
   apiKey: string;
@@ -12,6 +12,8 @@ export interface Settings {
   subject: string;
   color: string;
   size: number;
+  /** Couleur des formes et des lignes ; `null` : automatique (noire sur papier clair, blanche sur papier sombre) */
+  shapeColor: string | null;
   /** Trait en pointillés au stylo et pour les formes */
   dashed: boolean;
   /** Gomme : par trait (efface tout le trait touché) ou de précision (efface seulement la zone touchée) */
@@ -72,6 +74,7 @@ const DEFAULTS: Settings = {
   subject: '',
   color: '#1d2433',
   size: 0.6,
+  shapeColor: null,
   dashed: false,
   eraserMode: 'stroke',
   eraserSize: 12,
@@ -117,7 +120,7 @@ function load(): Settings {
     if (saved.model && !FREE_MODELS.includes(saved.model) && /^gemini-3\./.test(saved.model)) delete saved.model;
     // Réglages d'anciennes versions (trousse, ruban d'étude) : abandonnés
     for (const legacy of ['pencilCase', 'tapeColor', 'tapeSize', 'tapeHintSeen']) delete (saved as Record<string, unknown>)[legacy];
-    return { ...DEFAULTS, ...saved, selectionColors: normalizeSelectionColors(saved.selectionColors) };
+    return { ...DEFAULTS, ...saved, selectionColors: normalizeSelectionColors(saved.selectionColors), shapeColor: normalizeShapeColor(saved.shapeColor) };
   } catch {
     return DEFAULTS;
   }

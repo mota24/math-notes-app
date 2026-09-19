@@ -12,7 +12,7 @@ import { liveStats } from '../ink/liveStats';
 import { imageFileToEncoded, rasterizeForAi, rasterizeRegion } from '../ink/rasterize';
 import type { EncodedImage } from '../ink/rasterize';
 import { newId } from '../ink/types';
-import type { BBox, InkPoint, PaperColor, PaperStyle, ShapeKind, Stroke, Tool } from '../ink/types';
+import type { BBox, PaperColor, PaperStyle, ShapeKind, Stroke, Tool } from '../ink/types';
 import { renderBlocksImage } from '../export/insertImage';
 import { go, replaceRoute } from '../router';
 import type { Settings } from '../settings';
@@ -23,7 +23,7 @@ import { PageStrip } from './PageStrip';
 import { ResultsPanel } from './ResultsPanel';
 import { SyncChip } from './SyncChip';
 import { ICONS, Toolbar } from './Toolbar';
-import { pushRecentColor } from '../colors';
+import { autoShapeColor, pushRecentColor } from '../colors';
 import { fitHeight, isExtendable } from '../ink/pageExtent';
 
 type Action =
@@ -178,7 +178,7 @@ export function NotebookEditor({ notebookId, pageIndex, settings, update, onOpen
     setStrokes(next);
     // Canevas infini : la page enregistrée fait juste les feuilles A4 qu'il faut pour son encre
     const current = pageRef.current;
-    const height = current && isExtendable(current) ? fitHeight(next) : null;
+    const height = current && isExtendable(current) ? fitHeight(next, (s) => strokeBBox(s).maxY) : null;
     if (height !== null && current && height !== current.height) {
       setPage((prev) => (prev ? { ...prev, height } : prev));
       persist({ strokes: next, height });
@@ -276,13 +276,6 @@ export function NotebookEditor({ notebookId, pageIndex, settings, update, onOpen
     setPageStrokes(after);
     record({ type: 'replace', before, after });
     select([]);
-  };
-  /** Poignées d'une forme ou d'une image : ses nouveaux points (annulable comme un déplacement). */
-  const resizeStroke = (id: string, points: InkPoint[]) => {
-    const before = strokesRef.current;
-    const after = before.map((s) => (s.id === id ? { ...s, points } : s));
-    setPageStrokes(after);
-    record({ type: 'replace', before, after });
   };
   /** Recolore la sélection : le surligneur et les images gardent leur couleur. */
   const recolorSelection = (color: string) =>
@@ -616,6 +609,9 @@ export function NotebookEditor({ notebookId, pageIndex, settings, update, onOpen
   const job = pageId ? jobs[pageId] : undefined;
   const pageBusy = job && 'progress' in job ? job.progress : null;
   const pageError = job && 'error' in job ? job.error : null;
+  const paperColor = page?.paperColor ?? notebook.paperColor ?? 'light';
+  // Formes et lignes : la couleur choisie, sinon celle qui tranche sur le papier (noir sur clair, blanc sur sombre)
+  const shapeColor = settings.shapeColor ?? autoShapeColor(paperColor);
 
   return (
     <div className="app">
@@ -665,7 +661,7 @@ export function NotebookEditor({ notebookId, pageIndex, settings, update, onOpen
         {menuOpen && (
           <NotebookMenu
             paper={page?.paper ?? notebook.paper}
-            paperColor={page?.paperColor ?? notebook.paperColor ?? 'light'}
+            paperColor={paperColor}
             paperDisabled={!page || hasBackground(page)}
             pageCount={pageCount}
             queue={queue}
@@ -745,7 +741,7 @@ export function NotebookEditor({ notebookId, pageIndex, settings, update, onOpen
               </button>
             </div>
           </nav>
-          <div className="canvas-stage">
+          <div className={`canvas-stage${paperColor === 'dark' ? ' paper-dark' : ''}`}>
           <Toolbar
             tool={tool}
             color={settings.color}
@@ -753,6 +749,8 @@ export function NotebookEditor({ notebookId, pageIndex, settings, update, onOpen
             highlightColor={settings.highlightColor}
             highlightSize={settings.highlightSize}
             shapeKind={shapeKind}
+            shapeColor={shapeColor}
+            shapeColorAuto={settings.shapeColor === null}
             dashed={settings.dashed}
             eraserMode={settings.eraserMode}
             eraserSize={settings.eraserSize}
@@ -764,16 +762,17 @@ export function NotebookEditor({ notebookId, pageIndex, settings, update, onOpen
               if (t !== 'lasso') select([]);
               if (t !== 'capture') setCaptureRegion(null);
             }}
-            // Couleur et épaisseur du stylo servent aussi aux formes et à la ligne ; depuis la gomme, le lasso, la
-            // capture ou la main, choisir une couleur reprend le stylo
+            // L'épaisseur du stylo sert aussi aux formes ; depuis la gomme, le lasso, la capture ou la main,
+            // choisir une couleur ou une épaisseur reprend le stylo
             onColor={(color) => {
               update({ color });
-              if (tool !== 'pen' && tool !== 'line' && tool !== 'shapes') setTool('pen');
+              if (tool !== 'pen') setTool('pen');
             }}
             onSize={(size) => {
               update({ size });
-              if (tool !== 'pen' && tool !== 'line' && tool !== 'shapes') setTool('pen');
+              if (tool !== 'pen' && tool !== 'shapes') setTool('pen');
             }}
+            onShapeColor={(color) => update({ shapeColor: color })}
             onHighlight={(patch) => update(patch)}
             onShapeKind={setShapeKind}
             onDashed={(dashed) => update({ dashed })}
@@ -792,11 +791,12 @@ export function NotebookEditor({ notebookId, pageIndex, settings, update, onOpen
               highlightColor={settings.highlightColor}
               highlightSize={settings.highlightSize}
               shapeKind={shapeKind}
+              shapeColor={shapeColor}
               dashed={settings.dashed}
               eraserMode={settings.eraserMode}
               eraserSize={settings.eraserSize}
               paper={page.paper}
-              paperColor={page.paperColor ?? notebook.paperColor ?? 'light'}
+              paperColor={paperColor}
               pageWidth={page.width}
               pageHeight={page.height}
               extendable={isExtendable(page)}
@@ -813,7 +813,12 @@ export function NotebookEditor({ notebookId, pageIndex, settings, update, onOpen
               onAddStroke={(s) => addStrokes([s])}
               onErase={removeStrokes}
               onReplaceStrokes={replaceStrokes}
-              onResizeStroke={resizeStroke}
+              onTransformStrokes={(changed) => {
+                replaceSelected(() => changed);
+                // La zone du lasso (sur un PDF ou une photo) ne correspond plus à rien une fois la sélection transformée
+                setSelectionRegion(null);
+              }}
+              onSwitchTool={setTool}
               onSelect={(ids, region) => {
                 const current = pageRef.current;
                 select(ids, region && current && hasBackground(current) ? region : null);

@@ -82,6 +82,27 @@ body {
   background: var(--paper);
 }
 
+/* Sécurité tactile : sur l'interface, un appui long ou un glissé ne sélectionne rien, n'ouvre pas de menu
+   contextuel et ne fait pas de surbrillance ; la page ne rebondit jamais (voir overscroll-behavior plus haut). */
+body {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Le texte qu'on saisit ou qu'on copie reste sélectionnable */
+input,
+textarea,
+pre,
+code,
+[contenteditable='true'],
+.panel {
+  user-select: text;
+  -webkit-user-select: text;
+  -webkit-touch-callout: default;
+}
+
 button,
 select,
 input {
@@ -96,6 +117,7 @@ button {
   border-radius: 8px;
   padding: 8px 12px;
   min-height: 40px;
+  transition: all 0.2s ease;
 }
 
 button:disabled {
@@ -132,16 +154,41 @@ button:disabled {
   gap: 2px;
   max-width: 100%;
   padding: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.6);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.78);
-  background: color-mix(in srgb, var(--card) 72%, transparent);
-  backdrop-filter: blur(24px) saturate(190%);
-  -webkit-backdrop-filter: blur(24px) saturate(190%);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 1px 1px rgba(20, 18, 14, 0.04), 0 14px 30px rgba(20, 18, 14, 0.14),
-    0 3px 8px rgba(20, 18, 14, 0.08);
-  /* Jamais de défilement : tout reste à portée du stylet (la barre se resserre si la zone est étroite) */
+  /* Verre dépoli : la page se devine à travers */
+  background: rgba(255, 255, 255, 0.66);
+  background: color-mix(in srgb, var(--card) 66%, transparent);
+  backdrop-filter: blur(12px) saturate(160%);
+  -webkit-backdrop-filter: blur(12px) saturate(160%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 8px 24px rgba(20, 18, 14, 0.12), 0 2px 6px rgba(20, 18, 14, 0.08);
+  /* Jamais de défilement : tout reste à portée du stylet (la barre se resserre si la zone est étroite).
+     `clip` ne crée pas de zone défilante, et sa marge laisse dépasser l'ombre et l'outil actif agrandi. */
   overflow-x: hidden;
+  overflow: clip;
+  overflow-clip-margin: 10px;
+}
+
+/* Papier sombre : la barre passe en verre fumé, pour ne pas trancher sur la page */
+.paper-dark .toolbar {
+  --card: #2a2a30;
+  --ink-soft: #d8d8e0;
+  --line: rgba(255, 255, 255, 0.16);
+}
+
+.paper-dark .tb-pill {
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(38, 38, 44, 0.6);
+  background: color-mix(in srgb, var(--card) 60%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 8px 24px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+
+.paper-dark .tb-pill .tb-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.paper-dark .tb-pill .tb-qc {
+  border-color: rgba(255, 255, 255, 0.4);
 }
 
 /* Zone étroite (portrait, panneau des pages ouvert) : boutons et pastilles se resserrent */
@@ -201,26 +248,37 @@ button:disabled {
   border-radius: 50%;
   background: transparent;
   color: var(--ink-soft);
-  transition: background 0.12s ease, color 0.12s ease, transform 0.22s var(--spring);
+  transition: all 0.2s ease;
 }
 
 .tb-btn:hover:not(:disabled) {
   background: rgba(20, 18, 14, 0.06);
 }
 
+/* L'appui répond tout de suite ; c'est au relâchement que ça revient en douceur */
 .tb-btn:active:not(:disabled) {
   transform: scale(0.86);
+  transition-duration: 0.08s;
 }
 
+/* Outil actif : fond coloré, icône plus grosse et plus épaisse, halo — impossible de se tromper d'outil */
 .tb-btn.active {
   background: var(--accent);
   color: #fff;
-  transform: scale(1.04);
-  box-shadow: 0 2px 6px rgba(43, 89, 195, 0.35);
+  transform: scale(1.12);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 26%, transparent), 0 6px 14px rgba(43, 89, 195, 0.45);
+}
+
+.tb-btn.active svg {
+  stroke-width: 2.2;
+}
+
+.tb-btn.active:hover:not(:disabled) {
+  background: var(--accent-ink);
 }
 
 .tb-btn.active:active:not(:disabled) {
-  transform: scale(0.92);
+  transform: scale(0.98);
 }
 
 .tb-btn.sm {
@@ -244,7 +302,7 @@ button:disabled {
   border: 1.5px solid rgba(20, 18, 14, 0.24);
   border-radius: 50%;
   background: var(--qc);
-  transition: transform 0.22s var(--spring), box-shadow 0.15s ease;
+  transition: all 0.2s ease;
 }
 
 .tb-qc:active {
@@ -266,7 +324,7 @@ button:disabled {
   border: 0;
   border-radius: 50%;
   background: conic-gradient(from 0.25turn, #ef4444, #f59e0b, #facc15, #22c55e, #06b6d4, #3b82f6, #a855f7, #ef4444);
-  transition: transform 0.22s var(--spring), box-shadow 0.15s ease;
+  transition: all 0.2s ease;
 }
 
 .tb-wheel::after {
@@ -400,6 +458,25 @@ button:disabled {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+/* Formes : « Auto » rend à la couleur des formes de suivre le papier */
+.pop-auto {
+  min-height: 0;
+  margin-left: auto;
+  padding: 6px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.pop-auto.active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 34%, transparent);
+  color: #fff;
 }
 
 .tb-pop-shapes {
@@ -959,6 +1036,8 @@ button:disabled {
 .ink-layer {
   position: absolute;
   inset: 0;
+  /* Le stylet écrit, il ne fait jamais défiler ni zoomer la page du navigateur */
+  touch-action: none;
 }
 
 .rest-zone {
@@ -984,11 +1063,13 @@ button:disabled {
   font-weight: 600;
 }
 
+/* Cadre de la sélection : pointillés à la couleur d'accent, avec un liseré clair pour qu'il se lise aussi sur papier sombre */
 .selection-box {
   position: absolute;
-  border: 1.5px dashed var(--accent);
-  border-radius: 6px;
-  background: rgba(36, 86, 201, 0.05);
+  border: 2px dashed var(--accent);
+  border-radius: 10px;
+  background: rgba(36, 86, 201, 0.06);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.6);
   pointer-events: none;
   /* Doit toujours passer au-dessus de la barre d'outils flottante (z-index 6) et de l'en-tête (10). */
   z-index: 11;
@@ -1041,6 +1122,95 @@ button:disabled {
 .capture-handle.handle-e,
 .capture-handle.handle-w {
   cursor: ew-resize;
+}
+
+/* Poignées de la sélection (lasso) : rondes et larges, faites pour un stylet capacitif.
+   Les angles mettent à l'échelle sans déformer ; la poignée pleine, au bout de sa tige, fait pivoter. */
+.xf-handle {
+  position: absolute;
+  border-radius: 50%;
+  background: var(--card);
+  border: 2.5px solid var(--accent);
+  box-shadow: 0 2px 8px rgba(20, 18, 14, 0.32);
+  touch-action: none;
+  z-index: 12;
+  transition: transform 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.xf-handle:active {
+  background: var(--accent);
+  transform: scale(1.14);
+}
+
+/* Le survol (souris) ne doit pas rester collé après un tap au doigt ou au stylet */
+@media (hover: hover) {
+  .xf-handle:hover {
+    background: var(--accent);
+    transform: scale(1.14);
+  }
+}
+
+.xf-corner.handle-nw,
+.xf-corner.handle-se {
+  cursor: nwse-resize;
+}
+
+.xf-corner.handle-ne,
+.xf-corner.handle-sw {
+  cursor: nesw-resize;
+}
+
+.xf-edge.handle-n,
+.xf-edge.handle-s {
+  cursor: ns-resize;
+}
+
+.xf-edge.handle-e,
+.xf-edge.handle-w {
+  cursor: ew-resize;
+}
+
+.xf-edge.handle-start,
+.xf-edge.handle-end {
+  cursor: move;
+}
+
+.xf-rotate {
+  display: grid;
+  place-items: center;
+  border-color: #fff;
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 3px 10px rgba(43, 89, 195, 0.45);
+  cursor: grab;
+}
+
+.xf-rotate:active {
+  cursor: grabbing;
+}
+
+/* La tige qui relie le cadre à la poignée de rotation */
+.xf-stem {
+  position: absolute;
+  width: 2px;
+  background: var(--accent);
+  opacity: 0.55;
+  pointer-events: none;
+  z-index: 11;
+}
+
+/* L'angle atteint, près du pointeur, pendant la rotation */
+.xf-badge {
+  position: absolute;
+  z-index: 13;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font: 600 13px/1 system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 2px 8px rgba(20, 18, 14, 0.3);
+  pointer-events: none;
 }
 
 button.primary {
@@ -2595,11 +2765,10 @@ code {
   border: 1px solid rgba(255, 255, 255, 0.65);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.78);
-  background: color-mix(in srgb, var(--card) 72%, transparent);
-  backdrop-filter: blur(22px) saturate(190%);
-  -webkit-backdrop-filter: blur(22px) saturate(190%);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 1px 1px rgba(20, 18, 14, 0.04), 0 10px 24px rgba(20, 18, 14, 0.14),
-    0 2px 6px rgba(20, 18, 14, 0.08);
+  background: color-mix(in srgb, var(--card) 66%, transparent);
+  backdrop-filter: blur(12px) saturate(160%);
+  -webkit-backdrop-filter: blur(12px) saturate(160%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 8px 24px rgba(20, 18, 14, 0.12), 0 2px 6px rgba(20, 18, 14, 0.08);
 }
 
 .page-rail .tb-btn.sm {

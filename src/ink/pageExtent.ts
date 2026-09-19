@@ -27,14 +27,20 @@ export function sheetCount(height: number): number {
   return Math.min(MAX_SHEETS, Math.max(1, Math.ceil((height - OVERSHOOT_MM) / SHEET_H)));
 }
 
-/** Hauteur enregistrée d'une page : les feuilles entières qui contiennent son encre, au moins une. */
-export function fitHeight(strokes: readonly Stroke[]): number {
-  // Le bas de chaque trait, épaisseur comprise (comme sa boîte englobante)
+/** Le bas d'un trait, épaisseur comprise (comme sa boîte englobante), sans tenir compte d'une rotation */
+function strokeBottom(s: Stroke): number {
+  let y = 0;
+  for (const point of s.points) y = Math.max(y, point[1] + s.size / 2);
+  return y;
+}
+
+/**
+ * Hauteur enregistrée d'une page : les feuilles entières qui contiennent son encre, au moins une.
+ * `bottomOf` : le bas d'un trait, quand celui-ci peut être tourné (sa boîte englobante, voir geometry.ts).
+ */
+export function fitHeight(strokes: readonly Stroke[], bottomOf: (s: Stroke) => number = strokeBottom): number {
   let maxY = 0;
-  for (const s of strokes) {
-    const r = s.size / 2;
-    for (const point of s.points) if (point[1] + r > maxY) maxY = point[1] + r;
-  }
+  for (const s of strokes) maxY = Math.max(maxY, bottomOf(s));
   return sheetCount(maxY) * SHEET_H;
 }
 

@@ -43,7 +43,6 @@ export const icon = (d: ReactNode) => (
 export const ICONS = {
   pen: icon(<path d="M4 20l4-1 11-11-3-3L5 16l-1 4zM14 6l3 3" />),
   highlighter: icon(<path d="M9 15l-3 5h6l1-2M9 15l7-11 4 3-7 11zM4 22h16" />),
-  line: icon(<path d="M4 20L20 4M4 20l2-5M4 20l5-2" />),
   eraser: icon(<path d="M8 20h12M5 15l8-9 6 6-7 8H9l-4-5z" />),
   lasso: icon(<path d="M12 4c5 0 8 2.5 8 5.5S16.5 15 12 15 4 12.5 4 9.5 7 4 12 4zM7 14c-1 2 0 4 2 5" strokeDasharray="3 2.5" />),
   hand: icon(<path d="M8 12V6a1.5 1.5 0 013 0v5m0-6.5a1.5 1.5 0 013 0V11m0-4.5a1.5 1.5 0 013 0V12m0-3a1.5 1.5 0 013 0v5c0 4-3 7-7 7-3 0-5-2-7-5l-2-3a1.5 1.5 0 012.5-1.6L8 13" />),
@@ -96,6 +95,18 @@ const STAMP_GROUPS: StampGroup[] = [
       { kind: 'rect', label: 'Rectangle', icon: icon(<rect x="4" y="6" width="16" height="12" rx="1" />) },
       { kind: 'triangle', label: 'Triangle', icon: icon(<path d="M12 4L20 20H4Z" />) },
       { kind: 'arrow', label: 'Flèche', icon: icon(<path d="M4 18L18 6M11 6h7v7" />) },
+      {
+        kind: 'line',
+        label: 'Ligne',
+        hint: 'Ligne droite',
+        icon: icon(
+          <>
+            <path d="M5 19L19 5" />
+            <circle cx="5" cy="19" r="1.6" fill="currentColor" />
+            <circle cx="19" cy="5" r="1.6" fill="currentColor" />
+          </>,
+        ),
+      },
     ],
   },
   {
@@ -253,6 +264,10 @@ interface Props {
   highlightColor: string;
   highlightSize: number;
   shapeKind: ShapeKind;
+  /** Couleur des formes et des lignes (celle qu'on a choisie, sinon celle qui tranche sur le papier) */
+  shapeColor: string;
+  /** Automatique : la couleur des formes suit le papier (noir sur clair, blanc sur sombre) */
+  shapeColorAuto: boolean;
   dashed: boolean;
   eraserMode: 'stroke' | 'precision';
   eraserSize: number;
@@ -264,6 +279,7 @@ interface Props {
   onSize(s: number): void;
   onHighlight(patch: { highlightColor?: string; highlightSize?: number }): void;
   onShapeKind(k: ShapeKind): void;
+  onShapeColor(c: string | null): void;
   onDashed(v: boolean): void;
   onEraser(patch: { eraserMode?: 'stroke' | 'precision'; eraserSize?: number }): void;
   onUndo(): void;
@@ -296,14 +312,18 @@ function DashStyle({ dashed, onDashed }: { dashed: boolean; onDashed(v: boolean)
 
 type Pop = 'pen' | 'eraser' | 'shapes' | null;
 
+/** Les outils dont un second tap (quand ils sont déjà choisis) ouvre les réglages : un premier tap se contente de les choisir. */
+const SETTINGS_POP: Partial<Record<Tool, Exclude<Pop, null>>> = { pen: 'pen', highlighter: 'pen', eraser: 'eraser' };
+
 /** Pilule d'outils flottante au-dessus de la page, façon tablette. */
 export function Toolbar(p: Props) {
   const [pop, setPop] = useState<Pop>(null);
   const popRef = useRef<HTMLDivElement>(null);
   const highlighter = p.tool === 'highlighter';
+  const shapes = p.tool === 'shapes';
   const colors = highlighter ? HIGHLIGHT_COLORS : PEN_COLORS;
   const quick = highlighter ? QUICK_HIGHLIGHT : QUICK_PEN;
-  const current = highlighter ? p.highlightColor : p.color;
+  const current = highlighter ? p.highlightColor : shapes ? p.shapeColor : p.color;
   const range = highlighter ? HIGHLIGHT_RANGE : PEN_RANGE;
   const sizePx = Math.min(range.max, Math.max(range.min, toPx(highlighter ? p.highlightSize : p.size)));
   const setSizePx = (px: number) => {
@@ -313,6 +333,7 @@ export function Toolbar(p: Props) {
   };
   const setColor = (value: string) => {
     if (highlighter) p.onHighlight({ highlightColor: value });
+    else if (shapes) p.onShapeColor(value);
     else p.onColor(value);
   };
   const sizeLabel = sizePx % 1 ? sizePx.toFixed(1).replace('.', ',') : String(sizePx);
@@ -340,21 +361,16 @@ export function Toolbar(p: Props) {
     return () => observer.disconnect();
   }, []);
 
-  const writer = p.tool === 'pen' || p.tool === 'highlighter' || p.tool === 'line' || p.tool === 'shapes';
+  const writer = p.tool === 'pen' || p.tool === 'highlighter' || shapes;
   const toggle = (which: Exclude<Pop, null>) => setPop((v) => (v === which ? null : which));
   const toolButton = (t: Tool, label: string) => (
     <button
       className={`tb-btn ${p.tool === t ? 'active' : ''}`}
       onClick={() => {
         // Retoucher l'outil déjà choisi ouvre ses réglages (comme sur GoodNotes)
-        if (p.tool === t && (t === 'pen' || t === 'highlighter' || t === 'line')) toggle('pen');
-        else if (t === 'eraser') {
-          if (p.tool === 'eraser') toggle('eraser');
-          else {
-            p.onTool('eraser');
-            setPop('eraser');
-          }
-        } else {
+        const settings = SETTINGS_POP[t];
+        if (p.tool === t && settings) toggle(settings);
+        else {
           p.onTool(t);
           setPop(null);
         }
@@ -437,7 +453,7 @@ export function Toolbar(p: Props) {
       {pop === 'pen' && (
         <div className="tb-pop">
           <div className="pop-head">
-            <strong>{highlighter ? 'Surligneur' : p.tool === 'shapes' ? 'Formes : couleur et trait' : p.tool === 'line' ? 'Règle : trait droit' : 'Stylo'}</strong>
+            <strong>{highlighter ? 'Surligneur' : shapes ? 'Formes : couleur et trait' : 'Stylo'}</strong>
             <button className="icon-btn" onClick={() => setPop(null)} aria-label="Fermer">
               {ICONS.close}
             </button>
@@ -500,12 +516,24 @@ export function Toolbar(p: Props) {
             <label className={`swatch custom ${colors.some((c) => c.value === current) ? '' : 'active'}`} title="Autre couleur">
               <input type="color" value={current} onChange={(e) => setColor(e.target.value)} aria-label="Autre couleur" />
             </label>
+            {shapes && (
+              <button
+                className={`pop-auto ${p.shapeColorAuto ? 'active' : ''}`}
+                onClick={() => p.onShapeColor(null)}
+                aria-pressed={p.shapeColorAuto}
+                title="Noire sur papier clair, blanche sur papier sombre"
+              >
+                Auto
+              </button>
+            )}
           </div>
           {!highlighter && <DashStyle dashed={p.dashed} onDashed={p.onDashed} />}
           <p className="pop-hint">
             {highlighter
               ? 'Largeur constante, encre translucide : le surligneur passe par-dessus sans masquer.'
-              : 'L’épaisseur est enregistrée en millimètres : le trait garde sa taille au zoom comme à l’export PDF.'}
+              : shapes
+                ? 'Auto : formes et lignes sont noires sur papier clair, blanches sur papier sombre. Choisir une couleur la fixe pour les formes (le stylo garde la sienne).'
+                : 'L’épaisseur est enregistrée en millimètres : le trait garde sa taille au zoom comme à l’export PDF.'}
           </p>
         </div>
       )}
@@ -562,8 +590,9 @@ export function Toolbar(p: Props) {
           />
           <p className="pop-hint">
             {p.eraserMode === 'precision'
-              ? 'Les images et certains tampons (repères, torseur, matrice, volumes) sont effacés en entier ; les autres formes sont découpées.'
-              : 'Astuce : un appui long immobile avec le stylet active la gomme, quel que soit l’outil.'}
+              ? 'Certains tampons (repères, torseur, matrice, volumes) sont effacés en entier ; les autres formes sont découpées.'
+              : 'Astuce : un appui long immobile avec le stylet active la gomme, quel que soit l’outil.'}{' '}
+            Les images ne sont jamais effacées : pour en retirer une, sélectionne-la au lasso puis « Supprimer ».
           </p>
         </div>
       )}
@@ -587,7 +616,7 @@ export function Toolbar(p: Props) {
                 {group.items.map((s) => (
                   <button
                     key={s.kind}
-                    className={`stamp-btn ${p.tool === 'shapes' && p.shapeKind === s.kind ? 'active' : ''}`}
+                    className={`stamp-btn ${shapes && p.shapeKind === s.kind ? 'active' : ''}`}
                     onClick={() => {
                       p.onShapeKind(s.kind);
                       if (p.tool !== 'shapes') p.onTool('shapes');

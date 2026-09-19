@@ -2,10 +2,13 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { InputClassifier } from './palm';
 import type { ClassifierConfig, ClassifierListener, Sample, TrackInfo } from './palm';
-import { HIGHLIGHT_ALPHA, PAPER_BACKGROUND, buildPath, drawPaper, drawShapeOn, drawStroke, linePoints, setImageReadyCallback } from './draw';
-import { eraseFromPolyline, resizedPoints, shapePolylines, strokeBBox, strokeHit, strokesInLasso, unionBBox } from './geometry';
-import type { ResizeHandle } from './geometry';
-import { SHEET_H, growHeight } from './pageExtent';
+import { HIGHLIGHT_ALPHA, PAPER_BACKGROUND, buildPath, drawPaper, drawShapeOn, drawStroke, setImageReadyCallback } from './draw';
+import {
+  cornerScale, eraseFromPolyline, fitShift, isErasable, normalizeAngle, orientation, resizedPoints, rotationDelta,
+  shapePolylines, strokeBBox, strokeHit, strokesInLasso, transformStroke, unionBBox,
+} from './geometry';
+import type { ResizeHandle, ScaleCorner, Similarity } from './geometry';
+import { MAX_PAGE_HEIGHT, SHEET_H, growHeight } from './pageExtent';
 import { MultiColorSwatch } from './MultiColorSwatch';
 import { farthestPoint, recognizeShape } from './shapeRecognize';
 import { newId } from './types';
@@ -69,6 +72,8 @@ interface Props {
   shapeKind: ShapeKind;
   /** Trait en pointillés (stylo et formes) */
   dashed: boolean;
+  /** Couleur des formes et des lignes, déjà résolue : celle qu'on a choisie, sinon celle qui tranche sur le papier */
+  shapeColor: string;
   /** Gomme par trait (tout le trait touché) ou de précision (seulement la zone touchée) */
   eraserMode: 'stroke' | 'precision';
   /** Rayon de la gomme (px d'écran) */
@@ -79,8 +84,10 @@ interface Props {
   onErase(ids: string[]): void;
   /** Gomme de précision : chaque trait touché est remplacé par ses morceaux restants (liste vide = effacé) */
   onReplaceStrokes(replacements: Map<string, Stroke[]>): void;
-  /** Poignées d'un objet sélectionné (forme, image) : nouveaux points, à enregistrer (annulable) */
-  onResizeStroke(id: string, points: InkPoint[]): void;
+  /** Poignées de la sélection (échelle, rotation, étirement) : les traits transformés, à enregistrer d'un coup (annulable) */
+  onTransformStrokes(strokes: Stroke[]): void;
+  /** Un tampon posé rend la main au stylo : le parent change d'outil, sans toucher à la sélection */
+  onSwitchTool(tool: Tool): void;
   onSelect(ids: string[], region?: BBox | null): void;
   onUndo(): void;
   onPenDetected(): void;
@@ -100,8 +107,11 @@ interface Props {
   onCopyCapture(): void;
 }
 
-/** 'move' : glisser la sélection du lasso. 'shape' : forme auto-reconnue, encore ajustable (stylo + appui long). */
-type LiveTool = Tool | 'move' | 'shape' | 'resize';
+/**
+ * 'move' : glisser la sélection du lasso. 'shape' : forme auto-reconnue, encore ajustable (stylo + appui
+ * long). 'edit' : aperçu d'une poignée de la sélection (échelle, rotation, étirement).
+ */
+type LiveTool = Tool | 'move' | 'shape' | 'edit';
 
 interface Live {
   kind: InputKind;
@@ -124,14 +134,17 @@ interface Live {
   dashed?: boolean;
   /** Gomme de précision : traits touchés pendant ce geste → morceaux restants (originaux masqués) */
   edits?: Map<string, Stroke[]>;
-  /** tool === 'resize' : l'objet tel qu'il sera une fois la poignée relâchée */
-  resized?: Stroke;
+  /**
+   * tool === 'edit' : les traits d'origine (`from`), tels qu'ils seront une fois la poignée relâchée (`to`), et
+   * la similitude appliquée (`null` : simple étirement, où seuls les traits de `to` se dessinent)
+   */
+  edited?: { from: Stroke[]; to: Stroke[]; m: Similarity | null };
   /** tool === 'shape' : où était le stylet au « snap » et le coin qu'il tire, pour ajuster en glissant */
   follow?: { from: InkPoint; far: InkPoint };
 }
 
-/** Identifiant de l'aperçu d'un redimensionnement à la poignée (aucun vrai contact n'a cet id). */
-const RESIZE_LIVE_ID = -1;
+/** Identifiant de l'aperçu d'une poignée (aucun vrai contact n'a cet id). */
+const EDIT_LIVE_ID = -1;
 
 /** Durée (ms) du flash qui confirme visuellement le passage trait brouillon → forme parfaite. */
 const SNAP_FLASH_MS = 260;
@@ -146,8 +159,8 @@ const DEFAULT_SHAPE_SIZE: Record<ShapeKind, [number, number]> = {
   rect: [40, 28],
   triangle: [36, 30],
   arrow: [40, 20],
-  // 'line' n'est jamais un tampon (pas dans le sous-menu Formes) : seule l'Auto-shape le produit.
-  line: [40, 20],
+  // Un simple tap pose une ligne horizontale
+  line: [40, 0],
   axes2d: [45, 45],
   axes3d: [50, 45],
   torseur: [30, 60],
@@ -199,6 +212,112 @@ type Corner = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
 const CAPTURE_HANDLES: Corner[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
 const HANDLE_SIZE = 26;
 
+/** Poignées de la sélection (diamètres en px) : les angles sont larges, pour un stylet capacitif */
+const CORNER_SIZE = 30;
+const EDGE_SIZE = 22;
+const ROTATE_SIZE = 34;
+/** Distance entre le cadre de la sélection et la poignée de rotation (px) */
+const ROTATE_GAP = 42;
+/** Largeur (px) du bandeau d'actions d'une sélection de traits, et d'une simple zone de lasso (moins de boutons) */
+const BAR_WIDTH = 640;
+const BAR_WIDTH_REGION = 260;
+
+/** Cadre d'une sélection à l'écran (px) */
+interface ScreenBox {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+interface HandleView {
+  id: ResizeHandle;
+  /** Centre de la poignée (px) */
+  left: number;
+  top: number;
+  size: number;
+}
+
+/**
+ * Glissé d'une poignée de la sélection : les traits tels qu'ils seront au relâchement, pour que le cadre et
+ * les poignées suivent l'aperçu au lieu de rester à la place d'origine.
+ */
+interface TransformDrag {
+  kind: 'scale' | 'rotate' | 'stretch';
+  strokes: Stroke[];
+  /** Rotation : où se tenait la poignée au départ (elle ne bouge pas pendant le glissé) */
+  rot?: { left: number; top: number; above: boolean };
+  /** Rotation : l'angle atteint (°), et où se tient le pointeur (px, dans la zone) pour l'afficher */
+  angle?: number;
+  at?: [number, number];
+}
+
+const isCorner = (h: ResizeHandle): h is ScaleCorner => h === 'nw' || h === 'ne' || h === 'se' || h === 'sw';
+
+/**
+ * Les poignées autour du cadre : les 4 angles (mise à l'échelle proportionnelle), en plus le milieu des
+ * bords pour une forme droite seule (étirement, si la place le permet), ou, pour une ligne ou une flèche
+ * seule, les deux bouts (l'angle est libre).
+ */
+function layoutHandles(box: ScreenBox, only: Stroke | null, view: View): HandleView[] {
+  if (only && only.tool === 'shape' && (only.shape === 'line' || only.shape === 'arrow') && only.points.length >= 2) {
+    return only.points.slice(0, 2).map(([x, y], i): HandleView => ({ id: i ? 'end' : 'start', left: x * view.scale + view.tx, top: y * view.scale + view.ty, size: EDGE_SIZE }));
+  }
+  const { left, top, width, height } = box;
+  // Juste hors du cadre : sur une petite sélection, les angles ne se chevauchent jamais
+  const off = 8;
+  const out: HandleView[] = [
+    { id: 'nw', left: left - off, top: top - off, size: CORNER_SIZE },
+    { id: 'ne', left: left + width + off, top: top - off, size: CORNER_SIZE },
+    { id: 'se', left: left + width + off, top: top + height + off, size: CORNER_SIZE },
+    { id: 'sw', left: left - off, top: top + height + off, size: CORNER_SIZE },
+  ];
+  if (only && only.tool === 'shape' && !only.angle) {
+    if (width >= 90) out.push({ id: 'n', left: left + width / 2, top, size: EDGE_SIZE }, { id: 's', left: left + width / 2, top: top + height, size: EDGE_SIZE });
+    if (height >= 90) out.push({ id: 'w', left, top: top + height / 2, size: EDGE_SIZE }, { id: 'e', left: left + width, top: top + height / 2, size: EDGE_SIZE });
+  }
+  return out;
+}
+
+/** La poignée de rotation : sous le cadre (le bandeau d'actions est au-dessus), ou au-dessus s'il n'y a pas de place en bas. */
+function rotatePosition(box: ScreenBox, stage: { w: number; h: number }): { left: number; top: number; above: boolean } {
+  const m = ROTATE_SIZE / 2 + 4;
+  const left = clamp(box.left + box.width / 2, m, Math.max(m, stage.w - m));
+  const below = box.top + box.height + ROTATE_GAP + ROTATE_SIZE / 2 <= stage.h - 6;
+  const top = below ? box.top + box.height + ROTATE_GAP : clamp(box.top - ROTATE_GAP, m, Math.max(m, stage.h - m));
+  return { left, top, above: !below };
+}
+
+/**
+ * Glissé natif depuis une poignée, hors du classifieur anti-paume : `move` à chaque déplacement, `end` au
+ * relâchement (`cancelled` : le système a annulé le contact, rien ne doit être appliqué). Les événements
+ * sont suivis sur la fenêtre : la poignée peut être redessinée ou déplacée pendant le glissé sans que
+ * celui-ci se perde.
+ */
+function trackDrag(e: ReactPointerEvent<HTMLElement>, move: (ev: PointerEvent) => void, end?: (cancelled: boolean) => void) {
+  e.preventDefault();
+  e.stopPropagation();
+  const id = e.pointerId;
+  try {
+    e.currentTarget.setPointerCapture(id);
+  } catch {
+    /* pointeur déjà relâché */
+  }
+  const onMove = (ev: PointerEvent) => {
+    if (ev.pointerId === id) move(ev);
+  };
+  const onEnd = (ev: PointerEvent) => {
+    if (ev.pointerId !== id) return;
+    window.removeEventListener('pointermove', onMove);
+    window.removeEventListener('pointerup', onEnd);
+    window.removeEventListener('pointercancel', onEnd);
+    end?.(ev.type === 'pointercancel');
+  };
+  window.addEventListener('pointermove', onMove);
+  window.addEventListener('pointerup', onEnd);
+  window.addEventListener('pointercancel', onEnd);
+}
+
 export function InkCanvas(props: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const displayRef = useRef<HTMLCanvasElement>(null);
@@ -207,11 +326,17 @@ export function InkCanvas(props: Props) {
   const hiddenRef = useRef(new Set<string>());
   const redrawRef = useRef<() => void>(() => {});
   const applyConfigRef = useRef<() => void>(() => {});
-  /** Passerelle vers le canevas pour les poignées de redimensionnement (aperçu en direct, validation) */
-  const resizeApiRef = useRef<{ begin(id: string): void; preview(s: Stroke): void; end(s: Stroke | null): void }>({
+  /** Passerelle vers le canevas pour les poignées de la sélection : aperçu en direct, validation, papier qui s'allonge */
+  const editApiRef = useRef<{
+    begin(strokes: Stroke[]): void;
+    preview(from: Stroke[], to: Stroke[], m: Similarity | null): void;
+    end(strokes: Stroke[] | null): void;
+    grow(y: number): void;
+  }>({
     begin: () => {},
     preview: () => {},
     end: () => {},
+    grow: () => {},
   });
   const [viewTick, setViewTick] = useState(0);
 
@@ -290,9 +415,6 @@ export function InkCanvas(props: Props) {
           display.fillStyle = l.color;
           display.fill(path);
           display.restore();
-        } else if (l.tool === 'line' && l.points.length) {
-          display.fillStyle = l.color;
-          display.fill(buildPath(linePoints(l.points[0], l.points[l.points.length - 1]), 'mouse', l.size, true));
         } else if ((l.tool === 'shape' || l.tool === 'shapes') && l.shapeKind && l.points.length) {
           const a = l.points[0];
           const b = l.points[l.points.length - 1];
@@ -322,8 +444,20 @@ export function InkCanvas(props: Props) {
             }
           }
           drawShapeOn(display, l.shapeKind, a[0], a[1], b[0], b[1], l.color, Math.max(0.35, l.size), l.dashed);
-        } else if (l.tool === 'resize' && l.resized) {
-          drawStroke(display, l.resized);
+        } else if (l.tool === 'edit' && l.edited) {
+          const { from, to, m } = l.edited;
+          from.forEach((s, i) => {
+            if (m && s.tool !== 'shape' && s.tool !== 'image') {
+              // Un trait à main levée suit la similitude sur le canevas : aucun contour à recalculer à chaque image
+              display.save();
+              display.translate(m.px + (m.dx ?? 0), m.py + (m.dy ?? 0));
+              display.rotate(m.theta);
+              display.scale(m.k, m.k);
+              display.translate(-m.px, -m.py);
+              drawStroke(display, s);
+              display.restore();
+            } else drawStroke(display, to[i]);
+          });
         } else if (l.tool === 'move') {
           display.save();
           display.translate(l.dx, l.dy);
@@ -485,33 +619,37 @@ export function InkCanvas(props: Props) {
       if (!tickRaf) tickRaf = requestAnimationFrame(() => ((tickRaf = 0), setViewTick((t) => t + 1)));
     };
     redrawRef.current = scheduleBase;
-    let resizingId: string | null = null;
-    resizeApiRef.current = {
-      begin(id) {
-        resizingId = id;
-        hiddenRef.current.add(id);
+    let editingIds: string[] = [];
+    editApiRef.current = {
+      begin(strokes) {
+        editingIds = strokes.map((s) => s.id);
+        for (const id of editingIds) hiddenRef.current.add(id);
+        // Aperçu tout de suite (sans transformation) : les traits masqués ne disparaissent pas le temps d'un rendu
+        lives.set(EDIT_LIVE_ID, {
+          kind: 'mouse', tool: 'edit', color: '', size: 0, points: [], predicted: [], erased: new Set(),
+          cursor: null, dx: 0, dy: 0, moving: [], edited: { from: strokes, to: strokes, m: null },
+        });
         scheduleBase();
       },
-      preview(stroke) {
-        lives.set(RESIZE_LIVE_ID, {
-          kind: 'mouse', tool: 'resize', color: stroke.color, size: stroke.size, points: [], predicted: [], erased: new Set(),
-          cursor: null, dx: 0, dy: 0, moving: [], resized: stroke,
-        });
+      preview(from, to, m) {
+        const live = lives.get(EDIT_LIVE_ID);
+        if (live) live.edited = { from, to, m };
         present();
       },
-      end(stroke) {
-        lives.delete(RESIZE_LIVE_ID);
-        if (stroke) {
-          hiddenRef.current.delete(stroke.id);
+      end(strokes) {
+        lives.delete(EDIT_LIVE_ID);
+        if (strokes) {
+          for (const s of strokes) hiddenRef.current.delete(s.id);
           setTransform(base);
-          drawStroke(base, stroke); // évite un clignotement avant le rendu React
-        } else if (resizingId) {
-          hiddenRef.current.delete(resizingId);
+          for (const s of strokes) drawStroke(base, s); // évite un clignotement avant le rendu React
+        } else {
+          for (const id of editingIds) hiddenRef.current.delete(id);
           scheduleBase();
         }
-        resizingId = null;
+        editingIds = [];
         present();
       },
+      grow: (y) => growFor(y, GROW_AHEAD_INK),
     };
     // Une image de trait (formule glissée sur la page) finit de se décoder de façon asynchrone :
     // dès que c'est fait, on redemande un rendu pour qu'elle apparaisse sans action de l'utilisateur.
@@ -519,9 +657,9 @@ export function InkCanvas(props: Props) {
 
     /** Un trait touché par la gomme de précision : ses morceaux restants, ou null s'il n'est pas touché. */
     const precisionPieces = (s: Stroke, trail: InkPoint[], r: number): Stroke[] | null => {
-      const polylines = s.tool === 'shape' ? shapePolylines(s) : s.tool === 'image' ? null : [s.points];
+      const polylines = s.tool === 'shape' ? shapePolylines(s) : [s.points];
       if (!polylines) {
-        // Image, repère, torseur, matrice, volume : pas découpable, effacé en entier dès qu'on le touche
+        // Repère, torseur, matrice, volume : pas découpable, effacé en entier dès qu'on le touche
         return trail.some(([x, y]) => strokeHit(s, x, y, r)) ? [] : null;
       }
       const style: Omit<Stroke, 'id' | 'points'> = {
@@ -544,6 +682,8 @@ export function InkCanvas(props: Props) {
       }
       return touched ? pieces : null;
     };
+    /** Ce que la gomme peut toucher : les images posées sur la page ne s'effacent jamais (on écrit souvent par-dessus). */
+    const erasable = () => propsRef.current.strokes.filter(isErasable);
     const eraseAt = (l: Live, pts: InkPoint[]) => {
       const r = eraserRadius();
       let changed = false;
@@ -570,7 +710,7 @@ export function InkCanvas(props: Props) {
           }
         }
         if (trail.length) {
-          for (const s of propsRef.current.strokes) {
+          for (const s of erasable()) {
             if (hiddenRef.current.has(s.id)) continue;
             const pieces = precisionPieces(s, trail, r);
             if (!pieces) continue;
@@ -580,8 +720,9 @@ export function InkCanvas(props: Props) {
           }
         }
       } else {
+        const targets = erasable();
         for (const [x, y] of pts) {
-          for (const s of propsRef.current.strokes) {
+          for (const s of targets) {
             if (hiddenRef.current.has(s.id) || !strokeHit(s, x, y, r)) continue;
             hiddenRef.current.add(s.id);
             l.erased.add(s.id);
@@ -607,8 +748,7 @@ export function InkCanvas(props: Props) {
       scheduleBase();
     };
     const addPoints = (l: Live, samples: Sample[]) => {
-      const inking =
-        l.tool === 'pen' || l.tool === 'highlighter' || l.tool === 'line' || l.tool === 'shape' || l.tool === 'shapes' || l.tool === 'capture';
+      const inking = l.tool === 'pen' || l.tool === 'highlighter' || l.tool === 'shape' || l.tool === 'shapes' || l.tool === 'capture';
       const added: InkPoint[] = [];
       for (const s of samples) {
         const raw = toPage(s, l.kind);
@@ -643,7 +783,7 @@ export function InkCanvas(props: Props) {
         const tool: LiveTool = eraserPointers.has(id) ? 'eraser' : p.tool;
         const highlighter = tool === 'highlighter';
         const l: Live = {
-          kind, tool, color: highlighter ? p.highlightColor : p.color, size: highlighter ? p.highlightSize : p.size,
+          kind, tool, color: highlighter ? p.highlightColor : tool === 'shapes' ? p.shapeColor : p.color, size: highlighter ? p.highlightSize : p.size,
           points: [], predicted: [], erased: new Set(), cursor: null, dx: 0, dy: 0, moving: [],
         };
         if (tool === 'lasso' && p.selection.length && samples.length) {
@@ -666,11 +806,7 @@ export function InkCanvas(props: Props) {
         lives.set(id, l);
         const added = addPoints(l, samples);
         if (tool === 'eraser') eraseAt(l, added);
-        if (
-          (tool === 'pen' || highlighter || tool === 'line' || tool === 'shapes' || tool === 'capture') &&
-          (p.selection.length || p.selectionRegion)
-        )
-          p.onSelect([]);
+        if ((tool === 'pen' || highlighter || tool === 'shapes' || tool === 'capture') && (p.selection.length || p.selectionRegion)) p.onSelect([]);
         present();
       },
       drawMove(id, samples, predicted) {
@@ -710,14 +846,6 @@ export function InkCanvas(props: Props) {
           setTransform(base);
           drawStroke(base, stroke); // évite un clignotement avant le rendu React
           p.onAddStroke(stroke);
-        } else if (l.tool === 'line' && l.points.length) {
-          const a = l.points[0];
-          const b = l.points[l.points.length - 1];
-          const points = Math.hypot(b[0] - a[0], b[1] - a[1]) < 0.3 ? [a] : linePoints(a, b);
-          const stroke: Stroke = { id: newId(), points, color: l.color, size: l.size, input: 'mouse' };
-          setTransform(base);
-          drawStroke(base, stroke);
-          p.onAddStroke(stroke);
         } else if ((l.tool === 'shape' || l.tool === 'shapes') && l.shapeKind && l.points.length) {
           let a = l.points[0];
           let b = l.points[l.points.length - 1];
@@ -735,6 +863,8 @@ export function InkCanvas(props: Props) {
           p.onAddStroke(stroke);
           // La forme reste sélectionnée, avec ses poignées : on peut ajuster ses dimensions exactes
           p.onSelect([stroke.id]);
+          // Un tampon posé rend la main au stylo : la prochaine écriture ne dessine pas une forme par mégarde
+          if (l.tool === 'shapes') p.onSwitchTool('pen');
         } else if (l.tool === 'capture' && l.points.length) {
           const a = l.points[0];
           const b = l.points[l.points.length - 1];
@@ -801,7 +931,7 @@ export function InkCanvas(props: Props) {
        */
       holdErase(id) {
         const l = lives.get(id);
-        if (!l || (l.tool !== 'pen' && l.tool !== 'highlighter' && l.tool !== 'line' && l.tool !== 'shapes')) return;
+        if (!l || (l.tool !== 'pen' && l.tool !== 'highlighter' && l.tool !== 'shapes')) return;
         const at = l.points[l.points.length - 1] ?? l.cursor;
         l.tool = 'eraser';
         l.predicted = [];
@@ -1017,96 +1147,139 @@ export function InkCanvas(props: Props) {
   }, [strokes, paper, paperColor, background, showContacts]);
 
   const { selectionRegion } = props;
+  /** Les traits choisis, dans l'ordre d'empilement de la page */
+  const chosen = useMemo(() => {
+    const ids = new Set(selection);
+    return strokes.filter((s) => ids.has(s.id));
+  }, [selection, strokes]);
+  /** Poignée en cours de glissé : cadre et poignées suivent l'aperçu au lieu de rester sur la sélection d'origine */
+  const [xf, setXf] = useState<TransformDrag | null>(null);
+  const dragging = xf !== null;
+  const shown = xf?.strokes ?? chosen;
+  /** Le cadre de la sélection (mm) : ses traits, plus la zone du lasso tant qu'on ne les transforme pas */
+  const selMm = useMemo(() => {
+    const boxes = shown.map(strokeBBox);
+    if (selectionRegion && !dragging) boxes.push(selectionRegion);
+    return unionBBox(boxes);
+  }, [shown, selectionRegion, dragging]);
   const selBox = useMemo(() => {
-    if (selection.length === 0 && !selectionRegion) return null;
-    const chosen = new Set(selection);
-    const boxes = strokes.filter((s) => chosen.has(s.id)).map(strokeBBox);
-    if (selectionRegion) boxes.push(selectionRegion);
-    const bb = unionBBox(boxes);
-    if (!bb) return null;
+    if (!selMm) return null;
     const v = viewRef.current;
     const pad = 6;
     return {
-      left: bb.minX * v.scale + v.tx - pad,
-      top: bb.minY * v.scale + v.ty - pad,
-      width: (bb.maxX - bb.minX) * v.scale + 2 * pad,
-      height: (bb.maxY - bb.minY) * v.scale + 2 * pad,
+      left: selMm.minX * v.scale + v.tx - pad,
+      top: selMm.minY * v.scale + v.ty - pad,
+      width: (selMm.maxX - selMm.minX) * v.scale + 2 * pad,
+      height: (selMm.maxY - selMm.minY) * v.scale + 2 * pad,
     };
     // viewTick : recalcul quand la vue bouge
-  }, [selection, selectionRegion, strokes, viewTick]);
+  }, [selMm, viewTick]);
   const regionOnly = selection.length === 0;
 
-  /** Objet sélectionné qu'on peut redimensionner à la poignée : une forme ou une image, seule. */
-  const resizable = useMemo(() => {
-    if (selection.length !== 1) return null;
-    const s = strokes.find((st) => st.id === selection[0]);
-    return s && (s.tool === 'shape' || s.tool === 'image') && s.points.length >= 2 ? s : null;
-  }, [selection, strokes]);
-  const resizeHandles = useMemo(() => {
-    if (!resizable) return [];
-    const v = viewRef.current;
-    const sx = (x: number) => x * v.scale + v.tx;
-    const sy = (y: number) => y * v.scale + v.ty;
-    // Ligne et flèche : deux poignées aux bouts (l'angle est libre) ; les autres : 8 autour du rectangle
-    if (resizable.tool === 'shape' && (resizable.shape === 'line' || resizable.shape === 'arrow')) {
-      const [a, b] = resizable.points;
-      return [
-        { handle: 'start' as ResizeHandle, left: sx(a[0]), top: sy(a[1]) },
-        { handle: 'end' as ResizeHandle, left: sx(b[0]), top: sy(b[1]) },
-      ];
-    }
-    const [a, b] = resizable.points;
-    const x0 = sx(Math.min(a[0], b[0]));
-    const x1 = sx(Math.max(a[0], b[0]));
-    const y0 = sy(Math.min(a[1], b[1]));
-    const y1 = sy(Math.max(a[1], b[1]));
-    const pos = (h: Corner) => ({
-      handle: h as ResizeHandle,
-      left: h.includes('w') ? x0 : h.includes('e') ? x1 : (x0 + x1) / 2,
-      top: h.includes('n') ? y0 : h.includes('s') ? y1 : (y0 + y1) / 2,
-    });
-    // Une image garde ses proportions : seulement les 4 coins
-    return (resizable.tool === 'image' ? (['nw', 'ne', 'se', 'sw'] as Corner[]) : CAPTURE_HANDLES).map(pos);
-    // viewTick : recalcul quand la vue bouge
-  }, [resizable, viewTick]);
+  // Poignées : 4 angles (échelle proportionnelle) et une poignée de rotation, pour toute sélection de traits ; s'y
+  // ajoutent les bords d'une forme droite seule (étirement) ou, pour une ligne ou une flèche seule, ses deux bouts.
+  const editable = !!selBox && !regionOnly && shown.length > 0;
+  const only = shown.length === 1 ? shown[0] : null;
+  const handles = editable && xf?.kind !== 'rotate' ? layoutHandles(selBox, only, viewRef.current) : [];
+  const stage = { w: containerRef.current?.clientWidth ?? 0, h: containerRef.current?.clientHeight ?? 0 };
+  const rotate = editable && (!xf || xf.kind === 'rotate') ? (xf?.rot ?? rotatePosition(selBox, stage)) : null;
+  // Le bandeau d'actions se tient au-dessus du cadre, hors de portée des poignées d'angle (et de celle de rotation, si elle passe au-dessus).
+  // Il s'aligne à gauche du cadre, mais recule pour tenir dans la zone : il ne passe pas sur deux lignes, par-dessus la sélection.
+  const barRaise = rotate?.above ? ROTATE_GAP + ROTATE_SIZE : editable ? 24 : 0;
+  const barLeft = selBox ? Math.max(8, Math.min(selBox.left, stage.w - (regionOnly ? BAR_WIDTH_REGION : BAR_WIDTH) - 8)) : 8;
 
-  const dragResizeHandle = (e: ReactPointerEvent<HTMLDivElement>, handle: ResizeHandle) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const target = resizable;
-    if (!target) return;
-    const el = e.currentTarget;
-    el.setPointerCapture(e.pointerId);
+  /** Échelle (poignées d'angle) ou rotation (poignée du dessous) de toute la sélection : aperçu en direct, puis une seule entrée d'historique. */
+  const dragTransform = (e: ReactPointerEvent<HTMLElement>, kind: ScaleCorner | 'rotate') => {
+    const container = containerRef.current;
+    if (xf || !selMm || !container || chosen.length === 0) return;
+    const box = selMm;
+    const targets = chosen;
+    const toPage = (ev: { clientX: number; clientY: number }): [number, number] => {
+      const r = container.getBoundingClientRect();
+      const v = viewRef.current;
+      return [(ev.clientX - r.left - v.tx) / v.scale, (ev.clientY - r.top - v.ty) / v.scale];
+    };
+    const from = toPage(e.nativeEvent);
+    const pivot: [number, number] = [(box.minX + box.maxX) / 2, (box.minY + box.maxY) / 2];
+    const corner: [number, number] = [kind.includes('w') ? box.minX : box.maxX, kind.includes('n') ? box.minY : box.maxY];
+    // Aimantation de la rotation sur des multiples de 15° : une ligne seule se remet droite sans viser
+    const base = targets.length === 1 ? orientation(targets[0]) : 0;
+    const rot = kind === 'rotate' && rotate ? rotate : undefined;
+    const api = editApiRef.current;
+    api.begin(targets);
+    let latest: Stroke[] | null = null;
+    let changed = false;
+    trackDrag(
+      e,
+      (ev) => {
+        const p = propsRef.current;
+        // La sélection ne sort pas de la page ; sur une page d'écriture, le papier s'allonge vers le bas
+        const room = { width: p.pageWidth, height: p.extendable ? MAX_PAGE_HEIGHT : pageH() };
+        const now = toPage(ev);
+        let m: Similarity;
+        if (kind === 'rotate') m = { px: pivot[0], py: pivot[1], k: 1, theta: rotationDelta(pivot, from, now, base) };
+        else {
+          const { k, anchor } = cornerScale(box, kind, [corner[0] + now[0] - from[0], corner[1] + now[1] - from[1]], room);
+          m = { px: anchor[0], py: anchor[1], k, theta: 0 };
+        }
+        let next = targets.map((s) => transformStroke(s, m));
+        const [dx, dy] = fitShift(next, room);
+        if (dx || dy) {
+          m = { ...m, dx, dy };
+          next = targets.map((s) => transformStroke(s, m));
+        }
+        latest = next;
+        changed = Math.abs(m.k - 1) > 1e-4 || Math.abs(m.theta) > 1e-4 || !!dx || !!dy;
+        api.grow(unionBBox(next.map(strokeBBox))?.maxY ?? 0);
+        api.preview(targets, next, m);
+        const r = container.getBoundingClientRect();
+        setXf({
+          kind: kind === 'rotate' ? 'rotate' : 'scale',
+          strokes: next,
+          rot,
+          angle: Math.round((normalizeAngle(base + m.theta) * 180) / Math.PI),
+          at: [ev.clientX - r.left, ev.clientY - r.top],
+        });
+      },
+      (cancelled) => {
+        const done = !cancelled && latest && changed ? latest : null;
+        api.end(done);
+        setXf(null);
+        if (done) propsRef.current.onTransformStrokes(done);
+      },
+    );
+  };
+
+  /** Étirer une forme droite par un bord, ou déplacer un bout de ligne ou de flèche. */
+  const dragStretch = (e: ReactPointerEvent<HTMLElement>, handle: ResizeHandle) => {
+    const target = chosen.length === 1 ? chosen[0] : null;
+    if (xf || !target) return;
     const startX = e.clientX;
     const startY = e.clientY;
-    const api = resizeApiRef.current;
-    api.begin(target.id);
+    const api = editApiRef.current;
+    api.begin([target]);
     let latest: Stroke | null = null;
-    const onMove = (ev: PointerEvent) => {
-      const v = viewRef.current;
-      const p = propsRef.current;
-      const points = resizedPoints(
-        target.points,
-        handle,
-        (ev.clientX - startX) / v.scale,
-        (ev.clientY - startY) / v.scale,
-        { width: p.pageWidth, height: pageH() },
-        target.tool === 'image',
-      );
-      latest = { ...target, points };
-      api.preview(latest);
-    };
-    const onUp = (ev: PointerEvent) => {
-      el.releasePointerCapture(ev.pointerId);
-      el.removeEventListener('pointermove', onMove);
-      el.removeEventListener('pointerup', onUp);
-      el.removeEventListener('pointercancel', onUp);
-      api.end(latest);
-      if (latest) propsRef.current.onResizeStroke(target.id, latest.points);
-    };
-    el.addEventListener('pointermove', onMove);
-    el.addEventListener('pointerup', onUp);
-    el.addEventListener('pointercancel', onUp);
+    trackDrag(
+      e,
+      (ev) => {
+        const v = viewRef.current;
+        const p = propsRef.current;
+        const points = resizedPoints(target.points, handle, (ev.clientX - startX) / v.scale, (ev.clientY - startY) / v.scale, {
+          width: p.pageWidth,
+          height: p.extendable ? MAX_PAGE_HEIGHT : pageH(),
+        });
+        latest = { ...target, points };
+        api.grow(Math.max(points[0][1], points[1][1]));
+        api.preview([target], [latest], null);
+        setXf({ kind: 'stretch', strokes: [latest] });
+      },
+      (cancelled) => {
+        const done = !cancelled && latest ? [latest] : null;
+        api.end(done);
+        setXf(null);
+        if (done) propsRef.current.onTransformStrokes(done);
+      },
+    );
   };
 
   const { captureRegion } = props;
@@ -1124,16 +1297,12 @@ export function InkCanvas(props: Props) {
 
   /** Poignées de recadrage (comme un crop d'image) : glissé natif, en dehors du classifieur anti-paume. */
   const dragCaptureHandle = (e: ReactPointerEvent<HTMLDivElement>, corner: Corner) => {
-    e.preventDefault();
-    e.stopPropagation();
     const region = propsRef.current.captureRegion;
     if (!region) return;
-    const target = e.currentTarget;
-    target.setPointerCapture(e.pointerId);
     const startX = e.clientX;
     const startY = e.clientY;
     const orig = { ...region };
-    const onMove = (ev: PointerEvent) => {
+    trackDrag(e, (ev) => {
       const v = viewRef.current;
       const p = propsRef.current;
       const dxMm = (ev.clientX - startX) / v.scale;
@@ -1144,14 +1313,7 @@ export function InkCanvas(props: Props) {
       if (corner.includes('n')) minY = clamp(orig.minY + dyMm, 0, orig.maxY - 4);
       if (corner.includes('s')) maxY = clamp(orig.maxY + dyMm, orig.minY + 4, pageH());
       p.onCaptureRegion({ minX, minY, maxX, maxY });
-    };
-    const onUp = (ev: PointerEvent) => {
-      target.releasePointerCapture(ev.pointerId);
-      target.removeEventListener('pointermove', onMove);
-      target.removeEventListener('pointerup', onUp);
-    };
-    target.addEventListener('pointermove', onMove);
-    target.addEventListener('pointerup', onUp);
+    });
   };
   const handlePos = (box: { left: number; top: number; width: number; height: number }, corner: Corner) => ({
     left: (corner.includes('w') ? box.left : corner.includes('e') ? box.left + box.width : box.left + box.width / 2) - HANDLE_SIZE / 2,
@@ -1166,39 +1328,71 @@ export function InkCanvas(props: Props) {
           <span>Zone de repos pour la main</span>
         </div>
       )}
-      {selBox && (
+      {selBox && xf?.kind !== 'rotate' && (
         <>
           <div className="selection-box" style={selBox} />
-          <div className="selection-actions" style={{ left: Math.max(8, selBox.left), top: Math.max(8, selBox.top - 52) }}>
-            <button className="primary" onClick={props.onConvertSelection}>
-              Convertir en LaTeX
-            </button>
-            {!regionOnly && (
-              <>
-                {props.selectionColors.map((c) => (
-                  <button key={c} className="swatch small" style={{ background: c }} aria-label="Changer la couleur" onClick={() => props.onRecolorSelection(c)} />
-                ))}
-                <MultiColorSwatch initial={props.selectionColors[0]} onCommit={props.onPickSelectionColor} />
-                <button onClick={props.onDuplicateSelection}>Dupliquer</button>
-                <button onClick={props.onCopySelection}>Copier</button>
-                <button onClick={props.onDeleteSelection}>Supprimer</button>
-              </>
-            )}
-            <button aria-label="Désélectionner" onClick={() => props.onSelect([])}>
-              ✕
-            </button>
+          {!xf && (
+            <div className="selection-actions" style={{ left: barLeft, top: Math.max(8, selBox.top - 52 - barRaise) }}>
+              <button className="primary" onClick={props.onConvertSelection}>
+                Convertir en LaTeX
+              </button>
+              {!regionOnly && (
+                <>
+                  {props.selectionColors.map((c) => (
+                    <button key={c} className="swatch small" style={{ background: c }} aria-label="Changer la couleur" onClick={() => props.onRecolorSelection(c)} />
+                  ))}
+                  <MultiColorSwatch initial={props.selectionColors[0]} onCommit={props.onPickSelectionColor} />
+                  <button onClick={props.onDuplicateSelection}>Dupliquer</button>
+                  <button onClick={props.onCopySelection}>Copier</button>
+                  <button onClick={props.onDeleteSelection}>Supprimer</button>
+                </>
+              )}
+              <button aria-label="Désélectionner" onClick={() => props.onSelect([])}>
+                ✕
+              </button>
+            </div>
+          )}
+        </>
+      )}
+      {handles.map((h) => (
+        <div
+          key={h.id}
+          className={`xf-handle ${isCorner(h.id) ? 'xf-corner' : 'xf-edge'} handle-${h.id}`}
+          style={{ left: h.left - h.size / 2, top: h.top - h.size / 2, width: h.size, height: h.size }}
+          onPointerDown={(e) => (isCorner(h.id) ? dragTransform(e, h.id) : dragStretch(e, h.id))}
+          aria-label={isCorner(h.id) ? 'Redimensionner en gardant les proportions' : 'Étirer'}
+        />
+      ))}
+      {rotate && selBox && (
+        <>
+          {!xf && (
+            <div
+              className="xf-stem"
+              style={{
+                left: rotate.left - 1,
+                top: rotate.above ? rotate.top + ROTATE_SIZE / 2 : selBox.top + selBox.height,
+                height: Math.max(0, rotate.above ? selBox.top - rotate.top - ROTATE_SIZE / 2 : rotate.top - ROTATE_SIZE / 2 - selBox.top - selBox.height),
+              }}
+            />
+          )}
+          <div
+            className="xf-handle xf-rotate"
+            style={{ left: rotate.left - ROTATE_SIZE / 2, top: rotate.top - ROTATE_SIZE / 2, width: ROTATE_SIZE, height: ROTATE_SIZE }}
+            onPointerDown={(e) => dragTransform(e, 'rotate')}
+            aria-label="Faire pivoter"
+          >
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
+              <path d="M21 3v5h-5" />
+            </svg>
           </div>
         </>
       )}
-      {resizeHandles.map(({ handle, left, top }) => (
-        <div
-          key={handle}
-          className={`capture-handle handle-${handle}`}
-          style={{ left: left - HANDLE_SIZE / 2, top: top - HANDLE_SIZE / 2, width: HANDLE_SIZE, height: HANDLE_SIZE }}
-          onPointerDown={(e) => dragResizeHandle(e, handle)}
-          aria-label="Redimensionner"
-        />
-      ))}
+      {xf?.kind === 'rotate' && xf.at && (
+        <div className="xf-badge" style={{ left: xf.at[0] + 18, top: xf.at[1] - 42 }}>
+          {xf.angle}°
+        </div>
+      )}
       {capBox && (
         <>
           <div className="capture-box" style={capBox} />

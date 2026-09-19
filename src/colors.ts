@@ -1,7 +1,10 @@
+import type { PaperColor } from './ink/types';
+
 /**
  * Palette de la barre d'une sélection (lasso) : trois couleurs « récentes » suivies de la pastille
  * multicolore. Choisir une nouvelle teinte la place en premier et décale les autres d'un cran : la
- * dernière sort de la palette. Sans DOM ni import : testé sous Node (`npm test`).
+ * dernière sort de la palette. Et la couleur automatique des formes. Sans DOM ni import de valeur :
+ * testé sous Node (`npm test`).
  */
 
 export const SELECTION_SLOTS = 3;
@@ -35,3 +38,12 @@ export function normalizeSelectionColors(raw: unknown): string[] {
   }
   return out;
 }
+
+/**
+ * Couleur des formes et des lignes tant qu'on n'en a pas choisi une : elle tranche toujours sur le papier
+ * (noir sur papier clair, blanc sur papier sombre) au lieu de suivre la couleur du stylo.
+ */
+export const autoShapeColor = (paper: PaperColor): string => (paper === 'dark' ? '#ffffff' : '#1d2433');
+
+/** La couleur des formes lue dans les réglages enregistrés : une couleur valide, ou `null` (automatique). */
+export const normalizeShapeColor = (raw: unknown): string | null => (isHex(raw) ? raw.toLowerCase() : null);
