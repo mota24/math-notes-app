@@ -626,21 +626,9 @@ export function NotebookEditor({ notebookId, pageIndex, settings, update, onOpen
     ],
   );
 
-  if (notebook === undefined) return <p className="center-message">Chargement…</p>;
-  if (!notebook || notebook.deletedAt) {
-    return (
-      <p className="center-message">
-        Ce cahier n’existe plus. <button onClick={() => go({ name: 'library', folderId: null })}>Retour à la bibliothèque</button>
-      </p>
-    );
-  }
-
-  const job = pageId ? jobs[pageId] : undefined;
-  const pageBusy = job && 'progress' in job ? job.progress : null;
-  const pageError = job && 'error' in job ? job.error : null;
-  const paperColor = page?.paperColor ?? notebook.paperColor ?? 'light';
-  // Formes et lignes : la couleur choisie, sinon celle qui tranche sur le papier (noir sur clair, blanc sur sombre)
-  const shapeColor = settings.shapeColor ?? autoShapeColor(paperColor);
+  // ---- Hooks multi-pages : déclarés ici, avant tout return conditionnel (Rules of Hooks) ----
+  const notebookPaperColor = notebook?.paperColor ?? 'light';
+  const pagePaperColor = page?.paperColor ?? notebookPaperColor;
 
   const canvasPages: CanvasPage[] = useMemo(() => {
     if (!orderedPages.length && page) {
@@ -650,7 +638,7 @@ export function NotebookEditor({ notebookId, pageIndex, settings, update, onOpen
           width: page.width,
           height: page.height,
           paper: page.paper,
-          paperColor: paperColor,
+          paperColor: pagePaperColor,
           background: background,
           strokes: strokes,
         },
@@ -663,12 +651,12 @@ export function NotebookEditor({ notebookId, pageIndex, settings, update, onOpen
         width: p.width,
         height: isCurrent ? (page ? page.height : p.height) : p.height,
         paper: isCurrent ? (page ? page.paper : p.paper) : p.paper,
-        paperColor: isCurrent ? paperColor : (p.paperColor ?? notebook?.paperColor ?? 'light'),
+        paperColor: isCurrent ? pagePaperColor : (p.paperColor ?? notebookPaperColor),
         background: isCurrent ? (background ?? backgrounds[p.id] ?? null) : (backgrounds[p.id] ?? null),
         strokes: isCurrent ? strokes : p.strokes,
       };
     });
-  }, [orderedPages, page, paperColor, background, backgrounds, strokes, pageId, notebook?.paperColor]);
+  }, [orderedPages, page, pagePaperColor, notebookPaperColor, background, backgrounds, strokes, pageId]);
 
   const onAddStrokeMulti = useCallback((s: Stroke, targetPageId?: string) => {
     if (!targetPageId || targetPageId === pageRef.current?.id) {
@@ -697,6 +685,23 @@ export function NotebookEditor({ notebookId, pageIndex, settings, update, onOpen
     },
     [index, pageCount, goToPage],
   );
+  // ---- Fin des hooks déplacés ----
+
+  if (notebook === undefined) return <p className="center-message">Chargement…</p>;
+  if (!notebook || notebook.deletedAt) {
+    return (
+      <p className="center-message">
+        Ce cahier n'existe plus. <button onClick={() => go({ name: 'library', folderId: null })}>Retour à la bibliothèque</button>
+      </p>
+    );
+  }
+
+  const job = pageId ? jobs[pageId] : undefined;
+  const pageBusy = job && 'progress' in job ? job.progress : null;
+  const pageError = job && 'error' in job ? job.error : null;
+  const paperColor = pagePaperColor;
+  // Formes et lignes : la couleur choisie, sinon celle qui tranche sur le papier (noir sur clair, blanc sur sombre)
+  const shapeColor = settings.shapeColor ?? autoShapeColor(paperColor);
 
   return (
     <div className="app">
