@@ -20,7 +20,7 @@ export function WelcomeDialog({ onClose, onOpenSettings }: { onClose(): void; on
             <li>Crée un dossier (Semestre → Matière), puis un cahier, ou importe un PDF de cours.</li>
             <li>
               Ton stylet écrit ; ta paume posée est ignorée, même si elle touche l'écran à plusieurs endroits.
-              Épaisseur du trait : le curseur de la barre d'outils (1 à 20 px).
+              Couleur et épaisseur (1 à 20 px) : les trois couleurs rapides, ou la roue multicolore, dans la barre d'outils.
             </li>
             <li>
               <strong>Deux doigts</strong> : déplacer la page et zoomer (pincement). <strong>Tap à deux doigts</strong> : annuler.
@@ -28,7 +28,7 @@ export function WelcomeDialog({ onClose, onOpenSettings }: { onClose(): void; on
             <li>
               <strong>Appui long</strong> : garde le stylet posé sans bouger une seconde, il gomme jusqu'à ce que tu le lèves.
             </li>
-            <li>Outils : stylo, surligneur, règle, gomme, lasso (déplacer, recolorer, copier une zone).</li>
+            <li>Outils : stylo, surligneur, gomme (par trait ou de précision), lasso (déplacer, recolorer, copier une zone), capture, formes et volumes 3D.</li>
           </ul>
         </section>
         <section className="welcome-step">

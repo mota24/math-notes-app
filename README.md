@@ -68,16 +68,26 @@ Ajoute `?demo` à l'adresse pour tester la conversion sans clé (réponses ficti
 1. Va sur [aistudio.google.com/apikey](https://aistudio.google.com/apikey) et crée une clé.
 2. Dans l'appli : Réglages → Gemini → colle la clé. Elle reste sur l'appareil.
 
-## Mettre l'appli en ligne (GitHub Pages, gratuit)
+## Mettre l'appli en ligne (Vercel, gratuit)
 
 Nécessaire pour **installer** l'appli sur la tablette (écran d'accueil), l'utiliser **hors-ligne** et se connecter à
-**Google Drive** (Google exige une adresse `https://`).
+**Google Drive** (Google exige une adresse `https://`). Le site est publié sur **Vercel** :
+<https://math-notes-app-indol.vercel.app/>.
 
-1. Crée un dépôt sur GitHub (par exemple `notes-maths`) et envoie ce dossier sur la branche `main`.
-2. Sur GitHub : Settings → Pages → Source : **GitHub Actions**.
-3. Chaque envoi sur `main` lance les tests, construit et publie l'appli sur
-   `https://<ton-pseudo>.github.io/notes-maths/`.
-4. Sur la tablette, ouvre cette adresse dans Chrome → menu ⋮ → **Ajouter à l'écran d'accueil**.
+1. Le code est sur GitHub (dépôt `mota24/math-notes-app`, branche `main`).
+2. Sur [vercel.com](https://vercel.com) : **Add New → Project**, puis ce dépôt. Vercel reconnaît Vite tout seul
+   (commande `npm run build`, dossier `dist`) : il n'y a rien à régler.
+3. Ensuite, chaque envoi sur `main` reconstruit et republie le site, en une minute environ.
+4. Sur la tablette, ouvre l'adresse dans Chrome → menu ⋮ → **Ajouter à l'écran d'accueil**.
+5. Pour Google Drive, ajoute l'adresse du site (`https://math-notes-app-indol.vercel.app`) comme « origine
+   JavaScript autorisée » de ton ID client OAuth (voir plus bas).
+
+GitHub, lui, ne publie rien : `.github/workflows/ci.yml` lance les tests et la compilation à chaque envoi (une coche
+verte ou rouge sur le commit).
+
+**Chaque adresse a ses propres notes** : le site Vercel, l'application Android et tout autre site ne partagent pas
+leur stockage. Pour passer des notes de l'un à l'autre, fais une sauvegarde sur fichier (Réglages → Sauvegarde sur
+fichier), puis « Restaurer » de l'autre côté.
 
 ## Application Android (.apk, 100 % hors-ligne)
 
