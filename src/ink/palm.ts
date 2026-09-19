@@ -198,7 +198,9 @@ export class InputClassifier {
 
   get effectiveMode(): 'active' | 'capacitive' | 'finger' {
     const m = this.config.mode;
-    if (m === 'auto') return 'finger';
+    // 'auto' et 'capacitive' : le rejet de paume logiciel est désactivé ; l'OS de la tablette s'en charge.
+    // On retourne 'finger' : tous les contacts tactiles sont traités de la même façon.
+    if (m === 'auto' || m === 'capacitive') return 'finger';
     return m;
   }
 

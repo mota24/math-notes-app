@@ -16,10 +16,8 @@ import { Modal } from './Modal';
 
 const STATE_LABEL: Record<string, string> = { pending: 'En attente', draw: 'Écrit', palm: 'Ignoré', gesture: 'Geste' };
 const STYLUS_MODES: { value: StylusMode; label: string; hint: string }[] = [
-  { value: 'auto', label: 'Auto', hint: 'Un stylet actif prend la main dès qu’il est détecté ; sinon, anti-paume logiciel.' },
-  { value: 'capacitive', label: 'Capacitif', hint: 'Ton cas : le stylet est vu comme un doigt, l’anti-paume tranche par le mouvement.' },
-  { value: 'active', label: 'S Pen', hint: 'Seul un stylet actif écrit ; les doigts déplacent la page.' },
-  { value: 'finger', label: 'Doigt', hint: 'Tout contact écrit, sans anti-paume : pratique pour tester au doigt.' },
+  { value: 'finger', label: 'Standard (recommandé)', hint: 'Le rejet de paume est géré par le système d’exploitation de ta tablette. Tous les contacts sont acceptés de la même façon.' },
+  { value: 'active', label: 'S Pen / stylet actif', hint: 'Seul un stylet actif (EMR/USI) peut écrire ; les doigts défilent la page uniquement.' },
 ];
 const REST_ZONES = [
   { value: 0, label: 'Aucune' },
@@ -92,9 +90,9 @@ function AntiPalmSection({ settings, update }: { settings: Settings; update(patc
   return (
     <section>
       <h3>
-        <span className="palm-badge">{ICONS.shield}</span> Stylet et paume
+        <span className="palm-badge">{ICONS.shield}</span> Stylet et saisie tactile
       </h3>
-      <p className="hint">Le contact qui bouge écrit. Un contact posé est ignoré et ne bloque jamais le stylet.</p>
+      <p className="hint">Le rejet de paume est assuré par le système d'exploitation de ta tablette. L'application accepte tous les contacts de la même façon et se concentre sur la détection des gestes à deux doigts (défilement, zoom).</p>
 
       <span className="field-label">Calibrer les tailles</span>
       {calibrated ? (
