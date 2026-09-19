@@ -6,8 +6,7 @@ import '@fontsource/instrument-sans/600.css';
 import '@fontsource/caveat/400.css';
 import '@fontsource/kalam/400.css';
 import '@fontsource/patrick-hand/400.css';
-import 'katex/dist/katex.min.css';
-import './styles.css';
+import './index.css';
 import App from './App';
 import { isNativeApp } from './platform';
 

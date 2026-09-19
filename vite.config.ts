@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite';
 import type { Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
 
 const env = (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {};
 
@@ -20,7 +21,7 @@ export default defineConfig({
   // Chemins relatifs par défaut : l'appli marche telle quelle depuis n'importe quel dossier, en particulier
   // dans la WebView Android (Capacitor). Sur GitHub Pages, BASE_PATH impose /nom-du-depot/ (voir deploy.yml).
   base: env.BASE_PATH ?? './',
-  plugins: [react(), precacheManifest()],
+  plugins: [react(), tailwindcss(), precacheManifest()],
   // PORT permet à un outil (aperçu intégré) d'imposer son port ; sinon 5173 comme d'habitude
   server: { port: Number(env.PORT) || 5173 },
 });

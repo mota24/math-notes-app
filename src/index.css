@@ -1,0 +1,63 @@
+/*
+ * Point d'entrée des styles.
+ *
+ * Tailwind CSS (v4) dessine les écrans refaits (la bibliothèque pour l'instant) ; le reste de l'appli garde son
+ * ancienne feuille de style, styles.css. Pour que les deux cohabitent sans se gêner :
+ *  - pas de « Preflight » de Tailwind : sa remise à zéro changerait tous les écrans existants. Seuls le thème
+ *    et les utilitaires sont importés ;
+ *  - les couches (@layer) décident qui gagne. Les utilitaires passent AU-DESSUS de l'ancienne feuille, sinon
+ *    ses règles globales (button { padding… }) l'emporteraient sur `class="px-4"`. Les styles de KaTeX sont
+ *    dans une couche encore en dessous, pour que les réglages de l'ancienne feuille (.hw-layout .katex)
+ *    gardent la priorité qu'ils avaient.
+ */
+@layer theme, base, vendor, legacy, components, utilities;
+
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'katex/dist/katex.min.css' layer(vendor);
+@import './styles.css' layer(legacy);
+@import 'tailwindcss/utilities.css' layer(utilities) source(none);
+
+/* Seul le code de l'appli est lu pour repérer les classes utilisées (pas android/, ni dist/) */
+@source './**/*.{ts,tsx}';
+@source '../index.html';
+
+/* Les couleurs d'accent de l'appli (elles changent avec le thème, voir :root et .library dans styles.css) */
+@theme inline {
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-danger: var(--danger);
+}
+
+/*
+ * Trois animations courtes : un menu qui s'ouvre, un bloc qui apparaît, un voile qui s'installe. Elles ne
+ * gardent pas leur dernière image (pas de « both ») : un élément qui reste animé forme un plan d'empilement à
+ * part, et un menu ouvert dans un bloc passerait alors sous les blocs suivants.
+ */
+@theme {
+  /* Une taille de plus pour les très grands écrans : 6 colonnes de cartes (la dernière de Tailwind est @7xl, 80rem) */
+  --container-8xl: 100rem;
+
+  --animate-pop: pop 0.14s ease-out;
+  --animate-rise: rise 0.35s ease-out backwards;
+  --animate-fade: fade 0.2s ease-out backwards;
+
+  @keyframes pop {
+    from {
+      opacity: 0;
+      transform: translateY(4px) scale(0.96);
+    }
+  }
+
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+  }
+
+  @keyframes fade {
+    from {
+      opacity: 0;
+    }
+  }
+}

@@ -8,6 +8,10 @@ Gemini les convertit en LaTeX lisible, et tu exportes en PDF (tel quel, propre, 
 
 - **Bibliothèque** : dossiers imbriqués (semestre → matière), cahiers, favoris, récents, corbeille, recherche
   (titres et contenu des transcriptions, sans tenir compte des accents).
+  - **Une barre latérale** (250 px, un peu plus sombre que la page) : le nom de l'appli, la recherche, *Bibliothèque*, l'arbre de *Mes dossiers* (les dossiers imbriqués se déplient, celui qu'on ouvre l'est d'office, un « + » en crée un), *Corbeille* (avec son compteur), puis *Mon écriture*, *Réglages* et l'état de la synchronisation Drive. Elle reste affichée dès 1024 px de large (tablette en paysage) ; en dessous (portrait, téléphone), c'est un tiroir qu'ouvre le bouton ☰ du haut, avec un voile flou.
+  - **Un grand titre qui suit ce qu'on regarde** — *Récents* à l'accueil, le nom du dossier ouvert (avec son chemin cliquable au-dessus), *Corbeille*, *Résultats* pour une recherche — et, en haut à droite, les actions principales en verre dépoli : **+ Cahier** (teinté d'accent), **+ Dossier**, **Importer un PDF** (leurs libellés se réduisent à un pictogramme sur un écran étroit).
+  - **Des cartes en verre** : fond translucide et flou, contour fin, ombre douce, et la couleur du cahier ou du dossier en discret (une fine ligne en haut, une lueur dans un coin). Chaque cahier montre son **papier en miniature** (carreaux, Seyès, lignes ou blanc, clair ou sombre), son titre, sa matière, ses pages et sa date, avec l'étoile des favoris et un menu « ⋯ » (couleur, renommer, déplacer, corbeille). Au survol, la carte grossit un peu ; sur une tablette tactile, rien ne dépend du survol.
+  - **Une grille qui suit la place disponible** (et non la largeur de l'écran, dont la barre latérale prend une part) : 2, 3, 4, 5 puis 6 colonnes ; les *Récents* tiennent sur une seule rangée, sans case vide, et une case pointillée « Nouveau cahier » termine la grille des cahiers.
 - **Cahiers** : pages petits carreaux, Seyès, lignées ou blanches ; **import de PDF** (TD, slides) à annoter ;
   **photos** (tableau, livre) en pages annotables ; ajout, suppression, réorganisation des pages ; vignettes.
 - **Onglets de cahiers** (façon navigateur) : plusieurs cahiers restent ouverts en haut de l'écran, on passe de l'un à l'autre d'un tap sans repasser par la bibliothèque ; chaque onglet retient sa page, et la liste est gardée d'une session à l'autre.
@@ -59,7 +63,7 @@ Gemini les convertit en LaTeX lisible, et tu exportes en PDF (tel quel, propre, 
 npm install
 npm run dev         # sur le PC : http://localhost:5173
 npm run tablette    # accessible depuis la tablette sur le même Wi-Fi (adresse « Network »)
-npm test            # tests : anti-paume, format des transcriptions, fusion de la synchronisation
+npm test            # tests : anti-paume, formes, géométrie, bibliothèque, format des transcriptions, fusion de la synchronisation
 npm run build       # version de production dans dist/
 npm run android:sync  # build + copie dans le projet Android (voir « Application Android »)
 ```
@@ -168,8 +172,18 @@ récente gagne.
 | `src/export/` | PDF vectoriel, PDF manuscrit |
 | `src/pdf/` | Lecture des PDF importés (pdf.js) |
 | `src/sync/` | Google Drive : connexion, fusion, déclencheurs |
-| `src/components/` | Écrans : bibliothèque, éditeur, barre d'onglets, exports, mon écriture, réglages |
+| `src/components/` | Écrans : bibliothèque (`Library*.tsx`), éditeur, barre d'onglets, exports, mon écriture, réglages |
+| `src/index.css` | Point d'entrée des styles : Tailwind CSS, KaTeX et l'ancienne feuille `styles.css`, rangés en couches (voir ci-dessous) |
 | `android/` | Projet Android (Capacitor) : embarque `dist/` dans l'APK ; icônes et écran de démarrage de l'appli |
 | `capacitor.config.ts` | Réglages Capacitor (identifiant de l'appli, dossier embarqué `dist`) |
 | `src/platform.ts` | `isNativeApp()` : dans l'APK ou dans un navigateur (exports par partage, Drive et impression) |
 | `tests/` | Tests exécutés directement par Node (`npm test`) |
+
+### Les styles : Tailwind CSS et l'ancienne feuille
+
+La bibliothèque est dessinée avec **Tailwind CSS** (v4, gratuit, ajouté à la compilation seulement : rien de plus dans l'appli). Le reste de l'appli garde son ancienne feuille de style, `src/styles.css`, et les écrans passeront à Tailwind un par un. Pour que les deux cohabitent :
+
+- **pas de « Preflight »** (la remise à zéro de Tailwind) : elle changerait tous les écrans existants ; seuls le thème et les utilitaires sont importés (`src/index.css`) ;
+- **des couches CSS** fixent qui gagne : `theme` < `vendor` (KaTeX) < `legacy` (`styles.css`) < `utilities` (Tailwind). Une classe Tailwind l'emporte donc toujours sur les règles générales de l'ancienne feuille (`button { padding… }`), sans `!important` ;
+- **le thème sombre suit le système** (`dark:`), comme avant : seules la bibliothèque et les boîtes de dialogue s'assombrissent, l'éditeur garde son papier clair ;
+- **les recettes partagées** (bouton en verre, panneau de verre…) sont dans `src/components/libraryStyles.ts`, et ce que la bibliothèque calcule (arbre des dossiers, chemin, compteurs, papier en miniature) dans `src/components/libraryModel.ts`, testé sous Node.

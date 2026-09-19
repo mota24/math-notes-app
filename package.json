@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit",
     "android:sync": "npm run build && cap sync android",
     "android:open": "cap open android",
-    "test": "node tests/palm.test.ts && node tests/shapeRecognize.test.ts && node tests/lasso.test.ts && node tests/erase.test.ts && node tests/resize.test.ts && node tests/transform.test.ts && node tests/printInk.test.ts && node tests/pageExtent.test.ts && node tests/volumes.test.ts && node tests/colors.test.ts && node tests/base64.test.ts && node tests/notesText.test.ts && node tests/merge.test.ts"
+    "test": "node tests/palm.test.ts && node tests/shapeRecognize.test.ts && node tests/lasso.test.ts && node tests/erase.test.ts && node tests/resize.test.ts && node tests/transform.test.ts && node tests/printInk.test.ts && node tests/pageExtent.test.ts && node tests/volumes.test.ts && node tests/colors.test.ts && node tests/libraryModel.test.ts && node tests/base64.test.ts && node tests/notesText.test.ts && node tests/merge.test.ts"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.2",
@@ -32,10 +32,12 @@
   },
   "devDependencies": {
     "@capacitor/cli": "^8.5.2",
+    "@tailwindcss/vite": "^4.3.3",
     "@types/katex": "^0.16.8",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.1",
+    "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
     "vite": "^8.3.0"
   }
