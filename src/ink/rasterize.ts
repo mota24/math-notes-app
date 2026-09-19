@@ -32,8 +32,7 @@ export function rasterizeForAi(options: {
   region?: BBox | null;
 }): EncodedImage | null {
   // Une image glissée sur la page est déjà une transcription : Gemini n'a pas besoin de la relire
-  // Un ruban d'étude cache du texte à l'écran, pas à la conversion : ce qu'il recouvre reste à transcrire
-  const ink = options.strokes.filter((s) => s.tool !== 'highlighter' && s.tool !== 'tape' && s.tool !== 'image');
+  const ink = options.strokes.filter((s) => s.tool !== 'highlighter' && s.tool !== 'image');
   const background = options.background ?? null;
   const region = options.region ?? (background ? { minX: 0, minY: 0, maxX: options.page.width, maxY: options.page.height } : unionBBox(ink.map(strokeBBox)));
   if (!region || (!background && ink.length === 0)) return null;

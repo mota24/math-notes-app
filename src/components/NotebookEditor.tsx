@@ -23,8 +23,8 @@ import { PageStrip } from './PageStrip';
 import { ResultsPanel } from './ResultsPanel';
 import { SyncChip } from './SyncChip';
 import { ICONS, Toolbar } from './Toolbar';
+import { pushRecentColor } from '../colors';
 import { fitHeight, isExtendable } from '../ink/pageExtent';
-import { describeSlot, settingsPatchFor, slotFromCurrent } from '../pencilCase';
 
 type Action =
   | { type: 'add'; strokes: Stroke[] }
@@ -284,39 +284,9 @@ export function NotebookEditor({ notebookId, pageIndex, settings, update, onOpen
     setPageStrokes(after);
     record({ type: 'replace', before, after });
   };
-  /** Ruban d'étude tapé : transparent (0 %) ou opaque à nouveau, annulable comme le reste. */
-  const toggleTape = (id: string) => {
-    const before = strokesRef.current;
-    if (!before.some((s) => s.id === id)) return;
-    const after = before.map((s) => (s.id === id ? { ...s, revealed: !s.revealed } : s));
-    setPageStrokes(after);
-    record({ type: 'replace', before, after });
-  };
-  /** Trousse : rappeler un favori règle l'outil, sa couleur et son épaisseur d'un coup. */
-  const recallSlot = (i: number) => {
-    const slot = settings.pencilCase[i];
-    if (!slot) return;
-    update(settingsPatchFor(slot));
-    setTool(slot.tool);
-    select([]);
-    setCaptureRegion(null);
-  };
-  /** Trousse : mémorise l'outil actif avec sa couleur et son épaisseur (stylo, surligneur ou ruban). */
-  const saveSlot = (i: number) => {
-    const slot = slotFromCurrent(tool, settings);
-    if (!slot) {
-      flash('Choisis d’abord le stylo, le surligneur ou le ruban : la trousse mémorise un outil avec sa couleur et son épaisseur.');
-      return;
-    }
-    const next = settings.pencilCase.slice();
-    next[i] = slot;
-    update({ pencilCase: next });
-    flash(`Favori ${i + 1} : ${describeSlot(slot)}`);
-  };
-  const clearCase = () => {
-    update({ pencilCase: [null, null, null] });
-    flash('Trousse vidée : touche un emplacement pour y mémoriser un réglage.');
-  };
+  /** Recolore la sélection : le surligneur et les images gardent leur couleur. */
+  const recolorSelection = (color: string) =>
+    replaceSelected((chosen) => chosen.map((s) => (s.tool === 'highlighter' || s.tool === 'image' ? s : { ...s, color })));
   const replaceSelected = (change: (selected: Stroke[]) => Stroke[]) => {
     const chosen = new Set(selection);
     const before = strokesRef.current;
@@ -782,13 +752,10 @@ export function NotebookEditor({ notebookId, pageIndex, settings, update, onOpen
             size={settings.size}
             highlightColor={settings.highlightColor}
             highlightSize={settings.highlightSize}
-            tapeColor={settings.tapeColor}
-            tapeSize={settings.tapeSize}
             shapeKind={shapeKind}
             dashed={settings.dashed}
             eraserMode={settings.eraserMode}
             eraserSize={settings.eraserSize}
-            pencilCase={settings.pencilCase}
             canUndo={history.current.undo.length > 0}
             canRedo={history.current.redo.length > 0}
             canPaste={canPaste}
@@ -796,27 +763,21 @@ export function NotebookEditor({ notebookId, pageIndex, settings, update, onOpen
               setTool(t);
               if (t !== 'lasso') select([]);
               if (t !== 'capture') setCaptureRegion(null);
-              if (t === 'tape' && !settings.tapeHintSeen) {
-                update({ tapeHintSeen: true });
-                flash('Ruban d’étude : trace sur ce que tu veux cacher. Un tap dessus (doigt ou stylet) le rend transparent, un autre le remet.');
-              }
             }}
+            // Couleur et épaisseur du stylo servent aussi aux formes et à la ligne ; depuis la gomme, le lasso, la
+            // capture ou la main, choisir une couleur reprend le stylo
             onColor={(color) => {
               update({ color });
-              if (tool !== 'line') setTool('pen');
+              if (tool !== 'pen' && tool !== 'line' && tool !== 'shapes') setTool('pen');
             }}
             onSize={(size) => {
               update({ size });
-              if (tool !== 'line') setTool('pen');
+              if (tool !== 'pen' && tool !== 'line' && tool !== 'shapes') setTool('pen');
             }}
             onHighlight={(patch) => update(patch)}
-            onTape={(patch) => update(patch)}
             onShapeKind={setShapeKind}
             onDashed={(dashed) => update({ dashed })}
             onEraser={(patch) => update(patch)}
-            onRecallSlot={recallSlot}
-            onSaveSlot={saveSlot}
-            onClearCase={clearCase}
             onUndo={undo}
             onRedo={redo}
             onPaste={paste}
@@ -830,8 +791,6 @@ export function NotebookEditor({ notebookId, pageIndex, settings, update, onOpen
               size={settings.size}
               highlightColor={settings.highlightColor}
               highlightSize={settings.highlightSize}
-              tapeColor={settings.tapeColor}
-              tapeSize={settings.tapeSize}
               shapeKind={shapeKind}
               dashed={settings.dashed}
               eraserMode={settings.eraserMode}
@@ -855,7 +814,6 @@ export function NotebookEditor({ notebookId, pageIndex, settings, update, onOpen
               onErase={removeStrokes}
               onReplaceStrokes={replaceStrokes}
               onResizeStroke={resizeStroke}
-              onToggleTape={toggleTape}
               onSelect={(ids, region) => {
                 const current = pageRef.current;
                 select(ids, region && current && hasBackground(current) ? region : null);
@@ -866,9 +824,13 @@ export function NotebookEditor({ notebookId, pageIndex, settings, update, onOpen
               onConvertSelection={() => void convertSelection()}
               onDeleteSelection={() => removeStrokes(selection)}
               onMoveSelection={(dx, dy) => replaceSelected((chosen) => shifted(chosen, dx, dy, false))}
-              onRecolorSelection={(color) =>
-                replaceSelected((chosen) => chosen.map((s) => (s.tool === 'highlighter' || s.tool === 'tape' || s.tool === 'image' ? s : { ...s, color })))
-              }
+              onRecolorSelection={recolorSelection}
+              selectionColors={settings.selectionColors}
+              onPickSelectionColor={(color) => {
+                recolorSelection(color);
+                // Pastille multicolore : la teinte choisie passe en premier, les autres se décalent
+                update({ selectionColors: pushRecentColor(settings.selectionColors, color) });
+              }}
               onDuplicateSelection={() => {
                 const copies = shifted(selectedStrokes(), 6, 6, true);
                 addStrokes(copies);

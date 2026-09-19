@@ -1,6 +1,8 @@
 import { getStroke } from 'perfect-freehand';
 import type { StrokeOptions } from 'perfect-freehand';
 import { PAGE_H, PAGE_W } from './types';
+import { volumeParts } from './volumes';
+import type { ShapePart } from './volumes';
 import type { InkPoint, InputKind, PaperColor, PaperStyle, ShapeKind, Stroke, StrokeTool } from './types';
 
 /**
@@ -12,8 +14,8 @@ const PF_SCALE = 10;
 export const HIGHLIGHT_ALPHA = 0.35;
 
 function options(input: InputKind, size: number, last: boolean, tool: StrokeTool = 'pen'): StrokeOptions {
-  if (tool === 'highlighter' || tool === 'tape') {
-    // Largeur constante, trait très lissé (le ruban d'étude est un surligneur opaque)
+  if (tool === 'highlighter') {
+    // Largeur constante, trait très lissé
     return { size: size * PF_SCALE, thinning: 0, smoothing: 0.5, streamline: 0.65, simulatePressure: false, last };
   }
   const real = input === 'pen';
@@ -122,7 +124,7 @@ export function outlinePathData(
   tool: StrokeTool = 'pen',
   dashed = false,
 ): string {
-  if (dashed && tool !== 'highlighter' && tool !== 'tape' && points.length > 1) {
+  if (dashed && tool !== 'highlighter' && points.length > 1) {
     const [dash, gap] = dashPattern(size);
     const runs = dashRuns(points, dash, gap);
     return runs.map((run, i) => outlinePathData(run, input, size, i === runs.length - 1 ? last : true, tool)).join(' ');
@@ -259,122 +261,6 @@ export function parenPathD(x: number, y0: number, y1: number, bulge: number, ope
   );
 }
 
-/** Un tracé d'un volume 3D : `hidden` = arête cachée, toujours en tirets (convention du dessin technique). */
-export interface ShapePart {
-  d: string;
-  hidden?: boolean;
-}
-
-const lineD = (ax: number, ay: number, bx: number, by: number) => `M${f3(ax)},${f3(ay)} L${f3(bx)},${f3(by)}`;
-/** Ellipse entière (cercle vu en perspective). */
-const ellipseD = (cx: number, cy: number, rx: number, ry: number) =>
-  `M${f3(cx - rx)},${f3(cy)} A${f3(rx)},${f3(ry)} 0 0 1 ${f3(cx + rx)},${f3(cy)} A${f3(rx)},${f3(ry)} 0 0 1 ${f3(cx - rx)},${f3(cy)}`;
-/** Moitié d'une ellipse : la face avant (en bas, visible) ou la face arrière (en haut, cachée). */
-const halfEllipseD = (cx: number, cy: number, rx: number, ry: number, front: boolean) =>
-  `M${f3(cx - rx)},${f3(cy)} A${f3(rx)},${f3(ry)} 0 0 ${front ? 0 : 1} ${f3(cx + rx)},${f3(cy)}`;
-
-/**
- * Volumes en perspective cavalière, dans le rectangle (x0, y0, w, h) : arêtes visibles en continu,
- * arêtes cachées en tirets. Même géométrie pour l'écran et le PDF (chemins SVG en mm).
- */
-export function volumeParts(shape: ShapeKind, x0: number, y0: number, w: number, h: number): ShapePart[] {
-  const x1 = x0 + w;
-  const y1 = y0 + h;
-  const cx = x0 + w / 2;
-  const rx = w / 2;
-  switch (shape) {
-    case 'cylinder': {
-      const ry = Math.max(0.6, Math.min(h * 0.17, w * 0.2));
-      const top = y0 + ry;
-      const bottom = y1 - ry;
-      return [
-        { d: ellipseD(cx, top, rx, ry) },
-        { d: lineD(x0, top, x0, bottom) },
-        { d: lineD(x1, top, x1, bottom) },
-        { d: halfEllipseD(cx, bottom, rx, ry, true) },
-        { d: halfEllipseD(cx, bottom, rx, ry, false), hidden: true },
-      ];
-    }
-    case 'cone': {
-      const ry = Math.max(0.6, Math.min(h * 0.17, w * 0.2));
-      const bottom = y1 - ry;
-      return [
-        { d: lineD(cx, y0, x0, bottom) },
-        { d: lineD(cx, y0, x1, bottom) },
-        { d: halfEllipseD(cx, bottom, rx, ry, true) },
-        { d: halfEllipseD(cx, bottom, rx, ry, false), hidden: true },
-      ];
-    }
-    case 'sphere': {
-      const ry = h / 2;
-      const cy = y0 + ry;
-      const e = Math.max(0.6, ry * 0.3);
-      return [
-        { d: ellipseD(cx, cy, rx, ry) },
-        { d: halfEllipseD(cx, cy, rx, e, true) },
-        { d: halfEllipseD(cx, cy, rx, e, false), hidden: true },
-      ];
-    }
-    case 'hemisphere': {
-      const e = Math.max(0.6, Math.min(h * 0.22, w * 0.18));
-      const base = y1 - e;
-      return [
-        { d: `M${f3(x0)},${f3(base)} A${f3(rx)},${f3(Math.max(0.6, base - y0))} 0 0 1 ${f3(x1)},${f3(base)}` },
-        { d: halfEllipseD(cx, base, rx, e, true) },
-        { d: halfEllipseD(cx, base, rx, e, false), hidden: true },
-      ];
-    }
-    case 'pyramid': {
-      // Base carrée vue en oblique : l'arête arrière gauche est la seule cachée
-      const dx = w * 0.24;
-      const dy = h * 0.17;
-      const fl = [x0, y1];
-      const fr = [x1 - dx, y1];
-      const br = [x1, y1 - dy];
-      const bl = [x0 + dx, y1 - dy];
-      const apex = [cx, y0];
-      return [
-        { d: lineD(fl[0], fl[1], fr[0], fr[1]) },
-        { d: lineD(fr[0], fr[1], br[0], br[1]) },
-        { d: lineD(apex[0], apex[1], fl[0], fl[1]) },
-        { d: lineD(apex[0], apex[1], fr[0], fr[1]) },
-        { d: lineD(apex[0], apex[1], br[0], br[1]) },
-        { d: lineD(fl[0], fl[1], bl[0], bl[1]), hidden: true },
-        { d: lineD(bl[0], bl[1], br[0], br[1]), hidden: true },
-        { d: lineD(apex[0], apex[1], bl[0], bl[1]), hidden: true },
-      ];
-    }
-    default: {
-      // 'cuboid' : parallélépipède rectangle, profondeur vers le haut et la droite
-      const dx = w * 0.26;
-      const dy = h * 0.24;
-      const ftl = [x0, y0 + dy];
-      const ftr = [x1 - dx, y0 + dy];
-      const fbr = [x1 - dx, y1];
-      const fbl = [x0, y1];
-      const btl = [x0 + dx, y0];
-      const btr = [x1, y0];
-      const bbr = [x1, y1 - dy];
-      const bbl = [x0 + dx, y1 - dy];
-      const edge = (a: number[], b: number[], hidden = false): ShapePart => ({ d: lineD(a[0], a[1], b[0], b[1]), hidden });
-      return [
-        edge(ftl, ftr),
-        edge(ftr, fbr),
-        edge(fbr, fbl),
-        edge(fbl, ftl),
-        edge(ftl, btl),
-        edge(ftr, btr),
-        edge(btl, btr),
-        edge(fbr, bbr),
-        edge(btr, bbr),
-        edge(fbl, bbl, true),
-        edge(bbl, bbr, true),
-        edge(bbl, btl, true),
-      ];
-    }
-  }
-}
-
 function drawParts(ctx: CanvasRenderingContext2D, parts: ShapePart[], weight: number, dashed: boolean) {
   const pattern = dashPattern(weight);
   for (const part of parts) {
@@ -384,9 +270,6 @@ function drawParts(ctx: CanvasRenderingContext2D, parts: ShapePart[], weight: nu
     ctx.stroke(new Path2D(part.d));
   }
 }
-
-const VOLUMES: ShapeKind[] = ['cylinder', 'cone', 'sphere', 'hemisphere', 'pyramid', 'cuboid'];
-export const isVolume = (shape: ShapeKind) => VOLUMES.includes(shape);
 
 /**
  * Dessine une forme (cercle/rectangle/triangle/ligne/flèche/repères/torseur/matrice/volumes) dans son
@@ -464,6 +347,10 @@ export function drawShapeOn(
     case 'hemisphere':
     case 'pyramid':
     case 'cuboid':
+    case 'torus':
+    case 'prism':
+    case 'tetrahedron':
+    case 'ellipsoid':
       drawParts(ctx, volumeParts(shape, x0, y0, w, h), weight, dashed);
       break;
     case 'axes2d': {
@@ -545,29 +432,8 @@ export function drawStroke(ctx: CanvasRenderingContext2D, s: Stroke) {
     ctx.restore();
     return;
   }
-  if (s.tool === 'tape') {
-    // Ruban d'étude : opaque, il cache tout ce qui est dessiné avant lui ; transparent (0 %) une fois tapé
-    if (s.revealed) return;
-    ctx.fillStyle = s.color;
-    ctx.fill(strokePath(s));
-    return;
-  }
   ctx.fillStyle = s.color;
   ctx.fill(strokePath(s));
-}
-
-/**
- * Ruban rendu transparent : un simple contour pointillé (à l'écran seulement, jamais au PDF ni dans une
- * capture) pour savoir où le retaper. `scale` : px d'écran par mm, pour garder un contour fin.
- */
-export function drawTapeGuide(ctx: CanvasRenderingContext2D, s: Stroke, scale: number) {
-  ctx.save();
-  ctx.globalAlpha = 0.8;
-  ctx.strokeStyle = s.color;
-  ctx.lineWidth = 1.3 / scale;
-  ctx.setLineDash([5 / scale, 4 / scale]);
-  ctx.stroke(strokePath(s));
-  ctx.restore();
 }
 
 function lines(ctx: CanvasRenderingContext2D, color: string, draw: () => void) {

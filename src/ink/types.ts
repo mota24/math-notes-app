@@ -7,7 +7,7 @@ export type InkPoint = [number, number, number];
 
 export type InputKind = 'pen' | 'touch' | 'mouse';
 
-export type StrokeTool = 'pen' | 'highlighter' | 'tape' | 'image' | 'shape';
+export type StrokeTool = 'pen' | 'highlighter' | 'image' | 'shape';
 
 /**
  * Cercle/rectangle/triangle : le rectangle points[0]–points[1]. Flèche : points[0] = départ,
@@ -28,7 +28,11 @@ export type ShapeKind =
   | 'sphere'
   | 'hemisphere'
   | 'pyramid'
-  | 'cuboid';
+  | 'cuboid'
+  | 'torus'
+  | 'prism'
+  | 'tetrahedron'
+  | 'ellipsoid';
 
 export interface Stroke {
   id: string;
@@ -49,14 +53,9 @@ export interface Stroke {
   shape?: ShapeKind;
   /** Trait en pointillés (arêtes cachées, lignes de projection) : trait au stylo et formes. */
   dashed?: boolean;
-  /**
-   * tool === 'tape' seulement : ruban d'étude rendu transparent (0 %) d'un tap. Il ne masque alors plus
-   * rien ; absent ou faux, il est opaque et cache les traits dessinés avant lui.
-   */
-  revealed?: boolean;
 }
 
-export type Tool = 'pen' | 'highlighter' | 'tape' | 'line' | 'eraser' | 'lasso' | 'hand' | 'shapes' | 'capture';
+export type Tool = 'pen' | 'highlighter' | 'line' | 'eraser' | 'lasso' | 'hand' | 'shapes' | 'capture';
 
 export type PaperStyle = 'grid' | 'seyes' | 'lined' | 'blank';
 

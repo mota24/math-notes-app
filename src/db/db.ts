@@ -80,6 +80,16 @@ async function pageVersions(): Promise<Record<string, PageVersion>> {
   return ((await d.get('meta', 'pageVersions'))?.value as Record<string, PageVersion>) ?? {};
 }
 
+/**
+ * L'outil « Ruban d'étude » a été retiré : ses traits (opaques, ils cachaient l'encre) s'afficheraient
+ * comme de gros traits de couleur. On les écarte à la lecture ; la page enregistrée sans eux à sa prochaine
+ * modification.
+ */
+function withoutStudyTape(page: Page): Page {
+  if (!page.strokes.some((s) => (s.tool as string) === 'tape')) return page;
+  return { ...page, strokes: page.strokes.filter((s) => (s.tool as string) !== 'tape') };
+}
+
 export const db = {
   async folders() {
     return (await database()).getAll('folders');
@@ -122,13 +132,14 @@ export const db = {
   },
 
   async getPage(id: string) {
-    return (await database()).get('pages', id);
+    const page = await (await database()).get('pages', id);
+    return page && withoutStudyTape(page);
   },
   async allPages() {
-    return (await database()).getAll('pages');
+    return (await (await database()).getAll('pages')).map(withoutStudyTape);
   },
   async pagesOf(notebookId: string) {
-    return (await database()).getAllFromIndex('pages', 'notebookId', notebookId);
+    return (await (await database()).getAllFromIndex('pages', 'notebookId', notebookId)).map(withoutStudyTape);
   },
   /** Enregistre la page et sa version (utilisée par la synchronisation sans charger les traits). */
   async putPage(page: Page, silent = false) {

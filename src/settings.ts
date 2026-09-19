@@ -2,8 +2,7 @@ import { useCallback, useState } from 'react';
 import { FREE_MODELS } from './ai/gemini';
 import type { SizeMode } from './ink/palm';
 import type { Handedness, PaperStyle, StylusMode } from './ink/types';
-import { DEFAULT_PENCIL_CASE, normalizePencilCase } from './pencilCase';
-import type { PencilCase } from './pencilCase';
+import { DEFAULT_SELECTION_COLORS, normalizeSelectionColors } from './colors';
 
 export interface Settings {
   apiKey: string;
@@ -56,12 +55,8 @@ export interface Settings {
   handVariation: number;
   highlightColor: string;
   highlightSize: number;
-  /** Ruban d'étude : couleur, largeur (mm), et si le mode d'emploi s'est déjà affiché */
-  tapeColor: string;
-  tapeSize: number;
-  tapeHintSeen: boolean;
-  /** La trousse : 3 favoris (outil + couleur + épaisseur), `null` = emplacement vide */
-  pencilCase: PencilCase;
+  /** Palette de la barre d'une sélection : les 3 dernières couleurs choisies, la plus récente en premier */
+  selectionColors: string[];
   /** Envoyer aussi le PDF ou la photo de fond à Gemini (texte imprimé compris) */
   convertBackground: boolean;
   /** Export « PDF de mes notes » en mode impression : fond blanc, encre claire convertie en foncé */
@@ -105,10 +100,7 @@ const DEFAULTS: Settings = {
   handVariation: 1,
   highlightColor: '#facc15',
   highlightSize: 5,
-  tapeColor: '#fb923c',
-  tapeSize: 7,
-  tapeHintSeen: false,
-  pencilCase: DEFAULT_PENCIL_CASE,
+  selectionColors: [...DEFAULT_SELECTION_COLORS],
   convertBackground: true,
   printMode: false,
 };
@@ -123,7 +115,9 @@ function load(): Settings {
     // D'anciens noms de modèle Gemini inventés (gemini-3.x) n'existent pas côté Google et
     // renvoyaient systématiquement « modèle introuvable » : on repart sur un modèle réel.
     if (saved.model && !FREE_MODELS.includes(saved.model) && /^gemini-3\./.test(saved.model)) delete saved.model;
-    return { ...DEFAULTS, ...saved, pencilCase: normalizePencilCase(saved.pencilCase) };
+    // Réglages d'anciennes versions (trousse, ruban d'étude) : abandonnés
+    for (const legacy of ['pencilCase', 'tapeColor', 'tapeSize', 'tapeHintSeen']) delete (saved as Record<string, unknown>)[legacy];
+    return { ...DEFAULTS, ...saved, selectionColors: normalizeSelectionColors(saved.selectionColors) };
   } catch {
     return DEFAULTS;
   }

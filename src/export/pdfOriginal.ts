@@ -2,9 +2,10 @@ import { BlendMode, PDFDocument, StandardFonts, degrees, rgb } from 'pdf-lib';
 import type { PDFFont, PDFImage, PDFPage } from 'pdf-lib';
 import { db } from '../db/db';
 import type { Page } from '../db/schema';
-import { HIGHLIGHT_ALPHA, PAPER_BACKGROUND, bracePathD, dashPattern, paperLines, parenPathD, strokeSvgPath, volumeParts } from '../ink/draw';
+import { HIGHLIGHT_ALPHA, PAPER_BACKGROUND, bracePathD, dashPattern, paperLines, parenPathD, strokeSvgPath } from '../ink/draw';
 import { strokeBBox } from '../ink/geometry';
 import { sheetRanges } from '../ink/pageExtent';
+import { volumeParts } from '../ink/volumes';
 import type { PaperColor, Stroke } from '../ink/types';
 import { printPngBytes } from './printImage';
 import { printColor } from './printInk';
@@ -185,15 +186,15 @@ export interface InkPdfOptions {
   /** Papier du cahier, pour les pages qui n'ont pas le leur */
   defaultPaperColor?: PaperColor;
   /**
-   * Mode impression : fond blanc (réglures pâles), encre claire convertie en foncé. Les surligneurs et
-   * rubans, faits pour rester colorés, gardent leur couleur.
+   * Mode impression : fond blanc (réglures pâles), encre claire convertie en foncé. Les surligneurs,
+   * faits pour rester colorés, gardent leur couleur.
    */
   print?: boolean;
 }
 
 /** Le trait tel qu'il doit s'imprimer sur du papier blanc */
 function forPrint(s: Stroke): Stroke {
-  if (s.tool === 'highlighter' || s.tool === 'tape' || s.tool === 'image') return s;
+  if (s.tool === 'highlighter' || s.tool === 'image') return s;
   return { ...s, color: printColor(s.color) };
 }
 
@@ -234,8 +235,6 @@ export async function exportInkPdf(
         if (bb.maxY < sheet.top || bb.minY > sheet.bottom) continue;
       }
       const s = print ? forPrint(original) : original;
-      // Ruban d'étude transparent (0 %) : il ne masque rien, il n'y a rien à dessiner
-      if (s.tool === 'tape' && s.revealed) continue;
       if (s.tool === 'shape') {
         drawShapeOnPdf(target, box, scale, s, shapeFonts);
         continue;

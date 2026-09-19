@@ -1,8 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import type { ShapeKind, Tool } from '../ink/types';
-import { PX_PER_MM, SLOT_COUNT, describeSlot, mmToPx, sameSlot, slotFromCurrent } from '../pencilCase';
-import type { PencilCase, PencilSlot } from '../pencilCase';
 
 const PEN_COLORS = [
   { value: '#1d2433', name: 'Noir' },
@@ -16,22 +14,25 @@ const HIGHLIGHT_COLORS = [
   { value: '#4ade80', name: 'Vert' },
   { value: '#f472b6', name: 'Rose' },
   { value: '#60a5fa', name: 'Bleu' },
+  { value: '#1d2433', name: 'Noir' },
 ];
-/** Ruban d'étude : opaque, donc des teintes franches qui ressortent sur papier clair comme sombre */
-const TAPE_COLORS = [
-  { value: '#fb923c', name: 'Orange' },
-  { value: '#f472b6', name: 'Rose' },
+/** Couleurs à portée de doigt dans la barre : celles du stylo (aussi pour les formes), celles du surligneur. */
+const QUICK_PEN = [
+  { value: '#1d2433', name: 'Noir' },
+  { value: '#ffffff', name: 'Blanc' },
+  { value: '#c0392b', name: 'Rouge' },
+];
+const QUICK_HIGHLIGHT = [
   { value: '#facc15', name: 'Jaune' },
   { value: '#4ade80', name: 'Vert' },
-  { value: '#60a5fa', name: 'Bleu' },
-  { value: '#a78bfa', name: 'Violet' },
+  { value: '#1d2433', name: 'Noir' },
 ];
 /** Les épaisseurs sont en mm (indépendantes du zoom) ; le curseur, lui, parle en px d'écran. */
-const toPx = mmToPx;
+const PX_PER_MM = 3.7795;
+const toPx = (mm: number) => Math.round(mm * PX_PER_MM * 2) / 2;
 const toMm = (px: number) => px / PX_PER_MM;
 const PEN_RANGE = { min: 1, max: 20, step: 0.5, ticks: [1, 5, 10, 15, 20] };
 const HIGHLIGHT_RANGE = { min: 4, max: 40, step: 1, ticks: [4, 13, 22, 31, 40] };
-const TAPE_RANGE = { min: 8, max: 80, step: 1, ticks: [8, 26, 44, 62, 80] };
 
 export const icon = (d: ReactNode) => (
   <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -42,13 +43,6 @@ export const icon = (d: ReactNode) => (
 export const ICONS = {
   pen: icon(<path d="M4 20l4-1 11-11-3-3L5 16l-1 4zM14 6l3 3" />),
   highlighter: icon(<path d="M9 15l-3 5h6l1-2M9 15l7-11 4 3-7 11zM4 22h16" />),
-  /** Ruban d'étude : une bande qui recouvre des lignes de texte */
-  tape: icon(
-    <>
-      <path d="M4 6h9M4 18h12" />
-      <rect x="3" y="9.5" width="18" height="5" rx="1.5" fill="currentColor" fillOpacity="0.28" />
-    </>,
-  ),
   line: icon(<path d="M4 20L20 4M4 20l2-5M4 20l5-2" />),
   eraser: icon(<path d="M8 20h12M5 15l8-9 6 6-7 8H9l-4-5z" />),
   lasso: icon(<path d="M12 4c5 0 8 2.5 8 5.5S16.5 15 12 15 4 12.5 4 9.5 7 4 12 4zM7 14c-1 2 0 4 2 5" strokeDasharray="3 2.5" />),
@@ -203,6 +197,50 @@ const STAMP_GROUPS: StampGroup[] = [
           </>,
         ),
       },
+      {
+        kind: 'torus',
+        label: 'Tore',
+        icon: icon(
+          <>
+            <ellipse cx="12" cy="12" rx="9" ry="6.4" />
+            <ellipse cx="12" cy="11.2" rx="3.5" ry="1.8" />
+            <path d="M3.4 13.4c1.4 1.6 4.6 2.6 8.6 2.6s7.2-1 8.6-2.6" />
+            <path d="M3.4 13.4c1.4-1.6 4.6-2.6 8.6-2.6s7.2 1 8.6 2.6" {...DASHED} />
+          </>,
+        ),
+      },
+      {
+        kind: 'prism',
+        label: 'Prisme',
+        hint: 'Prisme triangulaire',
+        icon: icon(
+          <>
+            <path d="M3 19h12L9 7zM15 19l5-3-6-12-5 3" />
+            <path d="M3 19l5-3h12M8 16l6-12" {...DASHED} />
+          </>,
+        ),
+      },
+      {
+        kind: 'tetrahedron',
+        label: 'Tétraèdre',
+        icon: icon(
+          <>
+            <path d="M3 19h12l6-5L11 4zM11 4l4 15" />
+            <path d="M3 19l18-5" {...DASHED} />
+          </>,
+        ),
+      },
+      {
+        kind: 'ellipsoid',
+        label: 'Ellipsoïde',
+        icon: icon(
+          <>
+            <ellipse cx="12" cy="12" rx="9" ry="6.4" />
+            <path d="M3 12.6c0 1.8 4 3.2 9 3.2s9-1.4 9-3.2" />
+            <path d="M3 12.6c0-1.8 4-3.2 9-3.2s9 1.4 9 3.2" {...DASHED} />
+          </>,
+        ),
+      },
     ],
   },
 ];
@@ -214,13 +252,10 @@ interface Props {
   size: number;
   highlightColor: string;
   highlightSize: number;
-  tapeColor: string;
-  tapeSize: number;
   shapeKind: ShapeKind;
   dashed: boolean;
   eraserMode: 'stroke' | 'precision';
   eraserSize: number;
-  pencilCase: PencilCase;
   canUndo: boolean;
   canRedo: boolean;
   canPaste: boolean;
@@ -228,118 +263,12 @@ interface Props {
   onColor(c: string): void;
   onSize(s: number): void;
   onHighlight(patch: { highlightColor?: string; highlightSize?: number }): void;
-  onTape(patch: { tapeColor?: string; tapeSize?: number }): void;
   onShapeKind(k: ShapeKind): void;
   onDashed(v: boolean): void;
   onEraser(patch: { eraserMode?: 'stroke' | 'precision'; eraserSize?: number }): void;
-  /** Trousse : rappeler le favori i, y mémoriser l'outil actif, ou vider les trois */
-  onRecallSlot(i: number): void;
-  onSaveSlot(i: number): void;
-  onClearCase(): void;
   onUndo(): void;
   onRedo(): void;
   onPaste(): void;
-}
-
-/** Appui long (ms) sur un favori pour y mémoriser le réglage courant */
-const LONG_PRESS_MS = 550;
-
-/** Aperçu d'un favori : un échantillon de trait à la couleur, à l'épaisseur et au style mémorisés. */
-function SlotGlyph({ slot }: { slot: PencilSlot | null }) {
-  if (!slot) {
-    return (
-      <svg viewBox="0 0 26 26" width="26" height="26" fill="none" aria-hidden="true">
-        <circle cx="13" cy="13" r="9" stroke="currentColor" strokeWidth="1.4" strokeDasharray="3 3" opacity="0.55" />
-        <path d="M13 9v8M9 13h8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" opacity="0.7" />
-      </svg>
-    );
-  }
-  const px = toPx(slot.size);
-  if (slot.tool === 'tape') {
-    const h = Math.min(12, Math.max(5, px * 0.3));
-    return (
-      <svg viewBox="0 0 26 26" width="26" height="26" aria-hidden="true">
-        <rect x="2.5" y={13 - h / 2} width="21" height={h} rx="1.5" fill={slot.color} />
-      </svg>
-    );
-  }
-  const w = slot.tool === 'highlighter' ? Math.min(11, Math.max(4, px * 0.5)) : Math.min(7, Math.max(1.6, px * 0.6));
-  return (
-    <svg viewBox="0 0 26 26" width="26" height="26" fill="none" aria-hidden="true">
-      <path
-        d="M4 19C8 6 13 23 22 7"
-        stroke={slot.color}
-        strokeWidth={w}
-        strokeLinecap={slot.dashed ? 'butt' : 'round'}
-        strokeOpacity={slot.tool === 'highlighter' ? 0.55 : 1}
-        strokeDasharray={slot.dashed ? `${w * 2.2} ${w * 1.4}` : undefined}
-      />
-    </svg>
-  );
-}
-
-/** Un emplacement de la trousse : tap = rappeler (ou mémoriser si vide), appui long = mémoriser le réglage courant. */
-function SlotButton({
-  index,
-  slot,
-  active,
-  onRecall,
-  onSave,
-}: {
-  index: number;
-  slot: PencilSlot | null;
-  active: boolean;
-  onRecall(): void;
-  onSave(): void;
-}) {
-  const timer = useRef(0);
-  const fired = useRef(false);
-  const [charging, setCharging] = useState(false);
-  const stop = () => {
-    window.clearTimeout(timer.current);
-    setCharging(false);
-  };
-  useEffect(() => () => window.clearTimeout(timer.current), []);
-  const label = slot
-    ? `Favori ${index + 1} : ${describeSlot(slot)}. Appui long : le remplacer par le réglage actuel.`
-    : `Favori ${index + 1} vide : touche pour y mémoriser le réglage actuel.`;
-  return (
-    <button
-      className={`tb-slot ${slot ? '' : 'empty'} ${active ? 'active' : ''} ${charging ? 'charging' : ''}`}
-      onPointerDown={() => {
-        fired.current = false;
-        setCharging(true);
-        window.clearTimeout(timer.current);
-        timer.current = window.setTimeout(() => {
-          fired.current = true;
-          setCharging(false);
-          navigator.vibrate?.(18);
-          onSave();
-        }, LONG_PRESS_MS);
-      }}
-      onPointerUp={stop}
-      onPointerLeave={stop}
-      onPointerCancel={stop}
-      onClick={() => {
-        // Le clic qui suit un appui long ne doit pas rappeler ce qu'on vient de mémoriser
-        if (fired.current) {
-          fired.current = false;
-          return;
-        }
-        if (slot) onRecall();
-        else onSave();
-      }}
-      onContextMenu={(e) => e.preventDefault()}
-      title={label}
-      aria-label={label}
-      aria-pressed={active}
-    >
-      <SlotGlyph slot={slot} />
-      <span className="slot-n" aria-hidden="true">
-        {index + 1}
-      </span>
-    </button>
-  );
 }
 
 /** Continu ou pointillés : réglage commun au stylo et aux formes (arêtes cachées, lignes de projection). */
@@ -372,20 +301,18 @@ export function Toolbar(p: Props) {
   const [pop, setPop] = useState<Pop>(null);
   const popRef = useRef<HTMLDivElement>(null);
   const highlighter = p.tool === 'highlighter';
-  const tape = p.tool === 'tape';
-  const colors = highlighter ? HIGHLIGHT_COLORS : tape ? TAPE_COLORS : PEN_COLORS;
-  const current = highlighter ? p.highlightColor : tape ? p.tapeColor : p.color;
-  const range = highlighter ? HIGHLIGHT_RANGE : tape ? TAPE_RANGE : PEN_RANGE;
-  const sizePx = Math.min(range.max, Math.max(range.min, toPx(highlighter ? p.highlightSize : tape ? p.tapeSize : p.size)));
+  const colors = highlighter ? HIGHLIGHT_COLORS : PEN_COLORS;
+  const quick = highlighter ? QUICK_HIGHLIGHT : QUICK_PEN;
+  const current = highlighter ? p.highlightColor : p.color;
+  const range = highlighter ? HIGHLIGHT_RANGE : PEN_RANGE;
+  const sizePx = Math.min(range.max, Math.max(range.min, toPx(highlighter ? p.highlightSize : p.size)));
   const setSizePx = (px: number) => {
     const value = Math.min(range.max, Math.max(range.min, px));
     if (highlighter) p.onHighlight({ highlightSize: toMm(value) });
-    else if (tape) p.onTape({ tapeSize: toMm(value) });
     else p.onSize(toMm(value));
   };
   const setColor = (value: string) => {
     if (highlighter) p.onHighlight({ highlightColor: value });
-    else if (tape) p.onTape({ tapeColor: value });
     else p.onColor(value);
   };
   const sizeLabel = sizePx % 1 ? sizePx.toFixed(1).replace('.', ',') : String(sizePx);
@@ -400,14 +327,27 @@ export function Toolbar(p: Props) {
     return () => window.removeEventListener('pointerdown', onDown, true);
   }, [pop]);
 
-  const writer = p.tool === 'pen' || p.tool === 'highlighter' || p.tool === 'tape' || p.tool === 'line';
+  // La barre garde toujours tout sur une seule ligne, sans défiler : sur une zone étroite (portrait, panneau
+  // latéral ouvert), boutons et pastilles se resserrent
+  const [density, setDensity] = useState<'full' | 'compact' | 'tight'>('full');
+  useEffect(() => {
+    const stage = popRef.current?.parentElement;
+    if (!stage) return;
+    const measure = () => setDensity(stage.clientWidth < 610 ? 'tight' : stage.clientWidth < 690 ? 'compact' : 'full');
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(stage);
+    return () => observer.disconnect();
+  }, []);
+
+  const writer = p.tool === 'pen' || p.tool === 'highlighter' || p.tool === 'line' || p.tool === 'shapes';
   const toggle = (which: Exclude<Pop, null>) => setPop((v) => (v === which ? null : which));
   const toolButton = (t: Tool, label: string) => (
     <button
       className={`tb-btn ${p.tool === t ? 'active' : ''}`}
       onClick={() => {
         // Retoucher l'outil déjà choisi ouvre ses réglages (comme sur GoodNotes)
-        if (p.tool === t && (t === 'pen' || t === 'highlighter' || t === 'tape' || t === 'line')) toggle('pen');
+        if (p.tool === t && (t === 'pen' || t === 'highlighter' || t === 'line')) toggle('pen');
         else if (t === 'eraser') {
           if (p.tool === 'eraser') toggle('eraser');
           else {
@@ -427,17 +367,14 @@ export function Toolbar(p: Props) {
     </button>
   );
   const currentStamp = ALL_STAMPS.find((s) => s.kind === p.shapeKind);
-  const currentSlot = slotFromCurrent(p.tool, p);
-  const slots = Array.from({ length: SLOT_COUNT }, (_, i) => p.pencilCase[i] ?? null);
   const eraserPx = Math.min(40, Math.max(4, p.eraserSize));
 
   return (
-    <div className="toolbar" ref={popRef}>
+    <div className={`toolbar density-${density}`} ref={popRef}>
       <div className="tb-pill">
         <div className="tb-group">
           {toolButton('pen', 'Stylo')}
           {toolButton('highlighter', 'Surligneur')}
-          {toolButton('tape', 'Ruban d’étude : cache ce qui est dessous, un tap le rend transparent')}
           {toolButton('eraser', 'Gomme : par trait ou de précision')}
           {toolButton('lasso', 'Lasso : sélectionner, déplacer, convertir')}
           {toolButton('capture', 'Lasso de capture : encadrer une zone, la copier comme une image')}
@@ -459,37 +396,30 @@ export function Toolbar(p: Props) {
           {toolButton('hand', 'Déplacer la page')}
         </div>
         <span className="tb-sep" />
-        <div className="tb-group tb-slots" role="group" aria-label="Trousse : favoris">
-          {slots.map((slot, i) => (
-            <SlotButton
-              key={i}
-              index={i}
-              slot={slot}
-              active={sameSlot(slot, currentSlot)}
-              onRecall={() => {
-                p.onRecallSlot(i);
-                setPop(null);
-              }}
-              onSave={() => p.onSaveSlot(i)}
+        <div className="tb-group tb-quick" role="group" aria-label="Couleurs rapides">
+          {quick.map((c) => (
+            <button
+              key={c.value}
+              className={`tb-qc ${current === c.value ? 'active' : ''}`}
+              style={{ '--qc': c.value } as CSSProperties}
+              onClick={() => setColor(c.value)}
+              title={c.name}
+              aria-label={`Couleur ${c.name}`}
+              aria-pressed={current === c.value}
             />
           ))}
+          <button
+            className="tb-wheel"
+            style={{ '--cur': current } as CSSProperties}
+            onClick={() => {
+              if (!writer) p.onTool('pen');
+              toggle('pen');
+            }}
+            aria-expanded={pop === 'pen'}
+            aria-label={`Palette et épaisseur du trait : ${sizeLabel} px`}
+            title={`Palette et épaisseur (${sizeLabel} px)`}
+          />
         </div>
-        <span className="tb-sep" />
-        <button
-          className="tb-chip"
-          onClick={() => {
-            if (!writer) p.onTool('pen');
-            toggle('pen');
-          }}
-          aria-expanded={pop === 'pen'}
-          aria-label={`Épaisseur et couleur : ${sizeLabel} px`}
-          title="Épaisseur et couleur"
-        >
-          <span className="tb-chip-dot">
-            <span style={{ width: Math.min(24, sizePx), height: Math.min(24, sizePx), background: current }} />
-          </span>
-          <span className="tb-chip-value">{sizeLabel} px</span>
-        </button>
         <span className="tb-sep" />
         <button className="tb-btn" onClick={p.onUndo} disabled={!p.canUndo} title="Annuler (ou tap à deux doigts)" aria-label="Annuler">
           {ICONS.undo}
@@ -507,7 +437,7 @@ export function Toolbar(p: Props) {
       {pop === 'pen' && (
         <div className="tb-pop">
           <div className="pop-head">
-            <strong>{highlighter ? 'Surligneur' : tape ? 'Ruban d’étude' : p.tool === 'line' ? 'Règle : trait droit' : 'Stylo'}</strong>
+            <strong>{highlighter ? 'Surligneur' : p.tool === 'shapes' ? 'Formes : couleur et trait' : p.tool === 'line' ? 'Règle : trait droit' : 'Stylo'}</strong>
             <button className="icon-btn" onClick={() => setPop(null)} aria-label="Fermer">
               {ICONS.close}
             </button>
@@ -519,8 +449,8 @@ export function Toolbar(p: Props) {
                 stroke={current}
                 strokeWidth={Math.min(sizePx, 56)}
                 strokeOpacity={highlighter ? 0.35 : 1}
-                strokeLinecap={p.dashed && !highlighter && !tape ? 'butt' : 'round'}
-                strokeDasharray={p.dashed && !highlighter && !tape ? `${Math.max(9, sizePx * 3)} ${Math.max(6, sizePx * 1.6)}` : undefined}
+                strokeLinecap={p.dashed && !highlighter ? 'butt' : 'round'}
+                strokeDasharray={p.dashed && !highlighter ? `${Math.max(9, sizePx * 3)} ${Math.max(6, sizePx * 1.6)}` : undefined}
               />
             </svg>
           </div>
@@ -543,7 +473,7 @@ export function Toolbar(p: Props) {
               value={sizePx}
               onChange={(e) => setSizePx(Number(e.target.value))}
               style={{ '--fill': `${((sizePx - range.min) / (range.max - range.min)) * 100}%` } as CSSProperties}
-              aria-label={`Épaisseur du ${highlighter ? 'surligneur' : tape ? 'ruban' : 'trait'} en pixels`}
+              aria-label={`Épaisseur du ${highlighter ? 'surligneur' : 'trait'} en pixels`}
             />
             <button className="icon-btn" onClick={() => setSizePx(sizePx + range.step)} disabled={sizePx >= range.max} aria-label="Plus épais">
               {ICONS.plus}
@@ -567,45 +497,15 @@ export function Toolbar(p: Props) {
                 aria-pressed={current === c.value}
               />
             ))}
-            {!highlighter && (
-              <label className={`swatch custom ${colors.some((c) => c.value === current) ? '' : 'active'}`} title="Autre couleur">
-                <input type="color" value={current} onChange={(e) => setColor(e.target.value)} aria-label="Autre couleur" />
-              </label>
-            )}
+            <label className={`swatch custom ${colors.some((c) => c.value === current) ? '' : 'active'}`} title="Autre couleur">
+              <input type="color" value={current} onChange={(e) => setColor(e.target.value)} aria-label="Autre couleur" />
+            </label>
           </div>
-          {!highlighter && !tape && <DashStyle dashed={p.dashed} onDashed={p.onDashed} />}
-          <div className="pop-label pop-colors-title">Trousse</div>
-          <div className="slot-save-row">
-            {slots.map((slot, i) => (
-              <button
-                key={i}
-                className={`slot-save ${sameSlot(slot, currentSlot) ? 'active' : ''}`}
-                onClick={() => p.onSaveSlot(i)}
-                aria-label={`Mémoriser ce réglage dans le favori ${i + 1}`}
-                title={slot ? `Remplacer le favori ${i + 1} (${describeSlot(slot)})` : `Mémoriser dans le favori ${i + 1}`}
-              >
-                <SlotGlyph slot={slot} />
-                <span>Favori {i + 1}</span>
-              </button>
-            ))}
-          </div>
-          <p className="pop-hint pop-hint-tight">
-            Touche un favori pour y mémoriser ce réglage. Dans la barre, un tap le rappelle, un appui long le remplace.
-            {slots.some(Boolean) && (
-              <>
-                {' '}
-                <button className="pop-clear" onClick={p.onClearCase}>
-                  Vider la trousse
-                </button>
-              </>
-            )}
-          </p>
+          {!highlighter && <DashStyle dashed={p.dashed} onDashed={p.onDashed} />}
           <p className="pop-hint">
             {highlighter
               ? 'Largeur constante, encre translucide : le surligneur passe par-dessus sans masquer.'
-              : tape
-                ? 'Ruban opaque : il cache ce qui est dessous. Tape dessus, au doigt ou au stylet, pour le rendre transparent ; retape pour le remettre. Un trait presque droit se redresse.'
-                : 'L’épaisseur est enregistrée en millimètres : le trait garde sa taille au zoom comme à l’export PDF.'}
+              : 'L’épaisseur est enregistrée en millimètres : le trait garde sa taille au zoom comme à l’export PDF.'}
           </p>
         </div>
       )}

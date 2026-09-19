@@ -121,7 +121,9 @@ button:disabled {
   flex-direction: column;
   align-items: center;
   gap: 10px;
-  max-width: calc(100% - 24px);
+  /* Toute la barre tient sur une ligne : elle prend sa largeur naturelle, sans être réduite de moitié */
+  width: max-content;
+  max-width: calc(100% - 16px);
 }
 
 .tb-pill {
@@ -138,12 +140,39 @@ button:disabled {
   -webkit-backdrop-filter: blur(24px) saturate(190%);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 1px 1px rgba(20, 18, 14, 0.04), 0 14px 30px rgba(20, 18, 14, 0.14),
     0 3px 8px rgba(20, 18, 14, 0.08);
-  overflow-x: auto;
-  scrollbar-width: none;
+  /* Jamais de défilement : tout reste à portée du stylet (la barre se resserre si la zone est étroite) */
+  overflow-x: hidden;
 }
 
-.tb-pill::-webkit-scrollbar {
-  display: none;
+/* Zone étroite (portrait, panneau des pages ouvert) : boutons et pastilles se resserrent */
+.toolbar.density-compact {
+  --tb-qc: 30px;
+  --tb-wheel: 32px;
+}
+
+.toolbar.density-tight {
+  --tb-qc: 28px;
+  --tb-wheel: 30px;
+}
+
+.toolbar.density-compact .tb-pill .tb-btn {
+  width: 40px;
+  height: 40px;
+}
+
+.toolbar.density-tight .tb-pill .tb-btn {
+  width: 36px;
+  height: 36px;
+}
+
+.toolbar.density-compact .tb-pill .tb-sep,
+.toolbar.density-tight .tb-pill .tb-sep {
+  margin: 0 3px;
+}
+
+.toolbar.density-compact .tb-quick,
+.toolbar.density-tight .tb-quick {
+  gap: 5px;
 }
 
 .tb-group {
@@ -199,184 +228,63 @@ button:disabled {
   height: 40px;
 }
 
-/* La trousse : trois favoris (outil + couleur + épaisseur) */
+/* Couleurs rapides : trois pastilles qui suivent l'outil actif, puis la roue qui ouvre la palette et l'épaisseur */
 
-.tb-slots {
-  gap: 5px;
+.tb-quick {
+  gap: 7px;
+  padding: 0 2px;
 }
 
-.tb-slot {
-  position: relative;
-  display: grid;
-  place-items: center;
+.tb-qc {
   flex: none;
-  width: 38px;
-  height: 38px;
+  width: var(--tb-qc, 34px);
+  height: var(--tb-qc, 34px);
   min-height: 0;
   padding: 0;
-  border: 1px solid var(--line);
+  border: 1.5px solid rgba(20, 18, 14, 0.24);
   border-radius: 50%;
-  background: rgba(20, 18, 14, 0.04);
-  color: var(--ink-soft);
-  transition: background 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease, transform 0.22s var(--spring);
+  background: var(--qc);
+  transition: transform 0.22s var(--spring), box-shadow 0.15s ease;
 }
 
-.tb-slot:hover {
-  background: rgba(20, 18, 14, 0.08);
+.tb-qc:active {
+  transform: scale(0.88);
 }
 
-.tb-slot:active {
-  transform: scale(0.9);
+.tb-qc.active {
+  box-shadow: 0 0 0 2px var(--card), 0 0 0 4px var(--accent);
 }
 
-.tb-slot.empty {
-  border-style: dashed;
-}
-
-.tb-slot.active {
-  border-color: var(--accent);
-  background: var(--card);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 32%, transparent);
-}
-
-/* Un filet sombre autour du tracé : un stylo blanc reste visible sur la barre claire */
-.tb-slot svg {
-  filter: drop-shadow(0 0 0.6px rgba(20, 18, 14, 0.75));
-}
-
-.tb-slot .slot-n {
-  position: absolute;
-  right: 1px;
-  bottom: -1px;
-  font-size: 9px;
-  font-weight: 700;
-  line-height: 1;
-  color: var(--muted);
-  pointer-events: none;
-}
-
-/* Appui long : un anneau qui se referme pendant que le réglage se mémorise */
-.tb-slot.charging::after {
-  content: '';
-  position: absolute;
-  inset: -3px;
-  border: 2px solid var(--accent);
-  border-radius: 50%;
-  opacity: 0;
-  animation: slot-charge 0.55s linear forwards;
-  pointer-events: none;
-}
-
-@keyframes slot-charge {
-  0% {
-    opacity: 0.25;
-    transform: scale(0.7);
-  }
-  100% {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-
-.slot-save-row {
-  display: flex;
-  gap: 8px;
-}
-
-.tb-pop .slot-save {
-  display: flex;
-  flex: 1;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  height: 46px;
-  min-height: 0;
-  padding: 0 8px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.07);
-  color: rgba(255, 255, 255, 0.78);
-  font-size: 12px;
-}
-
-.tb-pop .slot-save:hover {
-  background: rgba(255, 255, 255, 0.12);
-}
-
-.tb-pop .slot-save.active {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 30%, transparent);
-  color: #fff;
-}
-
-/* Filet clair autour du tracé : un stylo noir reste visible sur le verre sombre */
-.tb-pop .slot-save svg {
-  filter: drop-shadow(0 0 0.8px rgba(255, 255, 255, 0.85));
-}
-
-.tb-pop .pop-hint-tight {
-  margin-top: 8px;
-}
-
-.tb-pop .pop-clear {
-  display: inline;
+/* La roue chromatique ; son cœur reprend la couleur courante (utile quand elle n'est pas l'une des trois) */
+.tb-wheel {
+  position: relative;
+  flex: none;
+  width: var(--tb-wheel, 36px);
+  height: var(--tb-wheel, 36px);
   min-height: 0;
   padding: 0;
   border: 0;
-  background: none;
-  color: rgba(255, 255, 255, 0.85);
-  font: inherit;
-  text-decoration: underline;
-  cursor: pointer;
-}
-
-.tb-chip {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  flex: none;
-  height: 44px;
-  min-height: 0;
-  padding: 0 14px 0 8px;
-  border: 1px solid transparent;
-  border-radius: 999px;
-  background: transparent;
-  transition: background 0.15s ease, transform 0.22s var(--spring);
-}
-
-.tb-chip:hover {
-  background: rgba(20, 18, 14, 0.06);
-}
-
-.tb-chip:active {
-  transform: scale(0.95);
-}
-
-.tb-chip[aria-expanded='true'] {
-  border-color: rgba(255, 255, 255, 0.5);
-  background: var(--card);
-  box-shadow: 0 1px 4px rgba(20, 18, 14, 0.12);
-}
-
-.tb-chip-dot {
-  display: grid;
-  place-items: center;
-  width: 30px;
-  height: 30px;
   border-radius: 50%;
-  background: rgba(20, 18, 14, 0.06);
+  background: conic-gradient(from 0.25turn, #ef4444, #f59e0b, #facc15, #22c55e, #06b6d4, #3b82f6, #a855f7, #ef4444);
+  transition: transform 0.22s var(--spring), box-shadow 0.15s ease;
 }
 
-.tb-chip-dot span {
-  display: block;
+.tb-wheel::after {
+  content: '';
+  position: absolute;
+  inset: 28%;
+  border: 2px solid #fff;
   border-radius: 50%;
+  background: var(--cur, #1d2433);
+  box-shadow: 0 0 0 1px rgba(20, 18, 14, 0.3);
 }
 
-.tb-chip-value {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--ink-soft);
-  font-variant-numeric: tabular-nums;
+.tb-wheel:active {
+  transform: scale(0.9);
+}
+
+.tb-wheel[aria-expanded='true'] {
+  box-shadow: 0 0 0 2px var(--card), 0 0 0 4px var(--accent);
 }
 
 /* réglages du trait */

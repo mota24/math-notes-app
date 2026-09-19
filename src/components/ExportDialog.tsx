@@ -143,7 +143,7 @@ export function ExportDialog({
           </label>
           <p className="export-hint">
             {settings.printMode
-              ? 'Fond blanc à réglures pâles ; le blanc et les couleurs claires passent en noir ou en teinte foncée. Surligneurs et rubans gardent leur couleur.'
+              ? 'Fond blanc à réglures pâles ; le blanc et les couleurs claires passent en noir ou en teinte foncée. Les surligneurs gardent leur couleur.'
               : notebook.paperColor === 'dark'
                 ? 'Sans ce mode, le PDF garde le fond sombre de ton cahier : lisible, mais gourmand en encre si tu l’imprimes.'
                 : 'Pour imprimer : fond blanc, encre claire convertie en foncé.'}

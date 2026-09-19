@@ -70,37 +70,6 @@ export function strokeHit(s: Stroke, x: number, y: number, r: number): boolean {
   return false;
 }
 
-/** Marge (mm) autour d'un ruban où un tap le touche encore : un doigt n'est pas précis. */
-const TAPE_TAP_PAD = 1.5;
-
-/**
- * Le ruban d'étude touché en (x, y), le plus haut dans l'empilement d'abord (celui qu'on voit).
- * `skip` : les traits masqués, en cours de modification.
- */
-export function tapeAt(strokes: readonly Stroke[], x: number, y: number, skip?: ReadonlySet<string>): Stroke | null {
-  for (let i = strokes.length - 1; i >= 0; i--) {
-    const s = strokes[i];
-    if (s.tool === 'tape' && !skip?.has(s.id) && strokeHit(s, x, y, TAPE_TAP_PAD)) return s;
-  }
-  return null;
-}
-
-/**
- * Un ruban tracé presque droit devient une bande bien droite d'un bout à l'autre, comme un vrai ruban
- * adhésif. Un tracé qui s'écarte franchement de sa corde (courbe, coude) reste tel que dessiné.
- */
-export function straightenedTape(points: InkPoint[], size: number): InkPoint[] {
-  if (points.length < 3) return points;
-  const [ax, ay] = points[0];
-  const [bx, by] = points[points.length - 1];
-  const len = Math.hypot(bx - ax, by - ay);
-  if (len < Math.max(8, size * 1.5)) return points;
-  const tolerance = Math.max(1, size * 0.3);
-  for (const [x, y] of points) if (distToSegmentSq(x, y, ax, ay, bx, by) > tolerance * tolerance) return points;
-  const steps = Math.max(2, Math.ceil(len));
-  return Array.from({ length: steps + 1 }, (_, i): InkPoint => [ax + ((bx - ax) * i) / steps, ay + ((by - ay) * i) / steps, 0.5]);
-}
-
 function segmentsIntersect(ax: number, ay: number, bx: number, by: number, cx: number, cy: number, dx: number, dy: number): boolean {
   const o = (px: number, py: number, qx: number, qy: number, rx: number, ry: number) => (qx - px) * (ry - py) - (qy - py) * (rx - px);
   const d1 = o(ax, ay, bx, by, cx, cy);

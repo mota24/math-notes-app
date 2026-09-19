@@ -47,11 +47,6 @@ export interface ClassifierListener {
   /** Déplacement (dx, dy) et zoom (factor) autour du centre (cx, cy), en px CSS. */
   panZoom(dx: number, dy: number, cx: number, cy: number, factor: number): void;
   twoFingerTap(): void;
-  /**
-   * Simple tap d'un seul contact avec l'outil « main » (rien ne s'écrit avec elle), en px CSS : c'est
-   * là que se lit la page, par exemple pour rendre un ruban d'étude transparent d'un tap.
-   */
-  tap?(x: number, y: number): void;
   penDetected(): void;
   /** Appui long immobile pendant un trait : bascule ce contact en gomme jusqu'à ce qu'il se lève. */
   holdErase?(id: number): void;
@@ -1094,14 +1089,6 @@ export class InputClassifier {
     if (isTap && info) {
       info.tapDone = true;
       this.listener.twoFingerTap();
-    }
-    // Un seul contact, bref et immobile, avec l'outil main : un tap
-    if (
-      allowTap && this.config.handTool && !!info && !info.tapDone && info.ids.size === 1 && remaining.length === 0 &&
-      info.maxMoved < TAP_MOVE && now - info.start < TAP_MS
-    ) {
-      info.tapDone = true;
-      this.listener.tap?.(t.last.x, t.last.y);
     }
     const keepPanning = !isTap && (this.effectiveMode === 'active' || this.config.handTool);
     if (remaining.length === 0 || !keepPanning) {

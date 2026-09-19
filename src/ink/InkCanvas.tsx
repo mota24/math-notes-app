@@ -2,10 +2,11 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { InputClassifier } from './palm';
 import type { ClassifierConfig, ClassifierListener, Sample, TrackInfo } from './palm';
-import { HIGHLIGHT_ALPHA, PAPER_BACKGROUND, buildPath, drawPaper, drawShapeOn, drawStroke, drawTapeGuide, linePoints, setImageReadyCallback } from './draw';
-import { eraseFromPolyline, resizedPoints, shapePolylines, straightenedTape, strokeBBox, strokeHit, strokesInLasso, tapeAt, unionBBox } from './geometry';
+import { HIGHLIGHT_ALPHA, PAPER_BACKGROUND, buildPath, drawPaper, drawShapeOn, drawStroke, linePoints, setImageReadyCallback } from './draw';
+import { eraseFromPolyline, resizedPoints, shapePolylines, strokeBBox, strokeHit, strokesInLasso, unionBBox } from './geometry';
 import type { ResizeHandle } from './geometry';
 import { SHEET_H, growHeight } from './pageExtent';
+import { MultiColorSwatch } from './MultiColorSwatch';
 import { farthestPoint, recognizeShape } from './shapeRecognize';
 import { newId } from './types';
 import type { BBox, InkPoint, InputKind, PaperColor, PaperStyle, ShapeKind, Stroke, Tool, View } from './types';
@@ -64,9 +65,6 @@ interface Props {
   /** Couleur et épaisseur du surligneur */
   highlightColor: string;
   highlightSize: number;
-  /** Couleur et largeur du ruban d'étude */
-  tapeColor: string;
-  tapeSize: number;
   /** Tampon choisi dans le sous-menu « Formes & tampons » : posé sur la page quand tool === 'shapes' */
   shapeKind: ShapeKind;
   /** Trait en pointillés (stylo et formes) */
@@ -83,8 +81,6 @@ interface Props {
   onReplaceStrokes(replacements: Map<string, Stroke[]>): void;
   /** Poignées d'un objet sélectionné (forme, image) : nouveaux points, à enregistrer (annulable) */
   onResizeStroke(id: string, points: InkPoint[]): void;
-  /** Ruban d'étude tapé : le rendre transparent (0 %), ou opaque à nouveau */
-  onToggleTape(id: string): void;
   onSelect(ids: string[], region?: BBox | null): void;
   onUndo(): void;
   onPenDetected(): void;
@@ -94,6 +90,10 @@ interface Props {
   onDeleteSelection(): void;
   onMoveSelection(dx: number, dy: number): void;
   onRecolorSelection(color: string): void;
+  /** Palette de la barre de sélection : les 3 dernières couleurs choisies, la plus récente en premier */
+  selectionColors: string[];
+  /** Une teinte choisie avec la pastille multicolore : recolorer la sélection et l'ajouter en tête de la palette */
+  onPickSelectionColor(color: string): void;
   onDuplicateSelection(): void;
   onCopySelection(): void;
   onCaptureRegion(region: BBox | null): void;
@@ -128,10 +128,6 @@ interface Live {
   resized?: Stroke;
   /** tool === 'shape' : où était le stylet au « snap » et le coin qu'il tire, pour ajuster en glissant */
   follow?: { from: InkPoint; far: InkPoint };
-  /** performance.now() au début du tracé : distingue un tap d'un appui long */
-  t0?: number;
-  /** Tracé qui n'est encore qu'un tap possible (sur un ruban d'étude, ou avec l'outil ruban) : rien n'est dessiné */
-  tapCandidate?: boolean;
 }
 
 /** Identifiant de l'aperçu d'un redimensionnement à la poignée (aucun vrai contact n'a cet id). */
@@ -143,10 +139,6 @@ const SNAP_FLASH_MS = 260;
 /** Canevas infini : papier gardé sous le bas de l'écran quand on défile (mm) et sous la plume quand on écrit (mm) */
 const GROW_AHEAD_SCROLL = 100;
 const GROW_AHEAD_INK = 45;
-
-/** Un tap : moins de TAP_MAX_PX de déplacement (px d'écran) et TAP_MAX_MS de durée. */
-const TAP_MAX_PX = 10;
-const TAP_MAX_MS = 400;
 
 /** Taille (mm) d'un tampon posé d'un simple tap, sans glisser. */
 const DEFAULT_SHAPE_SIZE: Record<ShapeKind, [number, number]> = {
@@ -166,6 +158,10 @@ const DEFAULT_SHAPE_SIZE: Record<ShapeKind, [number, number]> = {
   hemisphere: [36, 26],
   pyramid: [36, 36],
   cuboid: [40, 32],
+  torus: [44, 30],
+  prism: [44, 32],
+  tetrahedron: [38, 36],
+  ellipsoid: [46, 30],
 };
 
 function shapeBBoxFromPoints(pts: InkPoint[]): [number, number, number, number] {
@@ -181,8 +177,6 @@ function shapeBBoxFromPoints(pts: InkPoint[]): [number, number, number, number] 
   }
   return [minX, minY, maxX, maxY];
 }
-
-const SELECTION_COLORS = ['#1d2433', '#1f4fbf', '#c0392b', '#1e8449'];
 
 const MIN_SCALE = 1;
 const MAX_SCALE = 25;
@@ -276,14 +270,6 @@ export function InkCanvas(props: Props) {
       return [(s.x - rect.left - v.tx) / v.scale, (s.y - rect.top - v.ty) / v.scale, p];
     };
     const eraserRadius = () => Math.max(0.4, propsRef.current.eraserSize / viewRef.current.scale);
-    /** Ce tracé n'est-il qu'un tap : quelques pixels d'écran seulement, et bref ? */
-    const isTapLike = (l: Live) => {
-      if (l.t0 !== undefined && performance.now() - l.t0 > TAP_MAX_MS) return false;
-      const first = l.points[0];
-      if (!first) return true;
-      const reach = TAP_MAX_PX / viewRef.current.scale;
-      return l.points.every((pt) => Math.hypot(pt[0] - first[0], pt[1] - first[1]) <= reach);
-    };
 
     /** Recopie la page et dessine par-dessus ce qui est en cours (trait, lasso, gomme). */
     const present = () => {
@@ -292,9 +278,9 @@ export function InkCanvas(props: Props) {
       setTransform(display);
       const scale = viewRef.current.scale;
       for (const l of lives.values()) {
-        if (l.tool === 'pen' || l.tool === 'highlighter' || l.tool === 'tape') {
+        if (l.tool === 'pen' || l.tool === 'highlighter') {
           const pts = l.predicted.length ? l.points.concat(l.predicted) : l.points;
-          if (pts.length === 0 || l.tapCandidate) continue;
+          if (pts.length === 0) continue;
           const path = buildPath(pts, l.kind, l.size, false, l.tool, l.dashed);
           display.save();
           if (l.tool === 'highlighter') {
@@ -486,8 +472,6 @@ export function InkCanvas(props: Props) {
         const bb = strokeBBox(s);
         if (bb.maxY < top || bb.minY > bottom) continue;
         drawStroke(base, s);
-        // Un ruban rendu transparent garde un contour pointillé : on sait où le retaper
-        if (s.tool === 'tape' && s.revealed) drawTapeGuide(base, s, viewRef.current.scale);
       }
       present();
     };
@@ -544,8 +528,7 @@ export function InkCanvas(props: Props) {
         color: s.color,
         size: Math.max(0.35, s.size),
         input: s.tool === 'shape' ? 'mouse' : s.input,
-        ...(s.tool === 'highlighter' || s.tool === 'tape' ? { tool: s.tool } : {}),
-        ...(s.revealed ? { revealed: true } : {}),
+        ...(s.tool === 'highlighter' ? { tool: 'highlighter' as const } : {}),
         ...(s.dashed ? { dashed: true } : {}),
       };
       let touched = false;
@@ -625,7 +608,7 @@ export function InkCanvas(props: Props) {
     };
     const addPoints = (l: Live, samples: Sample[]) => {
       const inking =
-        l.tool === 'pen' || l.tool === 'highlighter' || l.tool === 'tape' || l.tool === 'line' || l.tool === 'shape' || l.tool === 'shapes' || l.tool === 'capture';
+        l.tool === 'pen' || l.tool === 'highlighter' || l.tool === 'line' || l.tool === 'shape' || l.tool === 'shapes' || l.tool === 'capture';
       const added: InkPoint[] = [];
       for (const s of samples) {
         const raw = toPage(s, l.kind);
@@ -659,11 +642,9 @@ export function InkCanvas(props: Props) {
         const p = propsRef.current;
         const tool: LiveTool = eraserPointers.has(id) ? 'eraser' : p.tool;
         const highlighter = tool === 'highlighter';
-        const tape = tool === 'tape';
         const l: Live = {
-          kind, tool, color: highlighter ? p.highlightColor : tape ? p.tapeColor : p.color,
-          size: highlighter ? p.highlightSize : tape ? p.tapeSize : p.size,
-          points: [], predicted: [], erased: new Set(), cursor: null, dx: 0, dy: 0, moving: [], t0: performance.now(),
+          kind, tool, color: highlighter ? p.highlightColor : p.color, size: highlighter ? p.highlightSize : p.size,
+          points: [], predicted: [], erased: new Set(), cursor: null, dx: 0, dy: 0, moving: [],
         };
         if (tool === 'lasso' && p.selection.length && samples.length) {
           // Appui dans la sélection : on la déplace au lieu de tracer un nouveau lasso
@@ -682,16 +663,11 @@ export function InkCanvas(props: Props) {
         }
         if (tool === 'shapes') l.shapeKind = p.shapeKind;
         if (p.dashed && (tool === 'pen' || tool === 'shapes')) l.dashed = true;
-        // Poser le stylet ou le doigt sur un ruban d'étude peut n'être qu'un tap : on ne dessine rien avant d'en être sûr
-        if ((tool === 'pen' || highlighter || tape) && samples.length) {
-          const first = toPage(samples[0], kind);
-          if (tape || tapeAt(p.strokes, first[0], first[1], hiddenRef.current)) l.tapCandidate = true;
-        }
         lives.set(id, l);
         const added = addPoints(l, samples);
         if (tool === 'eraser') eraseAt(l, added);
         if (
-          (tool === 'pen' || highlighter || tape || tool === 'line' || tool === 'shapes' || tool === 'capture') &&
+          (tool === 'pen' || highlighter || tool === 'line' || tool === 'shapes' || tool === 'capture') &&
           (p.selection.length || p.selectionRegion)
         )
           p.onSelect([]);
@@ -718,8 +694,7 @@ export function InkCanvas(props: Props) {
         }
         const added = addPoints(l, samples);
         if (l.tool === 'eraser') eraseAt(l, added);
-        if (l.tapCandidate && !isTapLike(l)) l.tapCandidate = false;
-        l.predicted = l.tool === 'pen' || l.tool === 'highlighter' || l.tool === 'tape' ? predicted.map((s) => toPage(s, l.kind)) : [];
+        l.predicted = l.tool === 'pen' || l.tool === 'highlighter' ? predicted.map((s) => toPage(s, l.kind)) : [];
         // Dessin immédiat dans le gestionnaire d'événement : latence minimale
         present();
       },
@@ -728,20 +703,9 @@ export function InkCanvas(props: Props) {
         lives.delete(id);
         if (!l) return;
         const p = propsRef.current;
-        if ((l.tool === 'pen' || l.tool === 'highlighter' || l.tool === 'tape') && l.points.length) {
-          if (isTapLike(l)) {
-            // Un tap sur un ruban d'étude le rend transparent (ou opaque à nouveau) au lieu de poser un point
-            const hit = tapeAt(p.strokes, l.points[0][0], l.points[0][1], hiddenRef.current);
-            if (hit) p.onToggleTape(hit.id);
-            // Avec l'outil ruban, un tap dans le vide ne pose pas de tache
-            if (hit || l.tool === 'tape') {
-              present();
-              return;
-            }
-          }
-          const points = l.tool === 'tape' ? straightenedTape(l.points, l.size) : l.points;
-          const stroke: Stroke = { id: newId(), points, color: l.color, size: l.size, input: l.kind };
-          if (l.tool === 'highlighter' || l.tool === 'tape') stroke.tool = l.tool;
+        if ((l.tool === 'pen' || l.tool === 'highlighter') && l.points.length) {
+          const stroke: Stroke = { id: newId(), points: l.points, color: l.color, size: l.size, input: l.kind };
+          if (l.tool === 'highlighter') stroke.tool = 'highlighter';
           else if (l.dashed) stroke.dashed = true;
           setTransform(base);
           drawStroke(base, stroke); // évite un clignotement avant le rendu React
@@ -837,7 +801,7 @@ export function InkCanvas(props: Props) {
        */
       holdErase(id) {
         const l = lives.get(id);
-        if (!l || (l.tool !== 'pen' && l.tool !== 'highlighter' && l.tool !== 'tape' && l.tool !== 'line' && l.tool !== 'shapes')) return;
+        if (!l || (l.tool !== 'pen' && l.tool !== 'highlighter' && l.tool !== 'line' && l.tool !== 'shapes')) return;
         const at = l.points[l.points.length - 1] ?? l.cursor;
         l.tool = 'eraser';
         l.predicted = [];
@@ -890,13 +854,6 @@ export function InkCanvas(props: Props) {
         // Le flash doit s'éteindre même si le stylet reste parfaitement immobile ensuite (pas de
         // nouvel événement pour redessiner) : un redessin est reprogrammé juste après sa durée.
         window.setTimeout(schedulePresent, SNAP_FLASH_MS + 20);
-      },
-      /** Tap d'un doigt avec l'outil main : un ruban d'étude sous le doigt change d'état */
-      tap(x, y) {
-        const p = propsRef.current;
-        const [px, py] = toPage({ x, y, p: 0.5, t: 0, size: 0 }, 'touch');
-        const hit = tapeAt(p.strokes, px, py, hiddenRef.current);
-        if (hit) p.onToggleTape(hit.id);
       },
       penSizeLearned: (size) => propsRef.current.onPenSize?.(size),
     };
@@ -1218,9 +1175,10 @@ export function InkCanvas(props: Props) {
             </button>
             {!regionOnly && (
               <>
-                {SELECTION_COLORS.map((c) => (
+                {props.selectionColors.map((c) => (
                   <button key={c} className="swatch small" style={{ background: c }} aria-label="Changer la couleur" onClick={() => props.onRecolorSelection(c)} />
                 ))}
+                <MultiColorSwatch initial={props.selectionColors[0]} onCommit={props.onPickSelectionColor} />
                 <button onClick={props.onDuplicateSelection}>Dupliquer</button>
                 <button onClick={props.onCopySelection}>Copier</button>
                 <button onClick={props.onDeleteSelection}>Supprimer</button>

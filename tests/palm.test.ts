@@ -80,7 +80,6 @@ function setup(overrides: Partial<ClassifierConfig> = {}) {
       drawCancel: (id) => events.push(`cancel:${id}`),
       panZoom: (dx, dy, _cx, _cy, f) => events.push(`pan:${dx.toFixed(0)},${dy.toFixed(0)},${f.toFixed(2)}`),
       twoFingerTap: () => events.push('tap2'),
-      tap: (x, y) => events.push(`tap1:${x.toFixed(0)},${y.toFixed(0)}`),
       penDetected: () => events.push('pen!'),
       holdErase: (id) => events.push(`gomme:${id}`),
       shapeHold: (id) => events.push(`forme:${id}`),
@@ -868,34 +867,6 @@ test('65. désactivé par défaut', () => {
   }
   settle(t, 1500);
   assert.equal(t.count('forme:1'), 0);
-});
-
-test('66. outil main : un tap bref d’un seul contact remonte à l’appli, une seule fois', () => {
-  const t = setup({ handTool: true }).at(0).down(1, 100, 120).at(120).up(1, 100, 120);
-  assert.equal(t.count('tap1:100,120'), 1);
-  assert.equal(t.count('start'), 0);
-});
-
-test('67. outil main : un glissé (défilement) n’est pas un tap', () => {
-  const t = setup({ handTool: true }).at(0).down(1, 100, 100).drag(1, [100, 100], [100, 220]).up(1, 100, 220);
-  assert.equal(t.count('tap1'), 0);
-  assert.ok(t.count('pan') > 3);
-});
-
-test('68. outil main : appui long immobile (plus d’un tap) : rien', () => {
-  const t = setup({ handTool: true }).at(0).down(1, 100, 100).at(900).up(1, 100, 100);
-  assert.equal(t.count('tap1'), 0);
-});
-
-test('69. avec un outil d’écriture, un tap reste un point : pas d’événement tap', () => {
-  const t = setup({ handTool: false }).at(0).down(1, 100, 100).at(80).up(1, 100, 100);
-  assert.equal(t.count('tap1'), 0);
-});
-
-test('70. outil main : le tap à deux doigts reste « annuler », pas un tap simple', () => {
-  const t = setup({ handTool: true }).at(0).down(1, 100, 100).down(2, 160, 100).at(90).up(1, 100, 100).up(2, 160, 100);
-  assert.equal(t.count('tap2'), 1);
-  assert.equal(t.count('tap1'), 0);
 });
 
 let failed = 0;

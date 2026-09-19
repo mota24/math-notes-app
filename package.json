@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit",
     "android:sync": "npm run build && cap sync android",
     "android:open": "cap open android",
-    "test": "node tests/palm.test.ts && node tests/shapeRecognize.test.ts && node tests/lasso.test.ts && node tests/erase.test.ts && node tests/resize.test.ts && node tests/tape.test.ts && node tests/printInk.test.ts && node tests/pencilCase.test.ts && node tests/pageExtent.test.ts && node tests/base64.test.ts && node tests/notesText.test.ts && node tests/merge.test.ts"
+    "test": "node tests/palm.test.ts && node tests/shapeRecognize.test.ts && node tests/lasso.test.ts && node tests/erase.test.ts && node tests/resize.test.ts && node tests/printInk.test.ts && node tests/pageExtent.test.ts && node tests/volumes.test.ts && node tests/colors.test.ts && node tests/base64.test.ts && node tests/notesText.test.ts && node tests/merge.test.ts"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.2",
