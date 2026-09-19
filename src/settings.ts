@@ -1,0 +1,146 @@
+import { useCallback, useState } from 'react';
+import { FREE_MODELS } from './ai/gemini';
+import type { SizeMode } from './ink/palm';
+import type { Handedness, PaperStyle, StylusMode } from './ink/types';
+import { DEFAULT_PENCIL_CASE, normalizePencilCase } from './pencilCase';
+import type { PencilCase } from './pencilCase';
+
+export interface Settings {
+  apiKey: string;
+  model: string;
+  /** Si Gemini est surchargé ou le quota atteint, essayer un autre modèle gratuit */
+  autoFallback: boolean;
+  subject: string;
+  color: string;
+  size: number;
+  /** Trait en pointillés au stylo et pour les formes */
+  dashed: boolean;
+  /** Gomme : par trait (efface tout le trait touché) ou de précision (efface seulement la zone touchée) */
+  eraserMode: 'stroke' | 'precision';
+  /** Rayon de la gomme (px d'écran) */
+  eraserSize: number;
+  paper: PaperStyle;
+  stylusMode: StylusMode;
+  sizeMode: SizeMode;
+  palmSize: number;
+  handedness: Handedness;
+  /** Part basse de la zone d'écriture réservée à la main (0 = désactivée) */
+  restZone: number;
+  /** Un contact plus gros que le stylet appris et resté posé n'écrit plus avant d'être levé */
+  lockBigStill: boolean;
+  /** Délai (ms) au-delà duquel un contact resté sur place est « posé » */
+  staticAfter: number;
+  /** Taille du stylet (px) apprise sur tes traits, retenue d’une session à l’autre */
+  penSizePx: number | null;
+  /** Appui long immobile du stylet = gomme temporaire */
+  holdEraser: boolean;
+  /** Durée de l’appui long (ms) */
+  holdMs: number;
+  /** Dessiner → maintenir → ajuster : appui long en fin de tracé = reconnaissance de forme */
+  shapeHold: boolean;
+  /** Durée de l’appui long avant reconnaissance (ms) */
+  shapeHoldMs: number;
+  /** Dessiner les contacts et leur décision sur la page (réglage anti-paume dans Réglages) */
+  showContacts: boolean;
+  lowLatency: boolean;
+  penSeen: boolean;
+  /** ID client OAuth Google (gratuit) pour la sauvegarde Drive */
+  driveClientId: string;
+  driveAutoSync: boolean;
+  /** Export manuscrit */
+  handStyle: 'mine' | 'caveat' | 'kalam' | 'patrick';
+  handInk: string;
+  handPaper: PaperStyle;
+  handSize: 'small' | 'medium' | 'large';
+  /** Amplitude des variations naturelles (0,5 légère · 1 naturelle · 1,6 forte) */
+  handVariation: number;
+  highlightColor: string;
+  highlightSize: number;
+  /** Ruban d'étude : couleur, largeur (mm), et si le mode d'emploi s'est déjà affiché */
+  tapeColor: string;
+  tapeSize: number;
+  tapeHintSeen: boolean;
+  /** La trousse : 3 favoris (outil + couleur + épaisseur), `null` = emplacement vide */
+  pencilCase: PencilCase;
+  /** Envoyer aussi le PDF ou la photo de fond à Gemini (texte imprimé compris) */
+  convertBackground: boolean;
+  /** Export « PDF de mes notes » en mode impression : fond blanc, encre claire convertie en foncé */
+  printMode: boolean;
+}
+
+const KEY = 'notes-maths.settings';
+
+const DEFAULTS: Settings = {
+  apiKey: '',
+  model: FREE_MODELS[0],
+  autoFallback: true,
+  subject: '',
+  color: '#1d2433',
+  size: 0.6,
+  dashed: false,
+  eraserMode: 'stroke',
+  eraserSize: 12,
+  paper: 'grid',
+  stylusMode: 'auto',
+  sizeMode: 'auto',
+  palmSize: 300,
+  handedness: 'right',
+  restZone: 0,
+  lockBigStill: true,
+  staticAfter: 250,
+  penSizePx: null,
+  holdEraser: true,
+  holdMs: 700,
+  shapeHold: true,
+  shapeHoldMs: 300,
+  showContacts: false,
+  lowLatency: false,
+  penSeen: false,
+  driveClientId: '',
+  driveAutoSync: true,
+  handStyle: 'caveat',
+  handInk: '#1f3a8a',
+  handPaper: 'seyes',
+  handSize: 'medium',
+  handVariation: 1,
+  highlightColor: '#facc15',
+  highlightSize: 5,
+  tapeColor: '#fb923c',
+  tapeSize: 7,
+  tapeHintSeen: false,
+  pencilCase: DEFAULT_PENCIL_CASE,
+  convertBackground: true,
+  printMode: false,
+};
+
+function load(): Settings {
+  try {
+    const raw = localStorage.getItem(KEY);
+    if (!raw) return DEFAULTS;
+    const saved = JSON.parse(raw) as Partial<Settings>;
+    // Ancien seuil fixe de 50 px, inadapté aux stylets vus comme de gros doigts
+    if (saved.sizeMode === undefined) delete saved.palmSize;
+    // D'anciens noms de modèle Gemini inventés (gemini-3.x) n'existent pas côté Google et
+    // renvoyaient systématiquement « modèle introuvable » : on repart sur un modèle réel.
+    if (saved.model && !FREE_MODELS.includes(saved.model) && /^gemini-3\./.test(saved.model)) delete saved.model;
+    return { ...DEFAULTS, ...saved, pencilCase: normalizePencilCase(saved.pencilCase) };
+  } catch {
+    return DEFAULTS;
+  }
+}
+
+export function useSettings(): [Settings, (patch: Partial<Settings>) => void] {
+  const [settings, setSettings] = useState(load);
+  const update = useCallback((patch: Partial<Settings>) => {
+    setSettings((prev) => {
+      const next = { ...prev, ...patch };
+      try {
+        localStorage.setItem(KEY, JSON.stringify(next));
+      } catch {
+        /* stockage indisponible (navigation privée) */
+      }
+      return next;
+    });
+  }, []);
+  return [settings, update];
+}
