@@ -3055,6 +3055,7 @@ code {
   display: flex;
   align-items: center;
   flex-shrink: 0;
+  min-width: 118px;     /* empêche l'onglet unique de s'écraser */
   height: 36px;
   padding: 0;
   margin: 0;
@@ -3082,19 +3083,19 @@ code {
   border-bottom: none;
 }
 
-/* Boutons maison / nouveau : petites icônes dans la barre,
-   alignés en bas (flex-end) pour s'intégrer naturellement aux onglets */
+/* Boutons maison / nouveau : pas de min-width, taille fixe */
 .tab.tab-home,
 .tab.tab-new {
   display: grid;
   place-items: center;
   flex: none;
+  min-width: unset;
   width: 34px;
   height: 30px;
   border-radius: 8px;
   background: transparent;
   color: rgba(255, 255, 255, 0.55);
-  align-self: flex-end;   /* colle en bas, au ras des onglets */
+  align-self: flex-end;
   margin-bottom: 0;
 }
 
@@ -3112,7 +3113,7 @@ code {
   gap: 8px;
   min-width: 0;
   height: 100%;
-  padding: 0 4px 0 12px;
+  padding: 0 8px 0 12px;  /* padding droit élargi pour ne pas mordre sur le × */
   border: 0;
   border-radius: inherit;
   background: transparent;

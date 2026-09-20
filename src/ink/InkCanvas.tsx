@@ -347,8 +347,9 @@ export function InkCanvas(props: Props) {
           const path = buildPath(pts, l.kind, l.size, false, l.tool, l.dashed);
           display.save();
           if (l.tool === 'highlighter') {
-            display.globalAlpha = HIGHLIGHT_ALPHA;
-            display.globalCompositeOperation = 'multiply';
+            const darkPaper = (propsRef.current.paperColor ?? 'light') === 'dark';
+            display.globalAlpha = darkPaper ? 0.55 : HIGHLIGHT_ALPHA;
+            display.globalCompositeOperation = darkPaper ? 'screen' : 'multiply';
           }
           display.fillStyle = l.color;
           display.fill(path);
@@ -604,7 +605,7 @@ export function InkCanvas(props: Props) {
           if (hiddenRef.current.has(s.id)) continue;
           const bb = strokeBBox(s);
           if (sh.top + bb.maxY < viewTop || sh.top + bb.minY > viewBottom) continue;
-          drawStroke(base, s);
+          drawStroke(base, s, paperCol);
         }
 
         base.restore();

@@ -293,7 +293,13 @@ export function Toolbar(p: Props) {
               />
             ))}
             <label className={`swatch custom ${colors.some((c) => c.value === current) ? '' : 'active'}`} title="Autre couleur">
-              <input type="color" value={current} onChange={(e) => setColor(e.target.value)} aria-label="Autre couleur" />
+              <input
+                type="color"
+                value={current}
+                onInput={(e) => setColor((e.target as HTMLInputElement).value)}
+                onChange={(e) => setColor(e.target.value)}
+                aria-label="Autre couleur"
+              />
             </label>
             {shapes && (
               <button

@@ -418,7 +418,7 @@ function rotated(ctx: CanvasRenderingContext2D, s: Stroke, draw: () => void) {
   ctx.restore();
 }
 
-export function drawStroke(ctx: CanvasRenderingContext2D, s: Stroke) {
+export function drawStroke(ctx: CanvasRenderingContext2D, s: Stroke, paperColor?: PaperColor) {
   if (s.tool === 'shape' && s.shape && s.points.length >= 2) {
     const shape = s.shape;
     const [ax, ay] = s.points[0];
@@ -436,8 +436,11 @@ export function drawStroke(ctx: CanvasRenderingContext2D, s: Stroke) {
   }
   if (s.tool === 'highlighter') {
     ctx.save();
-    ctx.globalAlpha = HIGHLIGHT_ALPHA;
-    ctx.globalCompositeOperation = 'multiply';
+    // Sur fond sombre, 'multiply' assombrit encore → surligneur invisible.
+    // 'screen' éclaircit : la couleur ressort sur fond noir/sombre.
+    const dark = paperColor === 'dark';
+    ctx.globalAlpha = dark ? 0.55 : HIGHLIGHT_ALPHA;
+    ctx.globalCompositeOperation = dark ? 'screen' : 'multiply';
     ctx.fillStyle = s.color;
     ctx.fill(strokePath(s));
     ctx.restore();
