@@ -4,7 +4,6 @@ import type { ShapeKind, Tool } from '../ink/types';
 import { ICONS } from './icons';
 import { ALL_STAMPS, STAMP_GROUPS } from './stamps';
 
-
 const PEN_COLORS = [
   { value: '#1d2433', name: 'Noir' },
   { value: '#1f4fbf', name: 'Bleu' },
