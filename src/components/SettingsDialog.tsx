@@ -16,8 +16,8 @@ import { Modal } from './Modal';
 
 const STATE_LABEL: Record<string, string> = { pending: 'En attente', draw: 'Écrit', palm: 'Ignoré', gesture: 'Geste' };
 const STYLUS_MODES: { value: StylusMode; label: string; hint: string }[] = [
-  { value: 'finger', label: 'Standard (recommandé)', hint: 'Le rejet de paume est géré par le système d’exploitation de ta tablette. Tous les contacts sont acceptés de la même façon.' },
-  { value: 'active', label: 'S Pen / stylet actif', hint: 'Seul un stylet actif (EMR/USI) peut écrire ; les doigts défilent la page uniquement.' },
+  { value: 'active', label: 'Stylet actif strict (recommandé)', hint: 'Seul le stylet actif (S Pen, EMR) écrit ou gomme. Les doigts et la paume sont réservés au défilement et au zoom : aucun trait parasite.' },
+  { value: 'finger', label: 'Tout contact (tactile / souris)', hint: 'Tout contact écrit sur la page : pratique pour tester au doigt ou à la souris sur ordinateur.' },
 ];
 const REST_ZONES = [
   { value: 0, label: 'Aucune' },

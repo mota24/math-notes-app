@@ -58,11 +58,15 @@ export default function App() {
       go(next ? { name: 'notebook', notebookId: next.notebookId, pageIndex: next.pageIndex } : { name: 'library', folderId: null });
     }
   };
-  const showTabs = tabs.length > 0 && (route.name === 'library' || route.name === 'trash' || route.name === 'notebook');
+  // Barre d'onglets autonome : uniquement dans la bibliothèque/corbeille s'il y a des onglets ouverts.
+  // Dans l'éditeur, les onglets sont fusionnés directement dans sa propre barre unifiée de 48px.
+  const showTabs = tabs.length > 0 && (route.name === 'library' || route.name === 'trash');
 
   let screen;
   switch (route.name) {
     case 'library':
+      screen = <Library route={route} onOpenSettings={openSettings} />;
+      break;
     case 'trash':
       screen = <Library route={route} onOpenSettings={openSettings} />;
       break;
@@ -75,6 +79,8 @@ export default function App() {
           settings={settings}
           update={update}
           onOpenSettings={openSettings}
+          tabs={tabs}
+          onCloseTab={closeTab}
         />
       );
       break;

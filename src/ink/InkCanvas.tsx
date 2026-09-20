@@ -209,7 +209,6 @@ function shapeBBoxFromPoints(pts: InkPoint[]): [number, number, number, number] 
 
 const MIN_SCALE = 1;
 const MAX_SCALE = 25;
-const OUTSIDE = '#18181b';
 /** Espace sombre visible entre les feuilles physiques façon JNotes (mm) */
 const PAGE_GAP = 16;
 /** Seuil de défilement (px) pour déclencher l'ajout d'une feuille par overscroll */
@@ -732,8 +731,9 @@ export function InkCanvas(props: Props) {
       const viewTop = -v.ty / v.scale - 2;
       const viewBottom = (size.h - v.ty) / v.scale + 2;
 
+      // ── 1. LE BUREAU : fond gris clair pour faire ressortir la feuille ──
       base.setTransform(1, 0, 0, 1, 0, 0);
-      base.fillStyle = OUTSIDE;
+      base.fillStyle = '#6b7280';
       base.fillRect(0, 0, baseCanvas.width, baseCanvas.height);
       setTransform(base);
 
@@ -743,15 +743,20 @@ export function InkCanvas(props: Props) {
         base.save();
         base.translate(0, sh.top);
 
-        // Ombre portée de papier physique (JNotes style)
-        base.save();
-        base.shadowColor = 'rgba(0,0,0,0.45)';
-        base.shadowBlur = 12 * size.dpr;
+        // ── 2. LA FEUILLE : ombre portée pour l'effet "posée sur le bureau" ──
+        base.shadowColor = 'rgba(0, 0, 0, 0.5)';
+        base.shadowBlur = 20 * size.dpr;
+        base.shadowOffsetX = 0;
         base.shadowOffsetY = 4 * size.dpr;
         const paperCol = sh.page.paperColor ?? p.paperColor ?? 'light';
         base.fillStyle = sh.page.background ? '#ffffff' : PAPER_BACKGROUND[paperCol];
         base.fillRect(0, 0, sh.width, sh.height);
-        base.restore();
+
+        // ── 3. Réinitialiser l'ombre AVANT de dessiner le contenu ──
+        base.shadowColor = 'transparent';
+        base.shadowBlur = 0;
+        base.shadowOffsetX = 0;
+        base.shadowOffsetY = 0;
 
         if (sh.page.background) {
           base.drawImage(sh.page.background, 0, 0, sh.width, sh.height);
@@ -760,6 +765,11 @@ export function InkCanvas(props: Props) {
           const sheetViewBottom = Math.min(sh.height, viewBottom - sh.top);
           drawPaper(base, sh.page.paper, v.scale, sh.width, sh.height, paperCol, [sheetViewTop, sheetViewBottom]);
         }
+
+        // Bordure fine de la feuille
+        base.strokeStyle = '#9ca3af';
+        base.lineWidth = 1 / (v?.scale || 1);
+        base.strokeRect(0, 0, sh.width, sh.height);
 
         if (sheets.length === 1 && p.extendable && sh.height > SHEET_H + 0.5) {
           const dark = paperCol === 'dark';

@@ -79,8 +79,8 @@ const DEFAULTS: Settings = {
   eraserMode: 'stroke',
   eraserSize: 12,
   paper: 'grid',
-  // Mode 'finger' : tout contact écrit, le rejet de paume est délégué à l'OS de la tablette
-  stylusMode: 'finger',
+  // Mode 'active' strict : seul le stylet écrit/gomme, le tactile déplace et zoome (aucun trait fantôme de paume)
+  stylusMode: 'active',
   sizeMode: 'off',
   palmSize: 300,
   handedness: 'right',
@@ -118,11 +118,9 @@ function load(): Settings {
     if (saved.sizeMode === undefined) delete saved.palmSize;
     // Réglages d'anciennes versions (trousse, ruban d'étude) : abandonnés
     for (const legacy of ['pencilCase', 'tapeColor', 'tapeSize', 'tapeHintSeen']) delete (saved as Record<string, unknown>)[legacy];
-    // Migration : les anciens modes 'auto' et 'capacitive' utilisaient l'anti-paume logiciel.
-    // L'OS de la tablette le gère désormais ; on force 'finger' sauf si l'utilisateur avait
-    // explicitement choisi 'active' (S Pen) ou 'finger'.
-    if (saved.stylusMode === 'auto' || saved.stylusMode === 'capacitive') {
-      saved.stylusMode = 'finger';
+    // Migration vers le mode actif strict par défaut
+    if (saved.stylusMode === 'auto' || saved.stylusMode === 'capacitive' || !saved.stylusMode) {
+      saved.stylusMode = 'active';
       saved.sizeMode = 'off';
     }
     return { ...DEFAULTS, ...saved, selectionColors: normalizeSelectionColors(saved.selectionColors), shapeColor: normalizeShapeColor(saved.shapeColor) };

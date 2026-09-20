@@ -75,9 +75,98 @@ export function TabBar({
           );
         })}
       </div>
-      <button className="tab tab-new" onClick={() => go({ name: 'library', folderId: null })} aria-label="Ouvrir un autre cahier" title="Ouvrir un autre cahier">
+      <button
+        className="tab tab-new"
+        onClick={() => go({ name: 'library', folderId: null })}
+        aria-label="Ouvrir un autre cahier"
+        title="Ouvrir un autre cahier"
+      >
         {ICONS.plus}
       </button>
     </nav>
   );
 }
+
+/**
+ * Onglets intégrés directement au centre du header unifié de l'éditeur (max 48px).
+ * Affiche la liste des cahiers ouverts avec défilement horizontal et bouton d'ajout (+).
+ */
+export function EditorTabs({
+  tabs = [],
+  activeId,
+  currentNotebook,
+  onClose,
+  onRename,
+}: {
+  tabs?: Tab[];
+  activeId: string;
+  currentNotebook?: { id: string; title: string; color: string } | null;
+  onClose?(id: string): void;
+  onRename?(): void;
+}) {
+  const ids = tabs.map((t) => t.notebookId);
+  const loaded = useQuery(
+    () => Promise.all(ids.map(async (id) => ({ id, notebook: await db.getNotebook(id) }))),
+    [ids.join('|')],
+    ['notebooks'],
+  );
+  const titles = new Map((loaded ?? []).map((r) => [r.id, r.notebook]));
+
+  // S'assurer qu'au moins l'onglet du cahier actuel est affiché
+  const effectiveTabs =
+    tabs.length > 0 && tabs.some((t) => t.notebookId === activeId)
+      ? tabs
+      : [{ notebookId: activeId, pageIndex: 0 }, ...tabs.filter((t) => t.notebookId !== activeId)];
+
+  return (
+    <div className="editor-tabs" role="tablist" aria-label="Cahiers ouverts">
+      <div className="tab-list">
+        {effectiveTabs.map((t) => {
+          const isCurrent = t.notebookId === activeId;
+          const nb = isCurrent ? (currentNotebook ?? titles.get(t.notebookId)) : titles.get(t.notebookId);
+          return (
+            <div key={t.notebookId} className={`tab ${isCurrent ? 'active' : ''}`} role="presentation">
+              <button
+                className="tab-main"
+                role="tab"
+                aria-selected={isCurrent}
+                onClick={() => {
+                  if (!isCurrent) go({ name: 'notebook', notebookId: t.notebookId, pageIndex: t.pageIndex });
+                }}
+                onDoubleClick={() => {
+                  if (isCurrent && onRename) onRename();
+                }}
+                title={nb?.title ? `${nb.title} (double-clic pour renommer)` : undefined}
+              >
+                <span className="dot" style={{ background: nb?.color ?? 'var(--line-strong)' }} />
+                <span className="tab-title">{nb?.title ?? '…'}</span>
+              </button>
+              {onClose && effectiveTabs.length > 1 && (
+                <button
+                  className="tab-close"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onClose(t.notebookId);
+                  }}
+                  aria-label={`Fermer ${nb?.title ?? 'l’onglet'}`}
+                  title="Fermer l’onglet"
+                >
+                  {ICONS.close}
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <button
+        className="tab tab-new"
+        onClick={() => go({ name: 'library', folderId: null })}
+        aria-label="Ouvrir un autre cahier"
+        title="Ouvrir un autre cahier"
+      >
+        {ICONS.plus}
+      </button>
+    </div>
+  );
+}
+

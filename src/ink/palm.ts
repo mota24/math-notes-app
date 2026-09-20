@@ -289,9 +289,10 @@ export class InputClassifier {
       this.markPen();
       return this.startDraw(t, 'stylet actif');
     }
-    if (kind === 'mouse') return this.startDraw(t, 'souris');
 
     const mode = this.effectiveMode;
+    if (kind === 'mouse') return this.startDraw(t, 'souris');
+
     if (mode === 'capacitive') {
       if (this.inRestZone(s)) return this.toPalm(t, 'zone de repos');
       if (this.anyDrawing('pen')) return this.toPalm(t, 'stylet actif en cours');
@@ -1116,6 +1117,9 @@ export class InputClassifier {
   }
 
   private updateGesture(t: Track) {
+    // Si le stylet est en train d'écrire, la paume posée sur l'écran ne doit ni faire défiler ni zoomer
+    if (this.anyDrawing('pen')) return;
+
     const g = [...this.tracks.values()].filter((o) => o.state === 'gesture').slice(0, 2);
     if (this.gestureInfo) this.gestureInfo.maxMoved = Math.max(this.gestureInfo.maxMoved, t.moved);
     // Des doigts (ou une paume) qui ne bougent plus : le geste s'arrête, l'écriture redevient possible

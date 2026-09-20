@@ -171,13 +171,13 @@ test("3. contact de grande taille : écrit quand même (l'OS gère le rejet de p
   assert.equal(t.count('end:1'), 1);
 });
 
-test('4. stylet actif détecté : le contact tactile suivant écrit normalement', () => {
-  // 'auto' retombe sur 'finger' : aucune discrimination par pointerType
-  const t = setup({ mode: 'auto' }).at(0).down(1, 200, 300, 1, 'pen').drag(1, [200, 300], [230, 300], 1).up(1, 230, 300, 1);
+test('4. mode stylet actif strict : le stylet écrit, le doigt déplace la page (aucun trait)', () => {
+  const t = setup({ mode: 'active' }).at(0).down(1, 200, 300, 1, 'pen').drag(1, [200, 300], [230, 300], 1).up(1, 230, 300, 1);
   t.at(500).down(2, 100, 100, 20).drag(2, [100, 100], [100, 160], 20).up(2, 100, 160, 20);
   assert.equal(t.count('pen!'), 1);
-  assert.equal(t.count('start:1:pen'), 1);
-  assert.equal(t.count('start:2:touch'), 1);
+  assert.equal(t.count('start:1:pen'), 1, 'le stylet écrit');
+  assert.equal(t.count('start:2'), 0, 'le doigt ne trace aucun trait');
+  assert.ok(t.count('pan') > 5, 'le doigt déplace la page');
 });
 
 test('5. annulation Android : un vrai trait est gardé, un début de trait est retiré', () => {

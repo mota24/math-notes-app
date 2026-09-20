@@ -22,7 +22,8 @@ import { ExportDialog } from './ExportDialog';
 import { ConfirmDialog, PromptDialog } from './Modal';
 import { PageStrip } from './PageStrip';
 import { ResultsPanel } from './ResultsPanel';
-import { SyncChip } from './SyncChip';
+import { EditorTabs } from './TabBar';
+import type { Tab } from '../tabs';
 import { ICONS, Toolbar } from './Toolbar';
 import { autoShapeColor, pushRecentColor } from '../colors';
 import { fitHeight, isExtendable } from '../ink/pageExtent';
@@ -89,9 +90,19 @@ interface Props {
   settings: Settings;
   update(patch: Partial<Settings>): void;
   onOpenSettings(): void;
+  tabs?: Tab[];
+  onCloseTab?(id: string): void;
 }
 
-export function NotebookEditor({ notebookId, pageIndex, settings, update, onOpenSettings }: Props) {
+export function NotebookEditor({
+  notebookId,
+  pageIndex,
+  settings,
+  update,
+  onOpenSettings,
+  tabs = [],
+  onCloseTab,
+}: Props) {
   const demo = useMemo(() => new URLSearchParams(window.location.search).has('demo'), []);
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
@@ -703,60 +714,79 @@ export function NotebookEditor({ notebookId, pageIndex, settings, update, onOpen
   // Formes et lignes : la couleur choisie, sinon celle qui tranche sur le papier (noir sur clair, blanc sur sombre)
   const shapeColor = settings.shapeColor ?? autoShapeColor(paperColor);
 
+  const handleConvertClick = () => {
+    if (!settings.apiKey && !demo) {
+      onOpenSettings();
+      flash('Ajoute ta clé API Gemini gratuite dans les réglages pour activer la conversion IA.');
+      return;
+    }
+    if (!pageId) return;
+    setPanelOpen(true);
+    void convertPageById(pageId).catch((err: Error) => {
+      flash(err.message || 'Erreur lors de la conversion de la page.');
+    });
+  };
+
   return (
     <div className="app">
       <header className="editor-header">
-        <button
-          className="tb-btn"
-          onClick={() => {
-            flushSave();
-            go({ name: 'library', folderId: notebook.folderId });
-          }}
-          aria-label="Retour à la bibliothèque"
-        >
-          {ICONS.back}
-        </button>
-        <div className="nb-id">
-          <button className="nb-title" onClick={() => setRenaming(true)} title="Renommer le cahier">
-            <span className="dot" style={{ background: notebook.color }} />
-            {notebook.title}
+        {/* ── ZONE GAUCHE : bouton retour ── */}
+        <div className="editor-zone-left">
+          <button
+            className="tb-btn tb-back"
+            onClick={() => {
+              flushSave();
+              go({ name: 'library', folderId: notebook.folderId });
+            }}
+            aria-label="Retour à la bibliothèque"
+            title="Bibliothèque"
+          >
+            {ICONS.back}
           </button>
-          <span className="nb-sub">
-            {notebook.subject ? `${notebook.subject} · ` : ''}
-            Page {index + 1} sur {pageCount}
-          </span>
         </div>
-        <span className="header-gap" />
-        <SyncChip />
-        <button className="tb-btn" onClick={() => pdfInput.current?.click()} title="Importer un document PDF">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-            <polyline points="14 2 14 8 20 8" />
-            <line x1="12" y1="18" x2="12" y2="12" />
-            <line x1="9" y1="15" x2="15" y2="15" />
-          </svg>
-          Importer PDF
-        </button>
-        <button className="tb-primary" onClick={() => pageId && void convertPageById(pageId).catch(() => undefined)} disabled={!!pageBusy}>
-          {pageBusy ? <span className="spinner" /> : ICONS.sigma}
-          Convertir la page
-        </button>
-        <button
-          className={`tb-btn ${panelOpen ? 'active' : ''}`}
-          onClick={() => setPanelOpen((v) => !v)}
-          aria-label="Transcription"
-          aria-pressed={panelOpen}
-        >
-          {ICONS.panel}
-        </button>
-        <button
-          className={`tb-btn ${menuOpen ? 'active' : ''}`}
-          onClick={() => setMenuOpen((v) => !v)}
-          aria-label="Menu du cahier"
-          aria-expanded={menuOpen}
-        >
-          {ICONS.dots}
-        </button>
+
+        {/* ── ZONE CENTRE : onglets (fluide, prend tout l'espace disponible) ── */}
+        <EditorTabs
+          tabs={tabs}
+          activeId={notebookId}
+          currentNotebook={notebook}
+          onClose={onCloseTab}
+          onRename={() => setRenaming(true)}
+        />
+
+        {/* ── ZONE DROITE : actions (fixe, ne rétrécit jamais) ── */}
+        <div className="editor-zone-right">
+          <button
+            className="tb-action-btn"
+            onClick={() => pdfInput.current?.click()}
+            title="Importer un document PDF"
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <polyline points="14 2 14 8 20 8" />
+              <line x1="12" y1="18" x2="12" y2="12" />
+              <line x1="9" y1="15" x2="15" y2="15" />
+            </svg>
+            <span className="tb-label hidden md:inline">Importer PDF</span>
+          </button>
+          <button
+            className="tb-primary"
+            onClick={handleConvertClick}
+            disabled={!!pageBusy}
+            title="Convertir la page"
+          >
+            {pageBusy ? <span className="spinner" /> : ICONS.sigma}
+            <span className="tb-label hidden md:inline">Convertir la page</span>
+          </button>
+          <button
+            className={`tb-btn ${menuOpen ? 'active' : ''}`}
+            onClick={() => setMenuOpen((v) => !v)}
+            aria-label="Menu du cahier"
+            aria-expanded={menuOpen}
+          >
+            {ICONS.dots}
+          </button>
+        </div>
         {menuOpen && (
           <NotebookMenu
             paper={page?.paper ?? notebook.paper}
