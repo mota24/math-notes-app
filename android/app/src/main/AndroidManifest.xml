@@ -1,8 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- allowBackup="false" : les notes et la clé Gemini (stockage de la WebView) ne partent jamais dans
+         une sauvegarde ADB ou un transfert d'appareil ; la sauvegarde passe par Réglages → Sauvegarde sur fichier. -->
     <application
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"

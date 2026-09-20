@@ -63,7 +63,8 @@ Gemini les convertit en LaTeX lisible, et tu exportes en PDF (tel quel, propre, 
 npm install
 npm run dev         # sur le PC : http://localhost:5173
 npm run tablette    # accessible depuis la tablette sur le même Wi-Fi (adresse « Network »)
-npm test            # tests : anti-paume, formes, géométrie, bibliothèque, format des transcriptions, fusion de la synchronisation
+npm test            # tests : anti-paume, formes, géométrie, bibliothèque, format des transcriptions, fusion de la synchronisation, sauvegardes
+npm run lint        # vérification du code (ESLint : TypeScript, React hooks)
 npm run build       # version de production dans dist/
 npm run android:sync  # build + copie dans le projet Android (voir « Application Android »)
 ```
@@ -73,7 +74,15 @@ Ajoute `?demo` à l'adresse pour tester la conversion sans clé (réponses ficti
 ## Clé Gemini (gratuite)
 
 1. Va sur [aistudio.google.com/apikey](https://aistudio.google.com/apikey) et crée une clé.
-2. Dans l'appli : Réglages → Gemini → colle la clé. Elle reste sur l'appareil.
+2. Dans l'appli : Réglages → Gemini → colle la clé. Elle reste sur l'appareil (jamais synchronisée, jamais dans les
+   sauvegardes).
+3. **Restreins la clé** (recommandé) : la clé est utilisée directement depuis le navigateur, donc quelqu'un qui aurait
+   accès à ta tablette pourrait la lire. Dans [console.cloud.google.com](https://console.cloud.google.com/apis/credentials)
+   → *Identifiants* → ta clé → *Restrictions liées aux applications* : **Référents HTTP**, et ajoute
+   `https://math-notes-app-indol.vercel.app/*` (et `http://localhost:5173/*` pour le PC) ; *Restrictions liées aux API* :
+   **Generative Language API** seulement. Ainsi la clé ne sert à rien ailleurs que dans l'appli.
+   (Dans l'application Android, la WebView n'envoie pas de référent : garde une clé séparée, non restreinte par
+   référent, ou accepte de saisir la clé du site et laisse la restriction de côté sur la tablette.)
 
 ## Mettre l'appli en ligne (Vercel, gratuit)
 
@@ -89,8 +98,21 @@ Nécessaire pour **installer** l'appli sur la tablette (écran d'accueil), l'uti
 5. Pour Google Drive, ajoute l'adresse du site (`https://math-notes-app-indol.vercel.app`) comme « origine
    JavaScript autorisée » de ton ID client OAuth (voir plus bas).
 
-GitHub, lui, ne publie rien : `.github/workflows/ci.yml` lance les tests et la compilation à chaque envoi (une coche
-verte ou rouge sur le commit).
+GitHub, lui, ne publie rien : `.github/workflows/ci.yml` lance les tests, la vérification du code (`npm run lint`) et la
+compilation à chaque envoi (une coche verte ou rouge sur le commit).
+
+### Sécurité du site
+
+`vercel.json` fixe les en-têtes HTTP de sécurité : une **Content-Security-Policy** stricte (seuls le site lui-même,
+Gemini, Google Drive et la connexion Google sont autorisés ; aucun script tiers, pas d'iframe), `X-Frame-Options`,
+`Referrer-Policy`, `Permissions-Policy` et HSTS. Il règle aussi le cache : `sw.js`, `precache.json` et `index.html`
+ne sont jamais mis en cache (une mise à jour est vue tout de suite), les fichiers de `assets/` (nom avec empreinte)
+le sont un an. **Si tu ajoutes un service externe** (police, script, API), ajoute son adresse dans la CSP, sinon le
+navigateur le bloquera silencieusement (regarde la console du navigateur).
+
+Rappel de ce qui est stocké où : les notes sont dans IndexedDB sur l'appareil ; la clé Gemini et l'ID client OAuth dans
+`localStorage` ; le jeton Google Drive (1 h) seulement en mémoire et dans `sessionStorage`, effacé à la fermeture de
+l'appli. Aucun serveur à toi : rien ne transite ailleurs que vers Google.
 
 **Chaque adresse a ses propres notes** : le site Vercel, l'application Android et tout autre site ne partagent pas
 leur stockage. Pour passer des notes de l'un à l'autre, fais une sauvegarde sur fichier (Réglages → Sauvegarde sur
@@ -138,6 +160,8 @@ puis recompile.
 
 - **Tes notes sont dans l'appli** (stockage de la WebView). Désinstaller l'appli ou « Effacer les données » les
   supprime : fais une sauvegarde `.json` (Réglages → Sauvegarde sur fichier) avant, puis « Restaurer » après.
+  L'appli refuse les sauvegardes Android automatiques (`allowBackup="false"`) : tes notes et ta clé Gemini ne
+  partent pas dans un transfert d'appareil ni dans une copie ADB, seule ta sauvegarde `.json` compte.
 - **Ne change plus** `appId` (`com.notesmaths.app`) ni `server.androidScheme` dans `capacitor.config.ts` une fois
   l'appli installée : Android verrait une autre appli, vide.
 - **Exports** : dans l'APK, un fichier généré (PDF, .tex, sauvegarde) s'ouvre dans la **feuille de partage** d'Android :
@@ -145,7 +169,8 @@ puis recompile.
 - **Pas dans l'APK** : « Ouvrir et enregistrer en PDF » (PDF propre LaTeX : la WebView n'a pas de fenêtre
   d'impression — prends le fichier .tex ou le PDF de tes notes en Mode impression) et la synchronisation
   Google Drive (Google refuse la connexion depuis une WebView — utilise la sauvegarde sur fichier).
-- **Site web (GitHub Pages)** : rien ne change, `deploy.yml` fixe toujours `BASE_PATH`. Sans `BASE_PATH`, le build utilise des chemins relatifs.
+- **Site web** : rien ne change, Vercel compile avec des chemins relatifs (sans `BASE_PATH`). `BASE_PATH` ne sert
+  que si tu publies un jour dans un sous-dossier (GitHub Pages par exemple).
 - Il faut une **WebView à jour** (Android System WebView, mise à jour par le Play Store), comme pour Chrome.
 
 ## Sauvegarde Google Drive (gratuite)
@@ -154,7 +179,7 @@ puis recompile.
 2. API et services → Bibliothèque → active **Google Drive API**.
 3. Écran de consentement OAuth → Externe → ajoute ton adresse Gmail comme utilisateur test.
 4. Identifiants → Créer → **ID client OAuth** → Application Web → origines JavaScript autorisées :
-   `https://<ton-pseudo>.github.io` (et `http://localhost:5173` pour le PC).
+   `https://math-notes-app-indol.vercel.app` (et `http://localhost:5173` pour le PC).
 5. Dans l'appli : Réglages → Sauvegarde Google Drive → colle l'ID client → **Se connecter**.
 
 L'appli n'a accès qu'aux fichiers qu'elle crée (portée `drive.file`), rangés dans le dossier
@@ -165,19 +190,21 @@ récente gagne.
 
 | Dossier | Rôle |
 |---|---|
-| `src/ink/` | Écriture : rendu du trait et des formes (`draw.ts`), anti-paume (`palm.ts`), reconnaissance des formes, géométrie (gomme de précision, lasso, mise à l'échelle et rotation : `geometry.ts`), zone de dessin (`InkCanvas.tsx`) |
+| `src/ink/` | Écriture : rendu du trait et des formes (`draw.ts`), anti-paume (`palm.ts`), reconnaissance des formes, géométrie (gomme de précision, lasso, mise à l'échelle et rotation : `geometry.ts`), zone de dessin (`InkCanvas.tsx`) avec ses feuilles (`sheets.ts`), ses poignées (`handles.ts`) et l'historique annuler / rétablir (`history.ts`) |
 | `src/db/` | Stockage local IndexedDB et opérations de bibliothèque |
 | `src/ai/` | Gemini : prompt, appel avec réessais, format des transcriptions |
 | `src/render/` | Affichage KaTeX, tableaux tkz-tab, export LaTeX |
 | `src/export/` | PDF vectoriel, PDF manuscrit |
 | `src/pdf/` | Lecture des PDF importés (pdf.js) |
-| `src/sync/` | Google Drive : connexion, fusion, déclencheurs |
-| `src/components/` | Écrans : bibliothèque (`Library*.tsx`), éditeur, barre d'onglets, exports, mon écriture, réglages |
+| `src/sync/` | Google Drive : connexion, fusion, déclencheurs (l'index distant est vérifié avant d'être appliqué) |
+| `src/db/backupFormat.ts` | Format du fichier de sauvegarde et sa validation (rien n'est écrit dans la base avant vérification) |
+| `vercel.json` | En-têtes de sécurité (CSP…) et règles de cache du site en ligne |
+| `src/components/` | Écrans : bibliothèque (`Library*.tsx`), éditeur, barre d'onglets, exports, mon écriture, réglages (`SettingsDialog.tsx` + une section par fichier dans `settings/`), pictogrammes (`icons.tsx`) et catalogue des tampons (`stamps.tsx`) |
 | `src/index.css` | Point d'entrée des styles : Tailwind CSS, KaTeX et l'ancienne feuille `styles.css`, rangés en couches (voir ci-dessous) |
 | `android/` | Projet Android (Capacitor) : embarque `dist/` dans l'APK ; icônes et écran de démarrage de l'appli |
 | `capacitor.config.ts` | Réglages Capacitor (identifiant de l'appli, dossier embarqué `dist`) |
 | `src/platform.ts` | `isNativeApp()` : dans l'APK ou dans un navigateur (exports par partage, Drive et impression) |
-| `tests/` | Tests exécutés directement par Node (`npm test`) |
+| `tests/` | Tests exécutés directement par Node (`npm test`) : anti-paume, formes, géométrie, feuilles, historique, bibliothèque, réponses du modèle, tableaux tkz-tab, rendu des maths, navigation, sauvegardes, fusion de la synchronisation |
 
 ### Les styles : Tailwind CSS et l'ancienne feuille
 

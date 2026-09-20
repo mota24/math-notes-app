@@ -51,10 +51,15 @@ self.addEventListener('fetch', (event) => {
   if (request.mode === 'navigate') {
     event.respondWith(
       fetch(request)
-        .then((response) => {
-          const copy = response.clone();
-          void caches.open(CACHE).then((cache) => cache.put('./index.html', copy));
-          return response;
+        .then(async (response) => {
+          // Seule une vraie page (200) remplace la copie hors-ligne : une erreur passagère du serveur
+          // (500, 404 pendant un déploiement…) ne doit jamais devenir la page servie hors-ligne.
+          if (response.ok) {
+            const copy = response.clone();
+            void caches.open(CACHE).then((cache) => cache.put('./index.html', copy));
+            return response;
+          }
+          return (await caches.match('./index.html')) ?? response;
         })
         .catch(async () => (await caches.match('./index.html')) ?? Response.error()),
     );
@@ -66,7 +71,7 @@ self.addEventListener('fetch', (event) => {
       (cached) =>
         cached ??
         fetch(request).then((response) => {
-          if (response.ok) {
+          if (response.ok && response.type === 'basic') {
             const copy = response.clone();
             void caches.open(CACHE).then((cache) => cache.put(request, copy));
           }

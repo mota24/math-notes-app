@@ -13,6 +13,12 @@ import { MultiColorSwatch } from './MultiColorSwatch';
 import { farthestPoint, recognizeShape } from './shapeRecognize';
 import { newId } from './types';
 import type { BBox, InkPoint, InputKind, PaperColor, PaperStyle, ShapeKind, Stroke, Tool, View } from './types';
+import { BAR_WIDTH, BAR_WIDTH_REGION, CAPTURE_HANDLES, HANDLE_SIZE, ROTATE_GAP, ROTATE_SIZE, clamp, isCorner, layoutHandles, rotatePosition, trackDrag } from './handles';
+import type { Corner, TransformDrag } from './handles';
+import { docH, docW, findSheet, getSheets } from './sheets';
+import type { CanvasPage, Sheet } from './sheets';
+
+export type { CanvasPage, Sheet } from './sheets';
 
 export interface InkStats {
   type: string;
@@ -35,16 +41,6 @@ export interface InkStats {
     penReference: number | null;
     palmThreshold: number | null;
   };
-}
-
-export interface CanvasPage {
-  id: string;
-  width: number;
-  height: number;
-  paper: PaperStyle;
-  paperColor?: PaperColor;
-  background?: HTMLCanvasElement | null;
-  strokes: Stroke[];
 }
 
 interface Props {
@@ -209,14 +205,11 @@ function shapeBBoxFromPoints(pts: InkPoint[]): [number, number, number, number] 
 
 const MIN_SCALE = 1;
 const MAX_SCALE = 25;
-/** Espace sombre visible entre les feuilles physiques façon JNotes (mm) */
-const PAGE_GAP = 16;
 /** Seuil de défilement (px) pour déclencher l'ajout d'une feuille par overscroll */
 const OVERSCROLL_PULL_PX = 65;
 const OVERSCROLL_MAX_PX = 130;
 /** Place laissée en haut pour la pilule d'outils flottante */
 const TOP_GAP = 76;
-const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 const kindOf = (e: PointerEvent): InputKind =>
   e.pointerType === 'pen' ? 'pen' : e.pointerType === 'mouse' ? 'mouse' : 'touch';
 const sampleOf = (e: PointerEvent): Sample => ({
@@ -226,190 +219,6 @@ const sampleOf = (e: PointerEvent): Sample => ({
   t: e.timeStamp,
   size: Math.max(e.width || 0, e.height || 0),
 });
-
-/** Poignées du Lasso de capture : 4 coins + 4 milieux de bord, comme un crop d'image. */
-type Corner = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
-const CAPTURE_HANDLES: Corner[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
-const HANDLE_SIZE = 26;
-
-/** Poignées de la sélection (diamètres en px) : les angles sont larges, pour un stylet capacitif */
-const CORNER_SIZE = 30;
-const EDGE_SIZE = 22;
-const ROTATE_SIZE = 34;
-/** Distance entre le cadre de la sélection et la poignée de rotation (px) */
-const ROTATE_GAP = 42;
-/** Largeur (px) du bandeau d'actions d'une sélection de traits, et d'une simple zone de lasso (moins de boutons) */
-const BAR_WIDTH = 640;
-const BAR_WIDTH_REGION = 260;
-
-/** Cadre d'une sélection à l'écran (px) */
-interface ScreenBox {
-  left: number;
-  top: number;
-  width: number;
-  height: number;
-}
-
-interface HandleView {
-  id: ResizeHandle;
-  /** Centre de la poignée (px) */
-  left: number;
-  top: number;
-  size: number;
-}
-
-/**
- * Glissé d'une poignée de la sélection : les traits tels qu'ils seront au relâchement, pour que le cadre et
- * les poignées suivent l'aperçu au lieu de rester à la place d'origine.
- */
-interface TransformDrag {
-  kind: 'scale' | 'rotate' | 'stretch';
-  strokes: Stroke[];
-  /** Rotation : où se tenait la poignée au départ (elle ne bouge pas pendant le glissé) */
-  rot?: { left: number; top: number; above: boolean };
-  /** Rotation : l'angle atteint (°), et où se tient le pointeur (px, dans la zone) pour l'afficher */
-  angle?: number;
-  at?: [number, number];
-}
-
-const isCorner = (h: ResizeHandle): h is ScaleCorner => h === 'nw' || h === 'ne' || h === 'se' || h === 'sw';
-
-/**
- * Les poignées autour du cadre : les 4 angles (mise à l'échelle proportionnelle), en plus le milieu des
- * bords pour une forme droite seule (étirement, si la place le permet), ou, pour une ligne ou une flèche
- * seule, les deux bouts (l'angle est libre).
- */
-function layoutHandles(box: ScreenBox, only: Stroke | null, view: View): HandleView[] {
-  if (only && only.tool === 'shape' && (only.shape === 'line' || only.shape === 'arrow') && only.points.length >= 2) {
-    return only.points.slice(0, 2).map(([x, y], i): HandleView => ({ id: i ? 'end' : 'start', left: x * view.scale + view.tx, top: y * view.scale + view.ty, size: EDGE_SIZE }));
-  }
-  const { left, top, width, height } = box;
-  // Juste hors du cadre : sur une petite sélection, les angles ne se chevauchent jamais
-  const off = 8;
-  const out: HandleView[] = [
-    { id: 'nw', left: left - off, top: top - off, size: CORNER_SIZE },
-    { id: 'ne', left: left + width + off, top: top - off, size: CORNER_SIZE },
-    { id: 'se', left: left + width + off, top: top + height + off, size: CORNER_SIZE },
-    { id: 'sw', left: left - off, top: top + height + off, size: CORNER_SIZE },
-  ];
-  if (only && only.tool === 'shape' && !only.angle) {
-    if (width >= 90) out.push({ id: 'n', left: left + width / 2, top, size: EDGE_SIZE }, { id: 's', left: left + width / 2, top: top + height, size: EDGE_SIZE });
-    if (height >= 90) out.push({ id: 'w', left, top: top + height / 2, size: EDGE_SIZE }, { id: 'e', left: left + width, top: top + height / 2, size: EDGE_SIZE });
-  }
-  return out;
-}
-
-/** La poignée de rotation : sous le cadre (le bandeau d'actions est au-dessus), ou au-dessus s'il n'y a pas de place en bas. */
-function rotatePosition(box: ScreenBox, stage: { w: number; h: number }): { left: number; top: number; above: boolean } {
-  const m = ROTATE_SIZE / 2 + 4;
-  const left = clamp(box.left + box.width / 2, m, Math.max(m, stage.w - m));
-  const below = box.top + box.height + ROTATE_GAP + ROTATE_SIZE / 2 <= stage.h - 6;
-  const top = below ? box.top + box.height + ROTATE_GAP : clamp(box.top - ROTATE_GAP, m, Math.max(m, stage.h - m));
-  return { left, top, above: !below };
-}
-
-/**
- * Glissé natif depuis une poignée, hors du classifieur anti-paume : `move` à chaque déplacement, `end` au
- * relâchement (`cancelled` : le système a annulé le contact, rien ne doit être appliqué). Les événements
- * sont suivis sur la fenêtre : la poignée peut être redessinée ou déplacée pendant le glissé sans que
- * celui-ci se perde.
- */
-function trackDrag(e: ReactPointerEvent<HTMLElement>, move: (ev: PointerEvent) => void, end?: (cancelled: boolean) => void) {
-  e.preventDefault();
-  e.stopPropagation();
-  const id = e.pointerId;
-  try {
-    e.currentTarget.setPointerCapture(id);
-  } catch {
-    /* pointeur déjà relâché */
-  }
-  const onMove = (ev: PointerEvent) => {
-    if (ev.pointerId === id) move(ev);
-  };
-  const onEnd = (ev: PointerEvent) => {
-    if (ev.pointerId !== id) return;
-    window.removeEventListener('pointermove', onMove);
-    window.removeEventListener('pointerup', onEnd);
-    window.removeEventListener('pointercancel', onEnd);
-    end?.(ev.type === 'pointercancel');
-  };
-  window.addEventListener('pointermove', onMove);
-  window.addEventListener('pointerup', onEnd);
-  window.addEventListener('pointercancel', onEnd);
-}
-
-export interface Sheet {
-  index: number;
-  id: string;
-  page: CanvasPage;
-  top: number;
-  bottom: number;
-  width: number;
-  height: number;
-}
-
-function getSheets(p: Props, minH: number): Sheet[] {
-  if (p.pages && p.pages.length > 0) {
-    let currentTop = 0;
-    return p.pages.map((page, index) => {
-      const top = currentTop;
-      const bottom = top + page.height;
-      currentTop = bottom + PAGE_GAP;
-      return {
-        index,
-        id: page.id,
-        page,
-        top,
-        bottom,
-        width: page.width,
-        height: page.height,
-      };
-    });
-  }
-  const h = p.extendable ? Math.max(p.pageHeight, minH) : p.pageHeight;
-  return [
-    {
-      index: 0,
-      id: 'single',
-      page: {
-        id: 'single',
-        width: p.pageWidth,
-        height: h,
-        paper: p.paper,
-        paperColor: p.paperColor,
-        background: p.background,
-        strokes: p.strokes,
-      },
-      top: 0,
-      bottom: h,
-      width: p.pageWidth,
-      height: h,
-    },
-  ];
-}
-
-function docH(sheets: Sheet[]): number {
-  return sheets.length > 0 ? sheets[sheets.length - 1].bottom : 0;
-}
-
-function docW(sheets: Sheet[], defaultW: number): number {
-  return sheets.length > 0 ? Math.max(...sheets.map((s) => s.width)) : defaultW;
-}
-
-function findSheet(sheets: Sheet[], docY: number): Sheet {
-  if (sheets.length <= 1) return sheets[0];
-  if (docY <= sheets[0].top) return sheets[0];
-  if (docY >= sheets[sheets.length - 1].bottom) return sheets[sheets.length - 1];
-  for (let i = 0; i < sheets.length; i++) {
-    const s = sheets[i];
-    if (docY >= s.top && docY <= s.bottom) return s;
-    if (i < sheets.length - 1 && docY > s.bottom && docY < sheets[i + 1].top) {
-      const mid = (s.bottom + sheets[i + 1].top) / 2;
-      return docY < mid ? s : sheets[i + 1];
-    }
-  }
-  return sheets[sheets.length - 1];
-}
 
 export function InkCanvas(props: Props) {
   const containerRef = useRef<HTMLDivElement>(null);

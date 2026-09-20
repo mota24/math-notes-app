@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import type { PaperColor, PaperStyle } from '../ink/types';
-import { ICONS } from './Toolbar';
+import { ICONS } from './icons';
 
 const PAPERS: { value: PaperStyle; label: string }[] = [
   { value: 'grid', label: 'Carreaux' },

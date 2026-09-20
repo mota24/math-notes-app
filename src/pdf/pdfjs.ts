@@ -1,17 +1,29 @@
-import * as pdfjs from 'pdfjs-dist';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { db } from '../db/db';
 
-pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
-
 export const PT_PER_MM = 72 / 25.4;
+
+/**
+ * pdf.js (≈ 500 ko) n'est chargé qu'à la première page PDF affichée ou importée, pas au démarrage :
+ * un cahier de pages blanches s'ouvre sans lui.
+ */
+let lib: Promise<typeof import('pdfjs-dist')> | null = null;
+function pdfjs(): Promise<typeof import('pdfjs-dist')> {
+  lib ??= import('pdfjs-dist').then((m) => {
+    m.GlobalWorkerOptions.workerSrc = workerUrl;
+    return m;
+  });
+  lib.catch(() => (lib = null)); // hors-ligne au premier appel : on réessaiera
+  return lib;
+}
 
 const docs = new Map<string, Promise<PDFDocumentProxy>>();
 
-function openBytes(bytes: ArrayBuffer): Promise<PDFDocumentProxy> {
+async function openBytes(bytes: ArrayBuffer): Promise<PDFDocumentProxy> {
+  const { getDocument } = await pdfjs();
   // pdf.js transfère le tampon au worker : on lui donne une copie
-  return pdfjs.getDocument({ data: new Uint8Array(bytes.slice(0)) }).promise;
+  return getDocument({ data: new Uint8Array(bytes.slice(0)) }).promise;
 }
 
 /** Document PDF d'un fichier stocké (les 3 derniers restent ouverts). */

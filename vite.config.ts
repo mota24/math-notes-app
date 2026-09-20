@@ -22,6 +22,22 @@ export default defineConfig({
   // dans la WebView Android (Capacitor). Sur GitHub Pages, BASE_PATH impose /nom-du-depot/ (voir deploy.yml).
   base: env.BASE_PATH ?? './',
   plugins: [react(), tailwindcss(), precacheManifest()],
+  build: {
+    // Les bibliothèques qui ne changent presque jamais (React, KaTeX) vont dans leurs propres fichiers :
+    // une mise à jour de l'appli ne fait retélécharger que le code de l'appli, pas ces bibliothèques.
+    // pdf.js et pdf-lib, eux, ne sont chargés qu'à la demande (import() dans src/pdf et src/export).
+    rolldownOptions: {
+      output: {
+        codeSplitting: {
+          groups: [
+            { name: 'react', test: /node_modules[\\/](react|react-dom|scheduler)[\\/]/ },
+            { name: 'katex', test: /node_modules[\\/]katex[\\/]/ },
+          ],
+        },
+      },
+    },
+    chunkSizeWarningLimit: 600,
+  },
   // PORT permet à un outil (aperçu intégré) d'imposer son port ; sinon 5173 comme d'habitude
   server: { port: Number(env.PORT) || 5173 },
 });

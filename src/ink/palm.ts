@@ -981,7 +981,7 @@ export class InputClassifier {
     const wantErase = eraseDelay > 0 && !!this.listener.holdErase;
     const wantShape = shapeDelay > 0 && !!this.listener.shapeHold;
     if ((!wantErase && !wantShape) || t.kind === 'mouse') return;
-    const firstDelay = Math.min(...[wantErase ? eraseDelay : Infinity, wantShape ? shapeDelay : Infinity]);
+    const firstDelay = Math.min(wantErase ? eraseDelay : Infinity, wantShape ? shapeDelay : Infinity);
     const maxDelay = Math.max(wantErase ? eraseDelay : 0, wantShape ? shapeDelay : 0);
     // Un stylet parfaitement immobile n'envoie parfois plus un seul événement : c'est ce minuteur, et
     // lui seul, qui peut déclencher la gomme ou la reconnaissance de forme. S'il rate sa chance une

@@ -105,3 +105,9 @@ export async function imageFileToEncoded(file: File): Promise<EncodedImage> {
     URL.revokeObjectURL(url);
   }
 }
+
+/** Image déjà encodée en data URL (capture au lasso, formule posée) : sans dimensions connues. */
+export function imageFromDataUrl(dataUrl: string): EncodedImage {
+  const mimeType = dataUrl.slice(5, dataUrl.indexOf(';'));
+  return { dataUrl, base64: dataUrl.slice(dataUrl.indexOf(',') + 1), mimeType, width: 0, height: 0 };
+}

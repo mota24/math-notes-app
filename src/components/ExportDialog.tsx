@@ -2,11 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Block } from '../ai/blocks';
 import { db, useQuery } from '../db/db';
-import type { Notebook, Page } from '../db/schema';
+import type { Glyph, Notebook, Page, Transcript } from '../db/schema';
 import { downloadBlob } from '../export/download';
-import { HAND_FONTS, canvasesToPdf, handLayout, renderHandwriting } from '../export/handwriting';
+import { HAND_FONTS, handLayout, renderHandwriting } from '../export/handwriting';
 import type { HandSize, HandStyle } from '../export/handwriting';
-import { exportInkPdf } from '../export/pdfOriginal';
 import type { PaperStyle } from '../ink/types';
 import { BlocksView } from '../render/BlocksView';
 import { notebookLatex } from '../render/math';
@@ -20,6 +19,10 @@ const INKS = [
   { value: '#1d2433', name: 'Noir' },
   { value: '#5b2a86', name: 'Violet' },
 ];
+
+// Tableaux vides stables (`?? []` en créerait un nouveau à chaque rendu et casserait les useMemo)
+const NO_TRANSCRIPTS: Transcript[] = [];
+const NO_GLYPHS: Glyph[] = [];
 
 export function ExportDialog({
   notebook,
@@ -39,10 +42,10 @@ export function ExportDialog({
   const [error, setError] = useState<string | null>(null);
   const [handJob, setHandJob] = useState<{ number: number; blocks: Block[] }[] | null>(null);
   const layoutRef = useRef<HTMLDivElement>(null);
-  const transcripts = useQuery(() => db.transcriptsOf(notebook.id), [notebook.id], ['transcripts']) ?? [];
-  const glyphs = useQuery(() => db.glyphs(), [], ['glyphs']) ?? [];
+  const transcripts = useQuery(() => db.transcriptsOf(notebook.id), [notebook.id], ['transcripts']) ?? NO_TRANSCRIPTS;
+  const glyphs = useQuery(() => db.glyphs(), [], ['glyphs']) ?? NO_GLYPHS;
 
-  const pageIds = scope === 'page' ? [notebook.pageIds[pageIndex]] : notebook.pageIds;
+  const pageIds = useMemo(() => (scope === 'page' ? [notebook.pageIds[pageIndex]] : notebook.pageIds), [scope, notebook.pageIds, pageIndex]);
   const converted = useMemo(() => {
     const byPage = new Map(transcripts.filter((t) => !t.deletedAt).map((t) => [t.pageId, t]));
     return pageIds.flatMap((id, i) => {
@@ -71,6 +74,8 @@ export function ExportDialog({
         const page = await db.getPage(id);
         if (page) pages.push(page);
       }
+      // pdf-lib (≈ 400 ko) n'est chargé qu'au premier export, pas à l'ouverture de l'appli
+      const { exportInkPdf } = await import('../export/pdfOriginal');
       const blob = await exportInkPdf(pages, (done, total) => setBusy(`Création du PDF… ${done}/${total}`), {
         defaultPaperColor: notebook.paperColor ?? 'light',
         print: settings.printMode,
@@ -103,6 +108,7 @@ export function ExportDialog({
         );
         if (!alive) return;
         setBusy('Assemblage du PDF…');
+        const { canvasesToPdf } = await import('../export/pdfWriter');
         await downloadBlob(await canvasesToPdf(canvases), `${baseName} (manuscrit).pdf`);
       } catch (e) {
         if (alive) setError((e as Error).message);

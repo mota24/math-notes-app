@@ -3,7 +3,7 @@ import { db, useQuery } from '../db/db';
 import { go } from '../router';
 import type { Route } from '../router';
 import type { Tab } from '../tabs';
-import { ICONS, icon } from './Toolbar';
+import { ICONS, icon } from './icons';
 
 const HOME = icon(<path d="M4 11l8-7 8 7M6 9.5V19h12V9.5" />);
 
@@ -114,7 +114,7 @@ export function EditorTabs({
 
   // S'assurer qu'au moins l'onglet du cahier actuel est affiché
   const effectiveTabs =
-    tabs.length > 0 && tabs.some((t) => t.notebookId === activeId)
+    tabs.some((t) => t.notebookId === activeId)
       ? tabs
       : [{ notebookId: activeId, pageIndex: 0 }, ...tabs.filter((t) => t.notebookId !== activeId)];
 

@@ -61,3 +61,12 @@ export function sheetRanges(height: number): { top: number; bottom: number }[] {
     bottom: Math.min(height, (i + 1) * SHEET_H),
   }));
 }
+
+/**
+ * Où poser une image sous la dernière encre : sur une page d'écriture le canevas s'allonge au besoin ;
+ * sur un PDF ou une photo, elle reste dans le fond.
+ */
+export function imageTop(p: { height: number; pdf?: unknown; image?: unknown }, below: number, h: number): number {
+  const y = Math.max(12, below + 10);
+  return isExtendable(p) ? y : Math.min(y, Math.max(0, p.height - h - 10));
+}

@@ -6,6 +6,10 @@ name: APK Android (debug)
 on:
   workflow_dispatch:
 
+# Le jeton du workflow ne peut que lire le dépôt (rien à écrire : ni release, ni commit).
+permissions:
+  contents: read
+
 jobs:
   apk:
     runs-on: ubuntu-latest

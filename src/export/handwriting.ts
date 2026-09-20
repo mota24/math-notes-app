@@ -1,4 +1,3 @@
-import { PDFDocument } from 'pdf-lib';
 import type { Glyph } from '../db/schema';
 import { buildPath, paperLines } from '../ink/draw';
 import type { InkPoint, PaperStyle } from '../ink/types';
@@ -246,17 +245,4 @@ export async function renderHandwriting(
     onProgress?.(i + 1, pages.length);
   }
   return canvases;
-}
-
-export async function canvasesToPdf(canvases: HTMLCanvasElement[]): Promise<Blob> {
-  const pdf = await PDFDocument.create();
-  for (const canvas of canvases) {
-    const blob = await new Promise<Blob>((resolve, reject) =>
-      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Impossible de créer l’image de la page.'))), 'image/jpeg', 0.9),
-    );
-    const image = await pdf.embedJpg(await blob.arrayBuffer());
-    const page = pdf.addPage([595.28, 841.89]);
-    page.drawImage(image, { x: 0, y: 0, width: 595.28, height: 841.89 });
-  }
-  return new Blob([(await pdf.save()) as Uint8Array<ArrayBuffer>], { type: 'application/pdf' });
 }

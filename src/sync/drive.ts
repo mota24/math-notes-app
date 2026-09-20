@@ -35,6 +35,59 @@ const SCOPE = 'https://www.googleapis.com/auth/drive.file';
 const API = 'https://www.googleapis.com/drive/v3';
 const UPLOAD = 'https://www.googleapis.com/upload/drive/v3';
 const TOKEN_KEY = 'notes-maths.drive-token';
+const LEGACY_TOKEN_KEY = 'notes-maths.drive-token';
+
+interface SavedToken {
+  value: string;
+  expiresAt: number;
+}
+
+/**
+ * Le jeton d'accès (valable 1 h) reste en mémoire, avec une copie dans sessionStorage pour survivre à un
+ * rechargement de la page. Il n'est plus écrit dans localStorage : il disparaît quand on ferme l'appli,
+ * et un script malveillant qui lirait le stockage persistant n'y trouverait rien.
+ */
+let memoryToken: SavedToken | null = null;
+
+function readSavedToken(): SavedToken | null {
+  if (memoryToken) return memoryToken;
+  try {
+    const raw = sessionStorage.getItem(TOKEN_KEY);
+    if (raw) {
+      const saved = JSON.parse(raw) as Partial<SavedToken>;
+      if (typeof saved.value === 'string' && typeof saved.expiresAt === 'number') {
+        memoryToken = { value: saved.value, expiresAt: saved.expiresAt };
+        return memoryToken;
+      }
+    }
+  } catch {
+    /* stockage indisponible ou jeton illisible */
+  }
+  return null;
+}
+
+function saveToken(token: SavedToken | null) {
+  memoryToken = token;
+  try {
+    if (token) sessionStorage.setItem(TOKEN_KEY, JSON.stringify(token));
+    else sessionStorage.removeItem(TOKEN_KEY);
+  } catch {
+    /* navigation privée : le jeton reste seulement en mémoire */
+  }
+}
+
+/** Anciennes versions : le jeton était dans localStorage. On l'efface (et on le révoque si possible). */
+function purgeLegacyToken() {
+  try {
+    const raw = localStorage.getItem(LEGACY_TOKEN_KEY);
+    if (!raw) return;
+    localStorage.removeItem(LEGACY_TOKEN_KEY);
+    const saved = JSON.parse(raw) as Partial<SavedToken>;
+    if (typeof saved.value === 'string' && window.google) window.google.accounts.oauth2.revoke(saved.value);
+  } catch {
+    /* rien à nettoyer */
+  }
+}
 
 export class DriveAuthError extends Error {}
 
@@ -73,12 +126,10 @@ export function canUseDrive(): { ok: boolean; reason?: string } {
 }
 
 export function currentToken(): string | null {
-  try {
-    const saved = JSON.parse(localStorage.getItem(TOKEN_KEY) ?? 'null') as { value: string; expiresAt: number } | null;
-    if (saved && saved.expiresAt - 60_000 > Date.now()) return saved.value;
-  } catch {
-    /* jeton illisible */
-  }
+  purgeLegacyToken();
+  const saved = readSavedToken();
+  if (saved && saved.expiresAt - 60_000 > Date.now()) return saved.value;
+  if (saved) saveToken(null); // expiré
   return null;
 }
 
@@ -96,7 +147,7 @@ export async function signIn(clientId: string): Promise<string> {
           return;
         }
         const expiresAt = Date.now() + (response.expires_in ?? 3600) * 1000;
-        localStorage.setItem(TOKEN_KEY, JSON.stringify({ value: response.access_token, expiresAt }));
+        saveToken({ value: response.access_token, expiresAt });
         resolve(response.access_token);
       },
       error_callback: (error) =>
@@ -108,16 +159,16 @@ export async function signIn(clientId: string): Promise<string> {
 
 export function signOut() {
   const token = currentToken();
-  localStorage.removeItem(TOKEN_KEY);
+  saveToken(null);
   if (token && window.google) window.google.accounts.oauth2.revoke(token);
 }
 
 // ------------------------------------------------------------------ API Drive
 
 async function call(token: string, url: string, init: RequestInit = {}): Promise<Response> {
-  const res = await fetch(url, { ...init, headers: { Authorization: `Bearer ${token}`, ...(init.headers ?? {}) } });
+  const res = await fetch(url, { ...init, headers: { Authorization: `Bearer ${token}`, ...init.headers } });
   if (res.status === 401) {
-    localStorage.removeItem(TOKEN_KEY);
+    saveToken(null);
     throw new DriveAuthError('Session Google expirée : reconnecte-toi.');
   }
   if (!res.ok) throw new Error(`Google Drive a répondu ${res.status} : ${(await res.text()).slice(0, 200)}`);
@@ -130,8 +181,13 @@ export interface DriveFile {
   modifiedTime: string;
 }
 
+/** Valeur littérale dans une requête `q=` de l'API Drive : `\` et `'` doivent être échappés. */
+function driveQuoted(value: string): string {
+  return `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
+}
+
 export async function ensureFolder(token: string, name = 'Notes Maths (synchronisation)'): Promise<string> {
-  const q = encodeURIComponent(`name='${name}' and mimeType='application/vnd.google-apps.folder' and trashed=false`);
+  const q = encodeURIComponent(`name=${driveQuoted(name)} and mimeType='application/vnd.google-apps.folder' and trashed=false`);
   const found = (await (await call(token, `${API}/files?q=${q}&fields=files(id)&spaces=drive`)).json()) as { files: { id: string }[] };
   if (found.files.length) return found.files[0].id;
   const created = await call(token, `${API}/files?fields=id`, {
@@ -146,7 +202,7 @@ export async function listFiles(token: string, folderId: string): Promise<DriveF
   const files: DriveFile[] = [];
   let pageToken = '';
   do {
-    const q = encodeURIComponent(`'${folderId}' in parents and trashed=false`);
+    const q = encodeURIComponent(`${driveQuoted(folderId)} in parents and trashed=false`);
     const url = `${API}/files?q=${q}&fields=nextPageToken,files(id,name,modifiedTime)&pageSize=1000${pageToken ? `&pageToken=${pageToken}` : ''}`;
     const data = (await (await call(token, url)).json()) as { files: DriveFile[]; nextPageToken?: string };
     files.push(...data.files);

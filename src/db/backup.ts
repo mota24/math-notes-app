@@ -1,24 +1,10 @@
 import { byKey, mergeRecords, mergeTombstones } from '../sync/merge';
 import { db } from './db';
 import type { Tombstone } from './library';
-import type { Folder, Glyph, Notebook, Page, StoredFile, Transcript } from './schema';
+import { validateBackup } from './backupFormat';
+import type { BackupFile, FileEntry } from './backupFormat';
 
 /** Sauvegarde complète dans un fichier (sans compte Google) et restauration par fusion. */
-
-type FileEntry = Omit<StoredFile, 'blob'> & { data: string };
-
-interface BackupFile {
-  app: 'notes-maths';
-  version: 1;
-  createdAt: number;
-  folders: Folder[];
-  notebooks: Notebook[];
-  pages: Page[];
-  transcripts: Transcript[];
-  glyphs: Glyph[];
-  files: FileEntry[];
-  tombstones: Record<string, Tombstone>;
-}
 
 async function blobToBase64(blob: Blob): Promise<string> {
   const bytes = new Uint8Array(await blob.arrayBuffer());
@@ -59,15 +45,15 @@ export async function createBackup(): Promise<Blob> {
 
 /** Fusionne une sauvegarde : pour chaque élément, la version la plus récente gagne. */
 export async function restoreBackup(file: File): Promise<{ imported: number }> {
-  let data: BackupFile;
+  let parsed: unknown;
   try {
-    data = JSON.parse(await file.text()) as BackupFile;
+    parsed = JSON.parse(await file.text());
   } catch {
     throw new Error('Fichier illisible.');
   }
-  if (data.app !== 'notes-maths') throw new Error('Ce fichier n’est pas une sauvegarde de Notes Maths.');
+  const data = validateBackup(parsed);
 
-  const tombstones = mergeTombstones((await db.getMeta<Record<string, Tombstone>>('tombstones')) ?? {}, data.tombstones ?? {}, Date.now());
+  const tombstones = mergeTombstones((await db.getMeta<Record<string, Tombstone>>('tombstones')) ?? {}, data.tombstones, Date.now());
   let imported = 0;
 
   const folders = mergeRecords(byKey(await db.folders(), (f) => f.id), byKey(data.folders, (f) => f.id), tombstones);
@@ -91,7 +77,13 @@ export async function restoreBackup(file: File): Promise<{ imported: number }> {
   for (const entry of data.files) {
     if (localFiles.has(entry.id) || tombstones[entry.id]) continue;
     const { data: encoded, ...meta } = entry;
-    await db.putFile({ ...meta, blob: base64ToBlob(encoded, meta.type) });
+    let blob: Blob;
+    try {
+      blob = base64ToBlob(encoded, meta.type);
+    } catch {
+      continue; // contenu base64 abîmé : on saute ce fichier, le reste est restauré
+    }
+    await db.putFile({ ...meta, blob });
     imported++;
   }
 

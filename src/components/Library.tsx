@@ -124,9 +124,13 @@ const dangerButton =
 const crumb =
   'min-h-0 rounded-md border-0 bg-transparent px-1.5 py-0.5 font-medium transition-colors duration-150 hover:bg-black/5 hover:text-zinc-900 dark:hover:bg-white/10 dark:hover:text-white';
 
+// Tableaux vides stables : `?? []` en créerait un nouveau à chaque rendu et les useMemo ci-dessous ne serviraient à rien
+const NO_FOLDERS: Folder[] = [];
+const NO_NOTEBOOKS: Notebook[] = [];
+
 export function Library({ route, onOpenSettings }: { route: Extract<Route, { name: 'library' | 'trash' }>; onOpenSettings(): void }) {
-  const folders = useQuery(() => db.folders(), [], ['folders']) ?? [];
-  const notebooks = useQuery(() => db.notebooks(), [], ['notebooks']) ?? [];
+  const folders = useQuery(() => db.folders(), [], ['folders']) ?? NO_FOLDERS;
+  const notebooks = useQuery(() => db.notebooks(), [], ['notebooks']) ?? NO_NOTEBOOKS;
   const [query, setQuery] = useState('');
   const results = useQuery(() => search(query), [query], ['folders', 'notebooks', 'transcripts']);
   const [dialog, setDialog] = useState<Dialog>(null);

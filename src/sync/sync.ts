@@ -1,6 +1,7 @@
 import { db, notify } from '../db/db';
 import type { Tombstone } from '../db/library';
-import type { Folder, Glyph, Notebook, Page, PageVersion, StoredFile, Transcript } from '../db/schema';
+import type { Folder, Glyph, Notebook, PageVersion, StoredFile } from '../db/schema';
+import { isFolder, isGlyph, isNotebook, isPage, isRecord, isTranscript } from '../db/backupFormat';
 import { deleteFile, downloadFile, ensureFolder, listFiles, uploadFile } from './drive';
 import { byKey, mergeRecords, mergeTombstones } from './merge';
 
@@ -48,19 +49,57 @@ export interface SyncReport {
 
 const json = (value: unknown) => new Blob([JSON.stringify(value)], { type: 'application/json' });
 
+const EMPTY_INDEX: RemoteIndex = { version: 1, updatedAt: 0, folders: [], notebooks: [], pages: {}, transcripts: {}, files: {}, glyphs: [], tombstones: {} };
+
+/**
+ * L'index distant est lu avec méfiance : un fichier abîmé (envoi interrompu, modification à la main dans
+ * Drive) donne une erreur claire ou est nettoyé de ses éléments illisibles, au lieu de planter la synchro
+ * ou d'écrire n'importe quoi dans la base.
+ */
+async function readRemoteIndex(text: string): Promise<RemoteIndex> {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    throw new Error('Le fichier index.json du dossier Drive est illisible : supprime-le dans Drive, la synchronisation le recréera.');
+  }
+  if (!isRecord(raw)) throw new Error('Le fichier index.json du dossier Drive n’a pas la forme attendue.');
+  const list = <T>(v: unknown, keep: (x: unknown) => x is T): T[] => (Array.isArray(v) ? v.filter(keep) : []);
+  const map = <T>(v: unknown): Record<string, T> => (isRecord(v) ? (v as Record<string, T>) : {});
+  return {
+    version: 1,
+    updatedAt: typeof raw.updatedAt === 'number' ? raw.updatedAt : 0,
+    folders: list(raw.folders, isFolder),
+    notebooks: list(raw.notebooks, isNotebook),
+    pages: map<PageVersion>(raw.pages),
+    transcripts: map<TranscriptVersion>(raw.transcripts),
+    files: map<FileMeta>(raw.files),
+    glyphs: list(raw.glyphs, isGlyph),
+    tombstones: map<Tombstone>(raw.tombstones),
+  };
+}
+
+/** Un fichier de page ou de transcription téléchargé : ignoré s'il est illisible ou mal formé. */
+function parseDownloaded<T>(text: string, keep: (x: unknown) => x is T): T | null {
+  try {
+    const raw: unknown = JSON.parse(text);
+    return keep(raw) ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function syncWithDrive(token: string, progress: (step: string) => void): Promise<SyncReport> {
   const now = Date.now();
   progress('Ouverture du dossier Drive…');
   const folderId = await ensureFolder(token);
   const remoteFiles = new Map((await listFiles(token, folderId)).map((f) => [f.name, f.id]));
   const indexId = remoteFiles.get('index.json');
-  const remote: RemoteIndex = indexId
-    ? (JSON.parse(await (await downloadFile(token, indexId)).text()) as RemoteIndex)
-    : { version: 1, updatedAt: 0, folders: [], notebooks: [], pages: {}, transcripts: {}, files: {}, glyphs: [], tombstones: {} };
+  const remote = indexId ? await readRemoteIndex(await (await downloadFile(token, indexId)).text()) : EMPTY_INDEX;
 
   const tombstones = mergeTombstones(
     (await db.getMeta<Record<string, Tombstone>>('tombstones')) ?? {},
-    remote.tombstones ?? {},
+    remote.tombstones,
     now,
   );
   const report: SyncReport = { pulled: 0, pushed: 0, purged: 0, at: now };
@@ -78,10 +117,10 @@ export async function syncWithDrive(token: string, progress: (step: string) => v
 
   // ---- dossiers et cahiers : objets complets dans l'index
   progress('Dossiers et cahiers…');
-  const folderPlan = mergeRecords(byKey(await db.folders(), (f) => f.id), byKey(remote.folders ?? [], (f) => f.id), tombstones);
+  const folderPlan = mergeRecords(byKey(await db.folders(), (f) => f.id), byKey(remote.folders, (f) => f.id), tombstones);
   for (const id of folderPlan.pull) await db.putFolder(folderPlan.merged[id]);
   for (const id of folderPlan.purge) await db.deleteFolder(id);
-  const notebookPlan = mergeRecords(byKey(await db.notebooks(), (n) => n.id), byKey(remote.notebooks ?? [], (n) => n.id), tombstones);
+  const notebookPlan = mergeRecords(byKey(await db.notebooks(), (n) => n.id), byKey(remote.notebooks, (n) => n.id), tombstones);
   for (const id of notebookPlan.pull) await db.putNotebook(notebookPlan.merged[id]);
   for (const id of notebookPlan.purge) await db.deleteNotebook(id);
   report.pulled += folderPlan.pull.length + notebookPlan.pull.length;
@@ -94,7 +133,7 @@ export async function syncWithDrive(token: string, progress: (step: string) => v
     const f = await db.getFile(id);
     if (f) localFiles[id] = { name: f.name, type: f.type, size: f.size, updatedAt: f.updatedAt, deletedAt: f.deletedAt };
   }
-  const filePlan = mergeRecords(localFiles, remote.files ?? {}, tombstones);
+  const filePlan = mergeRecords(localFiles, remote.files, tombstones);
   for (const id of filePlan.push) {
     const f = await db.getFile(id);
     if (f) await upload(`file-${id}`, f.blob);
@@ -111,7 +150,7 @@ export async function syncWithDrive(token: string, progress: (step: string) => v
 
   // ---- pages
   progress('Pages…');
-  const pagePlan = mergeRecords(await db.pageVersions(), remote.pages ?? {}, tombstones);
+  const pagePlan = mergeRecords(await db.pageVersions(), remote.pages, tombstones);
   for (const [i, id] of pagePlan.push.entries()) {
     progress(`Envoi des pages (${i + 1}/${pagePlan.push.length})…`);
     const page = await db.getPage(id);
@@ -120,7 +159,8 @@ export async function syncWithDrive(token: string, progress: (step: string) => v
   for (const [i, id] of pagePlan.pull.entries()) {
     progress(`Réception des pages (${i + 1}/${pagePlan.pull.length})…`);
     const blob = await download(`page-${id}.json`);
-    if (blob) await db.putPage(JSON.parse(await blob.text()) as Page, true);
+    const page = blob ? parseDownloaded(await blob.text(), isPage) : null;
+    if (page) await db.putPage(page, true);
   }
   for (const id of pagePlan.purge) await db.deletePage(id);
 
@@ -128,19 +168,20 @@ export async function syncWithDrive(token: string, progress: (step: string) => v
   progress('Transcriptions…');
   const localTranscripts: Record<string, TranscriptVersion> = {};
   for (const t of await db.transcripts()) localTranscripts[t.pageId] = { notebookId: t.notebookId, updatedAt: t.updatedAt, deletedAt: t.deletedAt };
-  const transcriptPlan = mergeRecords(localTranscripts, remote.transcripts ?? {}, tombstones, (id) => `transcript:${id}`);
+  const transcriptPlan = mergeRecords(localTranscripts, remote.transcripts, tombstones, (id) => `transcript:${id}`);
   for (const id of transcriptPlan.push) {
     const t = await db.getTranscript(id);
     if (t) await upload(`transcript-${id}.json`, json(t));
   }
   for (const id of transcriptPlan.pull) {
     const blob = await download(`transcript-${id}.json`);
-    if (blob) await db.putTranscript(JSON.parse(await blob.text()) as Transcript);
+    const transcript = blob ? parseDownloaded(await blob.text(), isTranscript) : null;
+    if (transcript) await db.putTranscript(transcript);
   }
 
   // ---- écriture perso
   const localGlyphs = byKey((await db.glyphs()).map((g): GlyphRecord => ({ ...g, deletedAt: null })), (g) => g.char);
-  const remoteGlyphs = byKey((remote.glyphs ?? []).map((g): GlyphRecord => ({ ...g, deletedAt: null })), (g) => g.char);
+  const remoteGlyphs = byKey(remote.glyphs.map((g): GlyphRecord => ({ ...g, deletedAt: null })), (g) => g.char);
   const glyphPlan = mergeRecords(localGlyphs, remoteGlyphs, tombstones, (c) => `glyph:${c}`);
   for (const c of glyphPlan.pull) {
     const { deletedAt: _deleted, ...glyph } = glyphPlan.merged[c];

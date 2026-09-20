@@ -10,7 +10,7 @@ import { strokeBBox, unionBBox } from '../ink/geometry';
 import { InkCanvas } from '../ink/InkCanvas';
 import type { CanvasPage } from '../ink/InkCanvas';
 import { liveStats } from '../ink/liveStats';
-import { imageFileToEncoded, rasterizeForAi, rasterizeRegion } from '../ink/rasterize';
+import { imageFileToEncoded, imageFromDataUrl, rasterizeForAi, rasterizeRegion } from '../ink/rasterize';
 import type { EncodedImage } from '../ink/rasterize';
 import { newId } from '../ink/types';
 import type { BBox, PaperColor, PaperStyle, ShapeKind, Stroke, Tool } from '../ink/types';
@@ -24,15 +24,13 @@ import { PageStrip } from './PageStrip';
 import { ResultsPanel } from './ResultsPanel';
 import { EditorTabs } from './TabBar';
 import type { Tab } from '../tabs';
-import { ICONS, Toolbar } from './Toolbar';
+import { ICONS } from './icons';
+import { Toolbar } from './Toolbar';
 import { autoShapeColor, pushRecentColor } from '../colors';
-import { fitHeight, isExtendable } from '../ink/pageExtent';
+import { fitHeight, imageTop, isExtendable } from '../ink/pageExtent';
+import { applyAction, invertAction, splitStrokes } from '../ink/history';
+import type { Action } from '../ink/history';
 
-type Action =
-  | { type: 'add'; strokes: Stroke[] }
-  | { type: 'remove'; items: { stroke: Stroke; index: number }[] }
-  /** Déplacement, changement de couleur : état complet avant / après */
-  | { type: 'replace'; before: Stroke[]; after: Stroke[] };
 type Job = { progress: string } | { error: { message: string; kind: string } };
 
 const sleep = (ms: number) => new Promise((r) => window.setTimeout(r, ms));
@@ -41,47 +39,13 @@ const sleep = (ms: number) => new Promise((r) => window.setTimeout(r, ms));
 type Clipboard = { type: 'strokes'; strokes: Stroke[] } | { type: 'capture'; dataUrl: string; widthMm: number; heightMm: number };
 let clipboard: Clipboard | null = null;
 
-function splitStrokes(list: Stroke[], ids: Set<string>) {
-  const items: { stroke: Stroke; index: number }[] = [];
-  const kept: Stroke[] = [];
-  list.forEach((stroke, index) => (ids.has(stroke.id) ? items.push({ stroke, index }) : kept.push(stroke)));
-  return { items, kept };
-}
-
-function applyAction(list: Stroke[], a: Action): Stroke[] {
-  if (a.type === 'add') return [...list, ...a.strokes];
-  if (a.type === 'replace') return a.after;
-  return splitStrokes(list, new Set(a.items.map((i) => i.stroke.id))).kept;
-}
-
-function invertAction(list: Stroke[], a: Action): Stroke[] {
-  if (a.type === 'add') return splitStrokes(list, new Set(a.strokes.map((s) => s.id))).kept;
-  if (a.type === 'replace') return a.before;
-  const out = list.slice();
-  for (const it of [...a.items].sort((x, y) => x.index - y.index)) out.splice(Math.min(it.index, out.length), 0, it.stroke);
-  return out;
-}
-
+/** Copie de traits décalés de (dx, dy) mm ; `freshIds` pour un collage (les originaux restent en place). */
 function shifted(strokes: Stroke[], dx: number, dy: number, freshIds: boolean): Stroke[] {
   return strokes.map((s) => ({
     ...s,
     id: freshIds ? newId() : s.id,
     points: s.points.map(([x, y, p]): [number, number, number] => [x + dx, y + dy, p]),
   }));
-}
-
-/**
- * Où poser une image sous la dernière encre : sur une page d'écriture le canevas s'allonge au besoin ;
- * sur un PDF ou une photo, elle reste dans le fond.
- */
-function imageTop(p: Page, below: number, h: number): number {
-  const y = Math.max(12, below + 10);
-  return isExtendable(p) ? y : Math.min(y, Math.max(0, p.height - h - 10));
-}
-
-function imageFromDataUrl(dataUrl: string): EncodedImage {
-  const mimeType = dataUrl.slice(5, dataUrl.indexOf(';'));
-  return { dataUrl, base64: dataUrl.slice(dataUrl.indexOf(',') + 1), mimeType, width: 0, height: 0 };
 }
 
 interface Props {
@@ -93,6 +57,9 @@ interface Props {
   tabs?: Tab[];
   onCloseTab?(id: string): void;
 }
+
+// Tableau vide stable : `?? []` en créerait un nouveau à chaque rendu et le useMemo des résultats ne servirait à rien
+const NO_RESULTS: ConversionResult[] = [];
 
 export function NotebookEditor({
   notebookId,
@@ -560,7 +527,7 @@ export function NotebookEditor({
   };
 
   // Conversions ponctuelles (lasso, photo)
-  const storedResults = useQuery(() => (pageId ? db.resultsOf(pageId) : Promise.resolve([])), [pageId], ['results']) ?? [];
+  const storedResults = useQuery(() => (pageId ? db.resultsOf(pageId) : Promise.resolve(NO_RESULTS)), [pageId], ['results']) ?? NO_RESULTS;
   const [liveResults, setLiveResults] = useState<Record<string, ConversionResult>>({});
   const results = useMemo(() => {
     const live = Object.values(liveResults).filter((r) => r.pageId === pageId);
