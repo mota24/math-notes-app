@@ -284,7 +284,9 @@ export class InputClassifier {
     };
     this.tracks.set(id, t);
 
-    if (this.config.handTool || forcePan) return this.joinGesture(t);
+    if (this.config.handTool || forcePan || (this.effectiveMode === 'active' && kind === 'touch')) {
+        return this.joinGesture(t);
+    }
     if (kind === 'pen') {
       this.markPen();
       return this.startDraw(t, 'stylet actif');
