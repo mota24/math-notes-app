@@ -3,7 +3,7 @@ import type { CSSProperties } from 'react';
 import type { ShapeKind, Tool } from '../ink/types';
 import { ICONS } from './icons';
 import { ALL_STAMPS, STAMP_GROUPS } from './stamps';
-import { LoginButton } from './LoginButton'; // Ajuste le chemin selon l'emplacement de ton fichier LoginButton
+
 
 const PEN_COLORS = [
   { value: '#1d2433', name: 'Noir' },
