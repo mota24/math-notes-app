@@ -3040,7 +3040,7 @@ code {
   flex: none;           /* NE RÉTRÉCIT PAS */
   flex-shrink: 0;
   gap: 8px;
-  padding: 0 10px 6px;
+  padding: 0 10px;
   height: 100%;
   white-space: nowrap;
   background: transparent;
