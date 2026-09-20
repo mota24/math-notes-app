@@ -2238,6 +2238,7 @@ code {
   align-items: center;
   justify-content: center;
   background: transparent;   /* ← plus de bande sombre derrière la pilule */
+  margin-left: 24px;
 }
 
 .page-rail.rail-left {
@@ -2973,12 +2974,12 @@ code {
 /* ── Zone GAUCHE : bouton retour ── */
 .editor-zone-left {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: center;
   flex: none;
   width: 44px;
   height: 100%;
-  padding-bottom: 6px;
+  padding-bottom: 0px;
   /* Transparent — hérite du fond sombre du header */
   background: transparent;
 }
