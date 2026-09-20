@@ -3074,7 +3074,7 @@ code {
 /* Onglet ACTIF : fond identique au header (#1a1a1a) → fusion totale,
    texte blanc pour lisibilité sur fond sombre */
 .tab.active {
-  background: #1a1a1a;
+  background:#403e3e;
   color: #ffffff;
   position: relative;
   z-index: 10;
