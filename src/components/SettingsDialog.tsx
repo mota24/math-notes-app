@@ -5,6 +5,7 @@ import { Modal } from './Modal';
 import { AntiPalmSection } from './settings/AntiPalmSection';
 import { BackupSection } from './settings/BackupSection';
 import { DriveSection } from './settings/DriveSection';
+import { FirestoreSection } from './settings/FirestoreSection';
 
 export function SettingsDialog({
   settings,
@@ -83,6 +84,7 @@ export function SettingsDialog({
       </section>
 
       <DriveSection settings={settings} update={update} />
+      <FirestoreSection settings={settings} update={update} />
       <BackupSection settings={settings} />
 
       <AntiPalmSection settings={settings} update={update} />

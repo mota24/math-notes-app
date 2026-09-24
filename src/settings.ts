@@ -50,6 +50,12 @@ export interface Settings {
   /** ID client OAuth Google (gratuit) pour la sauvegarde Drive */
   driveClientId: string;
   driveAutoSync: boolean;
+  /**
+   * Synchronisation temps réel via Firebase Firestore (expérimental, à activer soi-même). Désactivée par
+   * défaut : tant qu'elle est fausse, aucune connexion Firestore n'est ouverte et l'appli fonctionne
+   * exactement comme avant (hors-ligne + Drive). Voir src/sync/firestore.ts.
+   */
+  firestoreSync: boolean;
   /** Export manuscrit */
   handStyle: 'mine' | 'caveat' | 'kalam' | 'patrick';
   handInk: string;
@@ -100,6 +106,7 @@ const DEFAULTS: Settings = {
   penSeen: false,
   driveClientId: '',
   driveAutoSync: true,
+  firestoreSync: false,
   handStyle: 'caveat',
   handInk: '#1f3a8a',
   handPaper: 'seyes',

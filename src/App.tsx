@@ -13,6 +13,7 @@ import { migrateLegacyDraft } from './db/migrate';
 import { go, routeHash, useRoute } from './router';
 import { useSettings } from './settings';
 import { startSyncTriggers, syncController } from './sync/useSync';
+import { configureFirestore, startFirestoreTriggers } from './sync/useFirestore';
 import { useTabs } from './tabs';
 import type { CSSProperties } from 'react';
 
@@ -43,6 +44,11 @@ export default function App() {
     syncController.configure(settings.driveClientId, settings.driveAutoSync);
     startSyncTriggers();
   }, [settings.driveClientId, settings.driveAutoSync]);
+
+  useEffect(() => {
+    startFirestoreTriggers();
+    configureFirestore(settings.firestoreSync);
+  }, [settings.firestoreSync]);
 
   const openSettings = () => setSettingsOpen(true);
   /** Le « + » des onglets : un nouveau cahier, créé là où on est, et ouvert aussitôt dans son propre onglet. */
