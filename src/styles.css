@@ -95,13 +95,15 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
-/* Le texte qu'on saisit ou qu'on copie reste sélectionnable */
+/* Le texte qu'on saisit ou qu'on copie reste sélectionnable. Les boîtes de dialogue (Réglages, export,
+   guide…) en font partie : on doit pouvoir y surligner et copier une adresse, un message d'erreur, un ID. */
 input,
 textarea,
 pre,
 code,
 [contenteditable='true'],
-.panel {
+.panel,
+.dialog {
   user-select: text;
   -webkit-user-select: text;
   -webkit-touch-callout: default;

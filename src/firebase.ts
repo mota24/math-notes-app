@@ -11,14 +11,32 @@ import {
 import type { Firestore } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
 
+/**
+ * Configuration Firebase. Vite n'expose au navigateur que les variables préfixées `VITE_` : on les lit en
+ * priorité, avec les valeurs du projet en repli.
+ *
+ * Le repli est volontaire et sans danger : une clé Firebase web n'est pas un secret (elle identifie le
+ * projet, elle ne donne aucun droit — ce sont les règles de sécurité et les domaines autorisés qui
+ * protègent). Sans lui, une variable mal nommée dans Vercel rendrait le site entier inaccessible, puisque
+ * l'appli est désormais verrouillée derrière la connexion.
+ */
+const env = import.meta.env;
 const firebaseConfig = {
-  apiKey: 'AIzaSyCSnqte3h5U224vLL_9jWX1tolKvTphBH0',
-  authDomain: 'math-notes-pwa.firebaseapp.com',
-  projectId: 'math-notes-pwa',
-  storageBucket: 'math-notes-pwa.firebasestorage.app',
-  messagingSenderId: '519312910632',
-  appId: '1:519312910632:web:a5f4f416820b75d552c81d',
+  apiKey: env.VITE_FIREBASE_API_KEY ?? 'AIzaSyCSnqte3h5U224vLL_9jWX1tolKvTphBH0',
+  authDomain: env.VITE_FIREBASE_AUTH_DOMAIN ?? 'math-notes-pwa.firebaseapp.com',
+  projectId: env.VITE_FIREBASE_PROJECT_ID ?? 'math-notes-pwa',
+  storageBucket: env.VITE_FIREBASE_STORAGE_BUCKET ?? 'math-notes-pwa.firebasestorage.app',
+  messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID ?? '519312910632',
+  appId: env.VITE_FIREBASE_APP_ID ?? '1:519312910632:web:a5f4f416820b75d552c81d',
 };
+
+// Diagnostic : dit si Vite a bien lu les variables, sans jamais afficher la moindre valeur.
+console.log(
+  'Config Firebase :',
+  env.VITE_FIREBASE_API_KEY ? 'variables VITE_ lues' : 'variables VITE_ MANQUANTES (repli sur la config du projet)',
+  '· projet', firebaseConfig.projectId,
+  '· domaine d’auth', firebaseConfig.authDomain,
+);
 
 const app: FirebaseApp = initializeApp(firebaseConfig);
 export const auth = getAuth(app);

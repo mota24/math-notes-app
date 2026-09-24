@@ -87,7 +87,7 @@ export function SettingsDialog({
       <DriveSection settings={settings} update={update} />
       <FirestoreSection settings={settings} update={update} />
       <BackupSection settings={settings} />
-      <LockSection settings={settings} update={update} />
+      <LockSection />
 
       <AntiPalmSection settings={settings} update={update} />
 

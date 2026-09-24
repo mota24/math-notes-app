@@ -1,11 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
-import { GoogleAuthProvider, signInWithEmailAndPassword, signInWithPopup } from 'firebase/auth';
+import { GoogleAuthProvider, getRedirectResult, signInWithEmailAndPassword, signInWithPopup, signInWithRedirect } from 'firebase/auth';
 import { auth } from '../firebase';
 
 /**
- * Écran de déverrouillage (Firebase Auth, SDK Web). Il s'affiche à la place de l'appli quand le verrouillage
- * est activé dans les Réglages et que personne n'est connecté.
+ * Écran de déverrouillage (Firebase Auth, SDK Web). L'appli est privée : cet écran s'affiche à la place de
+ * TOUT le site tant que personne n'est connecté — ce n'est pas une option, il n'y a rien à activer.
  *
  * À savoir : les notes vivent dans le navigateur (IndexedDB). Ce panneau met l'appli à l'abri d'un regard ou
  * d'une main qui traîne sur la tablette — ce n'est pas un coffre-fort : qui a l'appareil et sait s'y prendre
@@ -23,6 +23,8 @@ function messageClair(code: string, brut: string): string {
   if (/operation-not-allowed/.test(code))
     return 'La connexion par mot de passe n’est pas activée pour ce projet Firebase (Console → Authentication → Sign-in method).';
   if (/popup-closed-by-user|cancelled-popup-request/.test(code)) return 'Fenêtre de connexion fermée.';
+  if (/internal-error/.test(code))
+    return 'Firebase n’a pas pu joindre le service de connexion. Vérifie que le domaine du site est autorisé (Firebase → Authentication → Settings → Domaines autorisés) et que le mode de connexion utilisé est activé.';
   return brut;
 }
 
@@ -31,6 +33,14 @@ export function AuthPanel() {
   const [motDePasse, setMotDePasse] = useState('');
   const [erreur, setErreur] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // Retour d'une connexion par redirection : on ne récupère ici que l'erreur éventuelle (la session, elle,
+  // est reprise toute seule par onAuthStateChanged).
+  useEffect(() => {
+    getRedirectResult(auth).catch((e: { code?: string; message?: string }) => {
+      setErreur(messageClair(e.code ?? '', e.message ?? 'Connexion impossible.'));
+    });
+  }, []);
 
   const lancer = async (task: () => Promise<unknown>) => {
     setBusy(true);
@@ -51,7 +61,23 @@ export function AuthPanel() {
     void lancer(() => signInWithEmailAndPassword(auth, identifiant.trim(), motDePasse));
   };
 
-  const parGoogle = () => void lancer(() => signInWithPopup(auth, new GoogleAuthProvider()));
+  /**
+   * Google : fenêtre surgissante d'abord. Si le navigateur la bloque (fréquent sur tablette) ou si elle ne
+   * peut pas aboutir, on bascule sur la redirection, qui marche partout ; la session est alors récupérée au
+   * retour sur la page (voir le useEffect ci-dessous).
+   */
+  const parGoogle = () =>
+    void lancer(async () => {
+      try {
+        await signInWithPopup(auth, new GoogleAuthProvider());
+      } catch (e) {
+        const code = (e as { code?: string }).code ?? '';
+        // Fermer soi-même la fenêtre n'est pas un échec technique : on ne relance rien dans ce cas.
+        const aReessayerEnRedirection = /popup-blocked|operation-not-supported|internal-error/.test(code);
+        if (!aReessayerEnRedirection) throw e;
+        await signInWithRedirect(auth, new GoogleAuthProvider());
+      }
+    });
 
   return (
     <div className="fixed inset-0 z-[100] grid place-items-center overflow-auto bg-zinc-950 px-5 py-10">

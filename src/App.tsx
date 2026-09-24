@@ -107,10 +107,10 @@ export default function App() {
       break;
   }
 
-  // Verrou « Accès Réservé » : tant que Firebase n'a pas répondu on n'affiche rien (évite un clignotement
-  // de l'appli avant l'écran de connexion) ; ensuite, pas d'utilisateur = pas d'appli.
-  if (settings.lockEnabled && user === undefined) return <div className="shell" />;
-  if (settings.lockEnabled && user === null) return <AuthPanel />;
+  // Accès réservé, sans option possible : l'appli est privée. Tant que Firebase n'a pas répondu on n'affiche
+  // rien (évite un clignotement de l'appli avant l'écran de connexion) ; ensuite, pas de compte = pas d'appli.
+  if (user === undefined) return <div className="shell" />;
+  if (user === null) return <AuthPanel />;
 
   return (
     <ErrorBoundary resetKey={routeHash(route)}>
