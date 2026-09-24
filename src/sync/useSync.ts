@@ -64,6 +64,12 @@ export const syncController = {
 
   syncNow(): Promise<void> {
     if (running) return running;
+    // Sans ID client, Drive est coupé (réglage vidé, ou personne n'est connecté à l'appli) : un jeton resté dans
+    // l'onglet ne doit pas suffire à relancer une synchronisation.
+    if (!config.clientId) {
+      refreshStatus();
+      return Promise.resolve();
+    }
     const token = currentToken();
     if (!token || !navigator.onLine) {
       refreshStatus();

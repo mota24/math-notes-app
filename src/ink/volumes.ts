@@ -244,9 +244,6 @@ function ellipsoidCurves(): Curve[] {
 
 // ------------------------------------------------------------------ les volumes
 
-const VOLUMES: ShapeKind[] = ['cylinder', 'cone', 'sphere', 'hemisphere', 'pyramid', 'cuboid', 'torus', 'prism', 'tetrahedron', 'ellipsoid'];
-export const isVolume = (shape: ShapeKind) => VOLUMES.includes(shape);
-
 /**
  * Les tracés d'un volume dans le rectangle (x0, y0, w, h) : arêtes visibles en continu, cachées en tirets.
  */

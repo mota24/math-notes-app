@@ -9,7 +9,6 @@ import { hasBackground, pageBackground } from '../ink/background';
 import { strokeBBox, unionBBox } from '../ink/geometry';
 import { InkCanvas } from '../ink/InkCanvas';
 import type { CanvasPage } from '../ink/InkCanvas';
-import { liveStats } from '../ink/liveStats';
 import { imageFileToEncoded, imageFromDataUrl, rasterizeForAi, rasterizeRegion } from '../ink/rasterize';
 import type { EncodedImage } from '../ink/rasterize';
 import { newId } from '../ink/types';
@@ -23,6 +22,7 @@ import { ConfirmDialog, PromptDialog } from './Modal';
 import { PageStrip } from './PageStrip';
 import { ResultsPanel } from './ResultsPanel';
 import { EditorTabs } from './TabBar';
+import { reportStorageError } from '../db/storageAlert';
 import { CloudIndicator } from './CloudIndicator';
 import type { Tab } from '../tabs';
 import { ICONS } from './icons';
@@ -35,6 +35,8 @@ import type { Action } from '../ink/history';
 type Job = { progress: string } | { error: { message: string; kind: string } };
 
 const sleep = (ms: number) => new Promise((r) => window.setTimeout(r, ms));
+/** Pages voisines (avant et après la page affichée) dont le fond reste prêt en mémoire. */
+const BG_WINDOW = 2;
 
 /** Presse-papiers partagé entre les pages et les cahiers : des traits copiés, ou une capture rectangulaire. */
 type Clipboard = { type: 'strokes'; strokes: Stroke[] } | { type: 'capture'; dataUrl: string; widthMm: number; heightMm: number };
@@ -109,12 +111,33 @@ export function NotebookEditor({
     setStrokes(p.strokes);
   }, []);
 
+  /**
+   * Écrit la page en base. En cas d'échec (stockage plein, erreur d'IndexedDB), l'alerte s'affiche et on
+   * réessaie dans 5 s : le travail reste dans pageRef, rien n'est perdu tant que l'onglet est ouvert. Avant,
+   * l'échec passait inaperçu et les derniers traits disparaissaient au rechargement.
+   */
+  // Fonction nommée : le nouvel essai s'appelle lui-même sans dépendre de la variable en cours d'initialisation
+  const savePage = useCallback(function save() {
+    const current = pageRef.current;
+    if (!current) return;
+    db.putPage(current)
+      .then(() => setVersion((v) => v + 1))
+      .catch((e: unknown) => {
+        reportStorageError(e);
+        if (!saveTimer.current) {
+          saveTimer.current = window.setTimeout(() => {
+            saveTimer.current = 0;
+            save();
+          }, 5000);
+        }
+      });
+  }, []);
   const flushSave = useCallback(() => {
     if (!saveTimer.current) return;
     window.clearTimeout(saveTimer.current);
     saveTimer.current = 0;
-    if (pageRef.current) void db.putPage(pageRef.current).then(() => setVersion((v) => v + 1));
-  }, []);
+    savePage();
+  }, [savePage]);
 
   useEffect(() => {
     if (!pageId) return;
@@ -156,11 +179,11 @@ export function NotebookEditor({
       saveTimer.current = window.setTimeout(() => {
         saveTimer.current = 0;
         if (!pageRef.current) return;
-        void db.putPage(pageRef.current).then(() => setVersion((v) => v + 1));
+        savePage();
         void touchNotebook(notebookId);
       }, 600);
     },
-    [notebookId],
+    [notebookId, savePage],
   );
 
   const setPageStrokes = (next: Stroke[]) => {
@@ -456,25 +479,46 @@ export function NotebookEditor({
     };
   }, [bgKey, bgScale, flash]);
 
+  /**
+   * Fonds (PDF, photo) des pages voisines, pour le défilement continu. Seule une fenêtre autour de la page
+   * affichée reste en mémoire : un canevas de fond pèse 4 à 25 Mo, et garder toutes les pages d'un PDF de
+   * 100 pages montait à des centaines de Mo, jusqu'à faire tomber la tablette.
+   *
+   * L'ancienne version dépendait aussi de `backgrounds` : chaque fond reçu relançait l'effet, qui jetait les
+   * rendus en cours et les redemandait tous — O(n²) rendus à l'ouverture d'un gros PDF. Les demandes en vol
+   * et les fonds présents sont donc suivis par des refs, hors des dépendances.
+   */
   const [backgrounds, setBackgrounds] = useState<Record<string, HTMLCanvasElement>>({});
+  const bgHave = useRef(new Set<string>());
+  const bgPending = useRef(new Set<string>());
+  const bgWanted = useRef(new Set<string>());
   useEffect(() => {
     if (!orderedPages.length) return;
-    let alive = true;
-    for (const p of orderedPages) {
-      if (hasBackground(p) && !backgrounds[p.id]) {
-        pageBackground(p, bgScale || 4)
-          .then((canvas) => {
-            if (alive && canvas) {
-              setBackgrounds((prev) => ({ ...prev, [p.id]: canvas }));
-            }
-          })
-          .catch(() => {});
-      }
+    const lo = Math.max(0, index - BG_WINDOW);
+    const near = orderedPages.slice(lo, index + BG_WINDOW + 1).filter(hasBackground);
+    bgWanted.current = new Set(near.map((p) => p.id));
+    // Ce qui est sorti de la fenêtre est libéré
+    setBackgrounds((prev) => {
+      const kept: Record<string, HTMLCanvasElement> = {};
+      for (const [id, canvas] of Object.entries(prev)) if (bgWanted.current.has(id)) kept[id] = canvas;
+      if (Object.keys(kept).length === Object.keys(prev).length) return prev;
+      bgHave.current = new Set(Object.keys(kept));
+      return kept;
+    });
+    for (const p of near) {
+      if (bgHave.current.has(p.id) || bgPending.current.has(p.id)) continue;
+      bgPending.current.add(p.id);
+      pageBackground(p, bgScale || 4)
+        .then((canvas) => {
+          // Arrivé trop tard (on a déjà tourné plusieurs pages) : on ne le garde pas
+          if (!canvas || !bgWanted.current.has(p.id)) return;
+          bgHave.current.add(p.id);
+          setBackgrounds((prev) => (prev[p.id] ? prev : { ...prev, [p.id]: canvas }));
+        })
+        .catch(() => {})
+        .finally(() => bgPending.current.delete(p.id));
     }
-    return () => {
-      alive = false;
-    };
-  }, [orderedPages, bgScale, backgrounds]);
+  }, [orderedPages, index, bgScale]);
 
   // ------------------------------------------------------------ Gemini
   const callGemini = async (image: EncodedImage, onStatus: (s: string) => void) => {
@@ -972,12 +1016,10 @@ export function NotebookEditor({
               onScaleChange={onScaleChange}
               config={classifierConfig}
               restZone={settings.restZone}
-              showContacts={settings.showContacts}
               lowLatency={settings.lowLatency}
               penSeen={settings.penSeen}
               selection={selection}
               selectionRegion={selectionRegion}
-              stats={liveStats}
               onAddStroke={onAddStrokeMulti}
               onErase={removeStrokes}
               onReplaceStrokes={replaceStrokes}

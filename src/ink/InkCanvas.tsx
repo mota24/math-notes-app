@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { InputClassifier } from './palm';
-import type { ClassifierConfig, ClassifierListener, Sample, TrackInfo } from './palm';
+import type { ClassifierConfig, ClassifierListener, Sample } from './palm';
 import { HIGHLIGHT_ALPHA, PAPER_BACKGROUND, buildPath, drawPaper, drawShapeOn, drawStroke, setImageReadyCallback } from './draw';
 import {
   cornerScale, eraseFromPolyline, fitShift, isErasable, normalizeAngle, orientation, resizedPoints, rotationDelta,
@@ -20,28 +20,6 @@ import type { CanvasPage, Sheet } from './sheets';
 
 export type { CanvasPage, Sheet } from './sheets';
 
-export interface InkStats {
-  type: string;
-  pressure: number;
-  size: number;
-  buttons: number;
-  eventsPerSec: number;
-  coalesced: number;
-  predicted: boolean;
-  /** pointercancel reçus (Android annule parfois les contacts qu'il prend pour une paume) */
-  cancels: number;
-  lowLatency: boolean;
-  inspect: () => {
-    mode: string;
-    tracks: TrackInfo[];
-    /** Journal des dernières décisions de l'anti-paume */
-    decisions: string[];
-    learnedPenSize: number | null;
-    /** Taille de référence du stylet (apprise, retenue, ou le plus fin des contacts vus) */
-    penReference: number | null;
-    palmThreshold: number | null;
-  };
-}
 
 interface Props {
   pages?: CanvasPage[];
@@ -67,14 +45,12 @@ interface Props {
   /** Part basse de la zone (0 à 1) où la main peut se poser sans écrire */
   restZone: number;
   /** Dessiner chaque contact et son état sur la page (panneau anti-paume) */
-  showContacts: boolean;
   /** Rendu « desynchronized » : moins de latence, mais pas supporté partout */
   lowLatency: boolean;
   penSeen: boolean;
   selection: string[];
   /** Zone entourée au lasso (mm), utile sur un PDF ou une photo même sans trait */
   selectionRegion: BBox | null;
-  stats: { current: InkStats | null };
   /** Couleur et épaisseur du surligneur */
   highlightColor: string;
   highlightSize: number;
@@ -289,7 +265,6 @@ export function InkCanvas(props: Props) {
     let tickRaf = 0;
     const lives = new Map<number, Live>();
     const eraserPointers = new Set<number>();
-    const counter = { n: 0, coalesced: 0, since: performance.now() };
 
     let scaleTimer = 0;
     const reportScale = () => {
@@ -448,7 +423,6 @@ export function InkCanvas(props: Props) {
         }
         display.restore();
       }
-      if (propsRef.current.showContacts) drawContacts();
 
       // Badge overscroll pull-to-add façon JNotes
       if (currentOverscroll > 5 && propsRef.current.onAddPage) {
@@ -484,58 +458,6 @@ export function InkCanvas(props: Props) {
       }
     };
 
-    /** Diagnostic : chaque contact posé sur l'écran, avec la couleur de sa décision. */
-    const CONTACT_COLORS: Record<string, string> = {
-      draw: '#2b59c3',
-      palm: '#a8431a',
-      pending: '#8a6100',
-      gesture: '#6a4bc4',
-    };
-    const CONTACT_LABELS: Record<string, string> = { draw: 'écrit', palm: 'ignoré', pending: 'attente', gesture: 'geste' };
-    const drawContacts = () => {
-      const tracks = classifier.snapshot();
-      if (tracks.length === 0) return;
-      display.setTransform(size.dpr, 0, 0, size.dpr, 0, 0);
-      display.save();
-      display.font = '600 12px system-ui, sans-serif';
-      display.textAlign = 'center';
-      display.textBaseline = 'middle';
-      for (const t of tracks) {
-        const color = CONTACT_COLORS[t.state] ?? '#6b7280';
-        const x = t.x - rect.left;
-        const y = t.y - rect.top;
-        const r = clamp(t.size / 2, 16, 120);
-        display.globalAlpha = 0.1;
-        display.fillStyle = color;
-        display.beginPath();
-        display.arc(x, y, r, 0, Math.PI * 2);
-        display.fill();
-        display.globalAlpha = 0.85;
-        display.strokeStyle = color;
-        display.lineWidth = 2;
-        display.setLineDash(t.state === 'pending' ? [6, 5] : []);
-        display.beginPath();
-        display.arc(x, y, r, 0, Math.PI * 2);
-        display.stroke();
-        display.setLineDash([]);
-        display.globalAlpha = 1;
-        display.fillStyle = color;
-        display.beginPath();
-        display.arc(x, y, 4, 0, Math.PI * 2);
-        display.fill();
-        const label = `#${t.id % 1000} ${CONTACT_LABELS[t.state] ?? t.state}`;
-        const w = display.measureText(label).width + 16;
-        const top = y - r - 18;
-        display.beginPath();
-        if (display.roundRect) display.roundRect(x - w / 2, top - 11, w, 22, 11);
-        else display.rect(x - w / 2, top - 11, w, 22);
-        display.fill();
-        display.fillStyle = '#ffffff';
-        display.fillText(label, x, top);
-      }
-      display.restore();
-      setTransform(display);
-    };
     const redrawBase = () => {
       const p = propsRef.current;
       const v = viewRef.current;
@@ -1063,19 +985,6 @@ export function InkCanvas(props: Props) {
     };
     applyConfigRef.current = applyConfig;
 
-    const stats: InkStats = {
-      type: '—', pressure: 0, size: 0, buttons: 0, eventsPerSec: 0, coalesced: 0, predicted: false, cancels: 0,
-      lowLatency: props.lowLatency,
-      inspect: () => ({
-        mode: classifier.effectiveMode,
-        tracks: classifier.snapshot(),
-        decisions: classifier.decisions(),
-        learnedPenSize: classifier.learnedPenSize(),
-        penReference: classifier.penReference(),
-        palmThreshold: classifier.palmThreshold(),
-      }),
-    };
-    props.stats.current = stats;
 
     const onDown = (e: PointerEvent) => {
       e.preventDefault();
@@ -1088,7 +997,6 @@ export function InkCanvas(props: Props) {
       applyConfig();
       const kind = kindOf(e);
       const sample = sampleOf(e);
-      Object.assign(stats, { type: kind, pressure: e.pressure, size: sample.size, buttons: e.buttons });
       // Bouton latéral (2) ou gomme (32) d'un stylet actif : gomme temporaire
       if (kind === 'pen' && (e.buttons & 2 || e.buttons & 32)) eraserPointers.add(e.pointerId);
       // Posé dans la marge (hors de la feuille) : ça déplace la vue, comme sur GoodNotes, jamais un trait
@@ -1107,26 +1015,11 @@ export function InkCanvas(props: Props) {
       const coalesced = e.getCoalescedEvents?.() ?? [];
       const list = coalesced.length ? coalesced : [e];
       const predicted = e.getPredictedEvents?.() ?? [];
-      counter.n++;
-      counter.coalesced += list.length;
-      const now = performance.now();
-      if (now - counter.since >= 1000) {
-        stats.eventsPerSec = Math.round((counter.n * 1000) / (now - counter.since));
-        stats.coalesced = counter.n ? Math.round((counter.coalesced / counter.n) * 10) / 10 : 0;
-        counter.n = counter.coalesced = 0;
-        counter.since = now;
-      }
-      Object.assign(stats, { type: kind, pressure: e.pressure, size: sampleOf(e).size, buttons: e.buttons });
-      stats.predicted = stats.predicted || predicted.length > 0;
       classifier.move(e.pointerId, list.map(sampleOf), predicted.map(sampleOf));
-      // Les contacts ignorés ne déclenchent aucun trait : c'est ici qu'on rafraîchit leur pastille
-      if (propsRef.current.showContacts) schedulePresent();
     };
     const onUp = (e: PointerEvent) => {
       classifier.up(e.pointerId, sampleOf(e));
       eraserPointers.delete(e.pointerId);
-      // Le contact levé doit disparaître du diagnostic même s'il n'a rien dessiné
-      if (propsRef.current.showContacts) schedulePresent();
 
       // Déclenchement de l'ajout d'une page par overscroll
       if (currentOverscroll > 0) {
@@ -1139,10 +1032,8 @@ export function InkCanvas(props: Props) {
       }
     };
     const onCancel = (e: PointerEvent) => {
-      stats.cancels++;
       classifier.cancel(e.pointerId);
       eraserPointers.delete(e.pointerId);
-      if (propsRef.current.showContacts) schedulePresent();
     };
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
@@ -1210,7 +1101,7 @@ export function InkCanvas(props: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const { config, tool, penSeen, restZone, strokes, pages, paper, paperColor, selection, background, showContacts } = props;
+  const { config, tool, penSeen, restZone, strokes, pages, paper, paperColor, selection, background } = props;
   useEffect(() => {
     applyConfigRef.current();
   }, [config, tool, penSeen, restZone]);
@@ -1221,7 +1112,7 @@ export function InkCanvas(props: Props) {
     const ids = new Set(all.map((s) => s.id));
     for (const id of hiddenRef.current) if (!ids.has(id)) hiddenRef.current.delete(id);
     redrawRef.current();
-  }, [pages, strokes, paper, paperColor, background, showContacts]);
+  }, [pages, strokes, paper, paperColor, background]);
 
   const { selectionRegion } = props;
   const allStrokes = useMemo(() => {

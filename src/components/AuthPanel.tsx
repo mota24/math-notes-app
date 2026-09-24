@@ -28,10 +28,14 @@ function messageClair(code: string, brut: string): string {
   return brut;
 }
 
-export function AuthPanel() {
+export function AuthPanel({ refus = null }: { refus?: string | null }) {
   const [identifiant, setIdentifiant] = useState('');
   const [motDePasse, setMotDePasse] = useState('');
-  const [erreur, setErreur] = useState<string | null>(null);
+  // Un compte refusé (non autorisé, ou autre que le propriétaire de l'appareil) : on dit pourquoi
+  const [erreur, setErreur] = useState<string | null>(refus);
+  useEffect(() => {
+    if (refus) setErreur(refus);
+  }, [refus]);
   const [busy, setBusy] = useState(false);
 
   // Retour d'une connexion par redirection : on ne récupère ici que l'erreur éventuelle (la session, elle,

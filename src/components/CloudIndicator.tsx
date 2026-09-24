@@ -11,12 +11,16 @@ export function CloudIndicator({ className = '' }: { className?: string }) {
   const s = useFirestoreState();
   if (s.status === 'off' || s.status === 'signed-out') return null;
 
-  const enErreur = s.status === 'error';
-  const enCours = s.syncing || s.status === 'connecting';
-  const enAttente = !enCours && s.pending;
+  // Hors ligne passe avant tout : un envoi « en cours » attend en fait le retour du réseau
+  const horsLigne = s.offline;
+  const enErreur = !horsLigne && s.status === 'error';
+  const enCours = !horsLigne && !enErreur && (s.syncing || s.status === 'connecting');
+  const enAttente = !horsLigne && !enErreur && !enCours && s.pending;
 
-  const titre = enErreur
-    ? `Synchronisation en échec : ${s.error}`
+  const titre = horsLigne
+    ? 'Hors ligne : tes modifications partiront au retour du réseau'
+    : enErreur
+    ? `Synchronisation en échec (nouvel essai automatique) : ${s.error}`
     : enCours
       ? 'Envoi en cours…'
       : enAttente
@@ -46,7 +50,9 @@ export function CloudIndicator({ className = '' }: { className?: string }) {
         aria-hidden="true"
       >
         <path d="M7 18.5h10.2a4.3 4.3 0 0 0 .6-8.56A6 6 0 0 0 6.2 11.2 3.7 3.7 0 0 0 7 18.5z" />
-        {enErreur ? (
+        {horsLigne ? (
+          <path d="M4 4l16 16" />
+        ) : enErreur ? (
           <path d="M12 10.5v3.2M12 16.1h.01" />
         ) : enCours || enAttente ? (
           <path d="M12 16.2v-5.4M9.8 13l2.2-2.2 2.2 2.2" />

@@ -1,8 +1,8 @@
 import { useRef, useState } from 'react';
-import { signOut } from 'firebase/auth';
 import { createBackup, restoreBackup } from '../../db/backup';
 import { downloadBlob } from '../../export/download';
-import { auth, useAuthUser } from '../../firebase';
+import { seDeconnecter } from '../../auth/session';
+import { useAuthUser } from '../../firebase';
 import type { Settings } from '../../settings';
 import { canUseDrive, currentToken, ensureFolder, signIn, uploadFile } from '../../sync/drive';
 import { useFirestoreState } from '../../sync/useFirestore';
@@ -46,7 +46,9 @@ export function CloudSection({ settings, update }: { settings: Settings; update(
 
   const etatTempsReel = !settings.firestoreSync
     ? 'Désactivée : tes notes restent seulement sur cet appareil.'
-    : fs.status === 'error'
+    : fs.offline
+      ? 'Hors ligne : tes modifications partiront au retour du réseau.'
+      : fs.status === 'error'
       ? null
       : fs.syncing || fs.status === 'connecting'
         ? 'Envoi en cours…'
@@ -67,7 +69,7 @@ export function CloudSection({ settings, update }: { settings: Settings; update(
           <div className={`truncate text-[14.5px] font-semibold ${texte}`}>{user?.email ?? user?.displayName ?? 'Compte'}</div>
           <div className={`text-[12.5px] ${discret}`}>Connecté · accès réservé</div>
         </div>
-        <button type="button" className={boutonDanger} onClick={() => void signOut(auth)}>
+        <button type="button" className={boutonDanger} onClick={() => void seDeconnecter()}>
           <svg viewBox="0 0 24 24" className="size-[18px]" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M15 17l5-5-5-5M20 12H9M11 20H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5" />
           </svg>

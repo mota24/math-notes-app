@@ -422,12 +422,6 @@ export async function setTodoDue(todo: Todo, dueAt: number | null) {
   await db.putTodo({ ...todo, dueAt, updatedAt: now() });
 }
 
-export async function renameTodo(todo: Todo, text: string) {
-  const clean = text.trim();
-  if (!clean || clean === todo.text) return;
-  await db.putTodo({ ...todo, text: clean, updatedAt: now() });
-}
-
 /** Suppression définitive (pas de corbeille pour les tâches) : un tombstone porte l'info aux autres appareils. */
 export async function removeTodo(id: string) {
   await db.deleteTodo(id);

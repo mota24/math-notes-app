@@ -8,6 +8,9 @@ import { SettingsDialog } from './components/SettingsDialog';
 import { TabBar } from './components/TabBar';
 import { WelcomeDialog } from './components/WelcomeDialog';
 import { AuthPanel } from './components/AuthPanel';
+import { StorageBanner } from './components/StorageBanner';
+import { useAccess } from './auth/useAccess';
+import { watchStorage } from './db/storageAlert';
 import { NewNotebookDialog } from './components/NewNotebookDialog';
 import { createNotebook } from './db/library';
 import { migrateLegacyDraft } from './db/migrate';
@@ -32,6 +35,8 @@ function welcomeSeen() {
 export default function App() {
   const [settings, update] = useSettings();
   const user = useAuthUser();
+  const access = useAccess(user);
+  const open = access.status === 'open';
   const route = useRoute();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [newNotebookOpen, setNewNotebookOpen] = useState(false);
@@ -39,19 +44,22 @@ export default function App() {
   const { tabs, close: closeTabState, prune: pruneTabs } = useTabs(route);
 
   useEffect(() => {
+    watchStorage();
     void migrateLegacyDraft();
     void navigator.storage?.persist?.().catch(() => undefined);
   }, []);
 
+  // Aucune synchronisation tant que l'accès n'est pas validé. Sans cela, un compte étranger connecté (puis
+  // refusé) avait le temps de recevoir dans SON espace cloud toutes les notes de l'appareil.
   useEffect(() => {
-    syncController.configure(settings.driveClientId, settings.driveAutoSync);
+    syncController.configure(open ? settings.driveClientId : '', settings.driveAutoSync);
     startSyncTriggers();
-  }, [settings.driveClientId, settings.driveAutoSync]);
+  }, [open, settings.driveClientId, settings.driveAutoSync]);
 
   useEffect(() => {
     startFirestoreTriggers();
-    configureFirestore(settings.firestoreSync);
-  }, [settings.firestoreSync]);
+    configureFirestore(open && settings.firestoreSync);
+  }, [open, settings.firestoreSync]);
 
   const openSettings = () => setSettingsOpen(true);
   /** Le « + » des onglets : un nouveau cahier, créé là où on est, et ouvert aussitôt dans son propre onglet. */
@@ -107,10 +115,11 @@ export default function App() {
       break;
   }
 
-  // Accès réservé, sans option possible : l'appli est privée. Tant que Firebase n'a pas répondu on n'affiche
-  // rien (évite un clignotement de l'appli avant l'écran de connexion) ; ensuite, pas de compte = pas d'appli.
-  if (user === undefined) return <div className="shell" />;
-  if (user === null) return <AuthPanel />;
+  // Accès réservé, sans option possible : l'appli est privée, et un compte connecté ne suffit pas, il doit être
+  // autorisé (voir auth/access.ts). Tant que la vérification n'a pas répondu on n'affiche rien, pour éviter un
+  // clignotement de l'appli avant l'écran de connexion.
+  if (access.status === 'checking') return <div className="shell" />;
+  if (access.status === 'locked') return <AuthPanel refus={access.refusal} />;
 
   return (
     <ErrorBoundary resetKey={routeHash(route)}>
@@ -118,6 +127,7 @@ export default function App() {
         {showTabs && <TabBar tabs={tabs} route={route} onClose={closeTab} onPrune={pruneTabs} onNewNotebook={openNewNotebook} />}
         {screen}
       </div>
+      <StorageBanner />
       {settingsOpen && (
         <SettingsDialog
           settings={settings}

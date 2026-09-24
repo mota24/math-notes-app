@@ -1,0 +1,50 @@
+rules_version = '2';
+
+// Notes Maths — règles de sécurité Firestore.
+//
+// Chaque compte ne peut lire et écrire QUE son propre espace, users/<son uid>/… ; tout le reste est fermé.
+// Les écritures sont limitées à la forme exacte des documents que l'appli produit (src/sync/firestore.ts) :
+// un document inattendu, un champ en trop ou un identifiant qui ne correspond pas est refusé.
+//
+// Déploiement : Console Firebase → Firestore Database → Règles → coller ce fichier → Publier
+// (ou, avec Firebase CLI : npx firebase-tools deploy --only firestore:rules --project math-notes-pwa).
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isOwner(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    // Page ou transcription : ses cinq champs exactement, identifiant cohérent avec le chemin, contenu en JSON texte
+    function validSyncDoc(idField, id) {
+      let data = request.resource.data;
+      return data.keys().hasOnly([idField, 'notebookId', 'updatedAt', 'deletedAt', 'json'])
+        && data[idField] == id
+        && data.json is string
+        && data.updatedAt is number;
+    }
+
+    // Index : dossiers, cahiers, tâches, écriture perso et suppressions, chacun rangé en JSON texte
+    match /users/{uid}/state/index {
+      allow read, delete: if isOwner(uid);
+      allow create, update: if isOwner(uid)
+        && request.resource.data.keys().hasOnly(['v', 'updatedAt', 'foldersJson', 'notebooksJson', 'todosJson', 'glyphsJson', 'tombstonesJson'])
+        && request.resource.data.updatedAt is number;
+    }
+
+    match /users/{uid}/pages/{pageId} {
+      allow read, delete: if isOwner(uid);
+      allow create, update: if isOwner(uid) && validSyncDoc('id', pageId);
+    }
+
+    match /users/{uid}/transcripts/{pageId} {
+      allow read, delete: if isOwner(uid);
+      allow create, update: if isOwner(uid) && validSyncDoc('pageId', pageId);
+    }
+
+    // Tout le reste : fermé
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

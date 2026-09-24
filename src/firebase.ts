@@ -41,7 +41,8 @@ const firebaseConfig = {
   appId: texte(env.VITE_FIREBASE_APP_ID, '1:519312910632:web:a5f4f416820b75d552c81d'),
 };
 
-// Diagnostic : l'état des variables, jamais leur contenu.
+// Diagnostic : l'état des variables, jamais leur contenu. Seul journal volontaire de l'appli.
+// eslint-disable-next-line no-console
 console.log(
   'Config Firebase :',
   !cleEnv

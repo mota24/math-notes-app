@@ -67,10 +67,21 @@ export interface FirestoreState {
   pending: boolean;
   /** Un envoi est en cours */
   syncing: boolean;
+  /** Pas de réseau : les modifications partiront à son retour */
+  offline: boolean;
   skippedHeavy: number; // pages trop lourdes (images embarquées) non envoyées
 }
 
-let state: FirestoreState = { status: 'off', error: '', email: null, lastPushAt: null, pending: false, syncing: false, skippedHeavy: 0 };
+let state: FirestoreState = {
+  status: 'off',
+  error: '',
+  email: null,
+  lastPushAt: null,
+  pending: false,
+  syncing: false,
+  offline: typeof navigator !== 'undefined' && !navigator.onLine,
+  skippedHeavy: 0,
+};
 const listeners = new Set<() => void>();
 function set(patch: Partial<FirestoreState>) {
   state = { ...state, ...patch };
@@ -98,6 +109,13 @@ let urgentUntil = 0;
 /** Un seul envoi à la fois : deux envois concurrents écriraient deux fois les mêmes documents. */
 let running: Promise<void> | null = null;
 let again = false;
+/** Nombre d'échecs d'envoi d'affilée : fixe le délai avant le prochain essai (5 s, 10 s, 20 s… jusqu'à 2 min). */
+let failures = 0;
+
+function scheduleRetry() {
+  failures++;
+  scheduleFlush(Math.min(120_000, 5_000 * 2 ** (failures - 1)));
+}
 
 function scheduleFlush(delay: number) {
   window.clearTimeout(flushTimer);
@@ -122,9 +140,19 @@ function runFlush(): Promise<void> {
   return running;
 }
 
-// json brut des pages/transcriptions distantes, gardé pour ne le lire qu'en cas de pull réel
-const pageDocCache = new Map<string, unknown>();
-const transcriptDocCache = new Map<string, unknown>();
+/**
+ * Contenu (json) d'un document distant, lu seulement quand il faut vraiment l'importer. Il vient du cache du
+ * SDK Firestore, déjà rempli par les écouteurs : aucune lecture réseau en plus. Avant, une copie du json de
+ * TOUTES les pages restait en mémoire en permanence, en double de ce cache.
+ */
+async function remoteJson(collection: 'pages' | 'transcripts', id: string): Promise<unknown> {
+  if (!session) return null;
+  const fs = await import('firebase/firestore');
+  const store = await getFirestoreDb();
+  const ref = fs.doc(store, 'users', session.uid, collection, id);
+  const snap = await fs.getDocFromCache(ref).catch(() => fs.getDoc(ref));
+  return snap.exists() ? (snap.data() as { json?: unknown }).json : null;
+}
 
 // ------------------------------------------------------------------ helpers JSON tolérants
 
@@ -209,7 +237,7 @@ async function pullNow() {
     // pages : la version distante n'est chargée (json) que si elle est réellement plus récente
     const pagePlan = mergeRecords(await db.pageVersions(), Object.fromEntries(s.remotePages), tombstones);
     for (const id of pagePlan.pull) {
-      const raw = pageDocCache.get(id);
+      const raw = await remoteJson('pages', id);
       const page = raw ? parseDoc<Page>(raw, isPage) : null;
       if (page) await db.putPage(page, true);
     }
@@ -220,7 +248,7 @@ async function pullNow() {
     for (const t of await db.transcripts()) localTr[t.pageId] = { updatedAt: t.updatedAt, deletedAt: t.deletedAt };
     const trPlan = mergeRecords(localTr, Object.fromEntries(s.remoteTranscripts), tombstones, (id) => `transcript:${id}`);
     for (const id of trPlan.pull) {
-      const raw = transcriptDocCache.get(id);
+      const raw = await remoteJson('transcripts', id);
       const tr = raw ? parseDoc<Transcript>(raw, isTranscript) : null;
       if (tr) await db.putTranscript(tr);
     }
@@ -345,13 +373,36 @@ async function flushNow() {
       s.remoteIndex = nextIndex;
     }
     await db.setMeta('tombstones', tombstones);
+    failures = 0;
     set({ status: 'live', error: '', lastPushAt: now, skippedHeavy: skipped, syncing: false });
   } catch (e) {
-    set({ status: 'error', error: friendlyError(e), syncing: false });
+    // L'envoi a échoué (coupure, droits, service indisponible) : rien n'est perdu — tout est encore en base
+    // locale —, les modifications restent « en attente » et on réessaie de plus en plus espacé. Avant, elles
+    // étaient marquées comme envoyées et rien ne repartait avant la modification suivante.
+    set({ status: 'error', error: friendlyError(e), syncing: false, pending: true });
+    scheduleRetry();
   }
 }
 
 // ------------------------------------------------------------------ abonnement temps réel
+
+/**
+ * Ne traite que les documents qui ont changé depuis le dernier instantané (le tout premier les contient
+ * tous). Avant, chaque modification distante reconstruisait la carte entière de toutes les pages.
+ */
+function applyChanges(
+  snap: { docChanges(): Array<{ type: 'added' | 'modified' | 'removed'; doc: { id: string; data(): unknown } }> },
+  into: Map<string, DocMeta>,
+) {
+  for (const change of snap.docChanges()) {
+    if (change.type === 'removed') {
+      into.delete(change.doc.id);
+      continue;
+    }
+    const data = change.doc.data() as { updatedAt?: number; deletedAt?: number | null };
+    into.set(change.doc.id, { updatedAt: data.updatedAt ?? 0, deletedAt: data.deletedAt ?? null });
+  }
+}
 
 async function subscribe() {
   if (!session) return;
@@ -381,13 +432,7 @@ async function subscribe() {
     fs.onSnapshot(
       fs.collection(store, 'users', s.uid, 'pages'),
       (snap) => {
-        s.remotePages.clear();
-        pageDocCache.clear();
-        snap.forEach((d) => {
-          const data = d.data() as { updatedAt?: number; deletedAt?: number | null; json?: unknown };
-          s.remotePages.set(d.id, { updatedAt: data.updatedAt ?? 0, deletedAt: data.deletedAt ?? null });
-          pageDocCache.set(d.id, data.json);
-        });
+        applyChanges(snap, s.remotePages);
         s.ready.pages = true;
         schedulePull();
       },
@@ -398,13 +443,7 @@ async function subscribe() {
     fs.onSnapshot(
       fs.collection(store, 'users', s.uid, 'transcripts'),
       (snap) => {
-        s.remoteTranscripts.clear();
-        transcriptDocCache.clear();
-        snap.forEach((d) => {
-          const data = d.data() as { updatedAt?: number; deletedAt?: number | null; json?: unknown };
-          s.remoteTranscripts.set(d.id, { updatedAt: data.updatedAt ?? 0, deletedAt: data.deletedAt ?? null });
-          transcriptDocCache.set(d.id, data.json);
-        });
+        applyChanges(snap, s.remoteTranscripts);
         s.ready.transcripts = true;
         schedulePull();
       },
@@ -465,8 +504,6 @@ export const firestoreController = {
       }
       session = null;
     }
-    pageDocCache.clear();
-    transcriptDocCache.clear();
   },
 
   /** La base locale a changé : envoi groupé, au plus tard MAX_WAIT_MS après la première modification. */
@@ -481,6 +518,16 @@ export const firestoreController = {
       return;
     }
     scheduleFlush(Math.min(QUIET_MS, firstPendingAt + MAX_WAIT_MS - now));
+  },
+
+  /** Le réseau change : on l'affiche, et au retour tout ce qui attend (ou a échoué) repart aussitôt. */
+  setOnline(online: boolean) {
+    set({ offline: !online });
+    if (!online || !enabled || !session) return;
+    if (state.pending || state.status === 'error') {
+      failures = 0;
+      void runFlush();
+    }
   },
 
   /** Envoi immédiat : appli mise en arrière-plan, bouton de l'indicateur, corbeille vidée. */

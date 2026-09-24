@@ -64,7 +64,7 @@ npm install
 npm run dev         # sur le PC : http://localhost:5173
 npm run tablette    # accessible depuis la tablette sur le même Wi-Fi (adresse « Network »)
 npm test            # tests : anti-paume, formes, géométrie, bibliothèque, format des transcriptions, fusion de la synchronisation, sauvegardes
-npm run lint        # vérification du code (ESLint : TypeScript, React hooks)
+npm run lint        # vérification du code (oxlint : TypeScript, React hooks)
 npm run build       # version de production dans dist/
 ```
 
@@ -115,6 +115,28 @@ l'appli. Aucun serveur à toi : rien ne transite ailleurs que vers Google.
 (Réglages → Cloud & Sauvegarde) qui les réunit sur tous tes appareils. À défaut, une copie de sauvegarde sur fichier
 (« Télécharger » puis « Restaurer… ») fait le pont.
 
+### Accès réservé (connexion obligatoire)
+
+Aucun écran de l'appli ne s'affiche sans connexion Firebase, et **un compte connecté ne suffit pas** : il doit être
+autorisé (`src/auth/access.ts`).
+
+- **Par défaut**, le premier compte qui se connecte sur un appareil en devient le propriétaire ; tout autre compte (même
+  un compte Google valide) y est refusé et déconnecté. Aucune synchronisation ne démarre avant cette vérification.
+- **Liste blanche** (recommandé) : dans Vercel, ajoute la variable `VITE_ALLOWED_EMAILS` avec ton adresse (plusieurs
+  adresses séparées par des virgules), puis redéploie. Seuls ces comptes peuvent alors entrer, sur tous les appareils.
+- **Fermer la création de comptes** : console Firebase → Authentication → Settings → *User actions* → décoche
+  « Enable create (sign-up) ». Plus personne ne pourra se créer de compte, ni par e-mail ni par Google.
+
+Ce verrou protège l'écran, pas le disque : les notes restent lisibles dans le stockage du navigateur par qui a
+l'appareil et les outils de développement.
+
+### Règles Firestore
+
+Les règles de sécurité sont dans `firestore.rules` : chaque compte ne lit et n'écrit que `users/<son uid>/…`, avec la
+forme exacte des documents de l'appli ; tout le reste est fermé. **Elles ne s'appliquent qu'une fois publiées** :
+console Firebase → Firestore Database → Règles → coller le fichier → Publier (ou
+`npx firebase-tools deploy --only firestore:rules --project math-notes-pwa`).
+
 ## Sauvegarde Google Drive (gratuite)
 
 1. [console.cloud.google.com](https://console.cloud.google.com/) → crée un projet.
@@ -133,15 +155,16 @@ récente gagne.
 | Dossier | Rôle |
 |---|---|
 | `src/ink/` | Écriture : rendu du trait et des formes (`draw.ts`), anti-paume (`palm.ts`), reconnaissance des formes, géométrie (gomme de précision, lasso, mise à l'échelle et rotation : `geometry.ts`), zone de dessin (`InkCanvas.tsx`) avec ses feuilles (`sheets.ts`), ses poignées (`handles.ts`) et l'historique annuler / rétablir (`history.ts`) |
-| `src/db/` | Stockage local IndexedDB et opérations de bibliothèque |
+| `src/db/` | Stockage local IndexedDB et opérations de bibliothèque ; `storageAlert.ts` signale un enregistrement impossible (stockage plein) au lieu de le perdre en silence |
 | `src/ai/` | Gemini : prompt, appel avec réessais, format des transcriptions |
 | `src/render/` | Affichage KaTeX, tableaux tkz-tab, export LaTeX |
 | `src/export/` | PDF vectoriel, PDF manuscrit |
 | `src/pdf/` | Lecture des PDF importés (pdf.js) |
-| `src/sync/` | Google Drive : connexion, fusion, déclencheurs (l'index distant est vérifié avant d'être appliqué) |
+| `src/sync/` | Synchronisation : temps réel Firestore (`firestore.ts` : envois groupés, reprises après coupure) et Google Drive ; même fusion « le plus récent gagne » (`merge.ts`) |
+| `src/auth/` | Accès réservé : qui a le droit d'entrer (`access.ts`, testé), la porte d'entrée (`useAccess.ts`), la déconnexion complète |
 | `src/db/backupFormat.ts` | Format du fichier de sauvegarde et sa validation (rien n'est écrit dans la base avant vérification) |
 | `vercel.json` | En-têtes de sécurité (CSP…) et règles de cache du site en ligne |
-| `src/components/` | Écrans : bibliothèque (`Library*.tsx`), éditeur, barre d'onglets, exports, mon écriture, réglages (`SettingsDialog.tsx` + une section par fichier dans `settings/`), pictogrammes (`icons.tsx`) et catalogue des tampons (`stamps.tsx`) |
+| `src/components/` | Écrans : bibliothèque (`Library*.tsx`), éditeur, barre d'onglets, exports, mon écriture, réglages (`SettingsDialog.tsx` : trois cartes dans `settings/`, briques communes dans `settings/ui.tsx`), écran de connexion (`AuthPanel.tsx`), indicateur de synchro (`CloudIndicator.tsx`), pictogrammes (`icons.tsx`) et catalogue des tampons (`stamps.tsx`) |
 | `src/index.css` | Point d'entrée des styles : Tailwind CSS, KaTeX et l'ancienne feuille `styles.css`, rangés en couches (voir ci-dessous) |
 | `tests/` | Tests exécutés directement par Node (`npm test`) : anti-paume, formes, géométrie, feuilles, historique, bibliothèque, réponses du modèle, tableaux tkz-tab, rendu des maths, navigation, sauvegardes, fusion de la synchronisation |
 

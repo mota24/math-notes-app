@@ -73,6 +73,12 @@ export async function renderPdfPage(fileId: string, pageIndex: number, pxPerMm: 
   const canvas = document.createElement('canvas');
   canvas.width = Math.ceil(viewport.width);
   canvas.height = Math.ceil(viewport.height);
-  await page.render({ canvas, viewport }).promise;
+  try {
+    await page.render({ canvas, viewport }).promise;
+  } finally {
+    // Libère ce que pdf.js a décodé pour cette page (images, polices, liste d'opérations). Sans cela, chaque
+    // page visitée d'un gros PDF restait en mémoire tant que le document était ouvert.
+    page.cleanup();
+  }
   return canvas;
 }

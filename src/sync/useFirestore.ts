@@ -44,6 +44,10 @@ export function startFirestoreTriggers() {
   document.addEventListener('visibilitychange', flushIfHidden);
   window.addEventListener('pagehide', () => firestoreController.flush());
 
+  // Coupure réseau : l'indicateur passe « hors ligne », et au retour tout ce qui attend repart
+  window.addEventListener('online', () => firestoreController.setOnline(true));
+  window.addEventListener('offline', () => firestoreController.setOnline(false));
+
   // Sortie d'un cahier (retour à la bibliothèque, autre onglet) : `visibilitychange` ne se déclenche pas
   // pour une navigation interne, on surveille donc l'adresse. Tourner les pages d'un même cahier ne compte pas.
   const cahierDe = (hash: string) => /^#\/cahier\/([^/]+)/.exec(hash)?.[1] ?? null;

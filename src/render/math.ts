@@ -14,6 +14,10 @@ const MACROS = {
 const OPTIONS: KatexOptions = {
   throwOnError: false,
   strict: 'ignore',
+  // Garde-fous contre une formule piégée (fichier de sauvegarde ou réponse de modèle) : taille des éléments
+  // plafonnée (une règle de 10 000 em ferait exploser la mise en page) et expansion des macros bornée.
+  maxSize: 50,
+  maxExpand: 1000,
   // Seule la classe « unsure » (passages douteux surlignés) est autorisée
   trust: (ctx) => ctx.command === '\\htmlClass' && 'class' in ctx && ctx.class === 'unsure',
 };

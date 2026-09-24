@@ -35,8 +35,5 @@ export const glassPanel =
  */
 const roundBase = `relative grid size-9 min-h-0 place-items-center rounded-full border p-0 backdrop-blur-md transition-all duration-200 before:absolute before:-inset-1.5 before:rounded-full before:content-[''] active:scale-90 ${focusRing}`;
 
-/** Petit bouton rond posé sur une carte (options, favori) */
+/** Petit bouton rond posé sur une carte (menu « ⋯ ») */
 export const roundButton = `${roundBase} border-white/10 bg-gray-900/60 text-zinc-300 hover:bg-gray-900 hover:text-white`;
-
-/** Le même, allumé : l'étoile d'un favori */
-export const roundButtonOn = `${roundBase} border-amber-500/40 bg-amber-100/80 text-amber-600 hover:bg-amber-100 dark:border-amber-300/40 dark:bg-amber-300/20 dark:text-amber-300 dark:hover:bg-amber-300/30`;

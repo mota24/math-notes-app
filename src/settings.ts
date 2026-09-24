@@ -43,8 +43,6 @@ export interface Settings {
   shapeHold: boolean;
   /** Durée de l’appui long avant reconnaissance (ms) */
   shapeHoldMs: number;
-  /** Dessiner les contacts et leur décision sur la page (réglage anti-paume dans Réglages) */
-  showContacts: boolean;
   lowLatency: boolean;
   penSeen: boolean;
   /** ID client OAuth Google (gratuit) pour la sauvegarde Drive */
@@ -101,7 +99,6 @@ const DEFAULTS: Settings = {
   holdMs: 700,
   shapeHold: true,
   shapeHoldMs: 300,
-  showContacts: false,
   lowLatency: false,
   penSeen: false,
   driveClientId: '',

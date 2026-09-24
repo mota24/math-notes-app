@@ -82,13 +82,10 @@ body,
   overscroll-behavior: none;
 }
 
-body {
-  background: var(--paper);
-}
-
 /* Sécurité tactile : sur l'interface, un appui long ou un glissé ne sélectionne rien, n'ouvre pas de menu
    contextuel et ne fait pas de surbrillance ; la page ne rebondit jamais (voir overscroll-behavior plus haut). */
 body {
+  background: var(--paper);
   user-select: none;
   -webkit-user-select: none;
   -webkit-touch-callout: none;
@@ -814,46 +811,12 @@ button:disabled {
   box-shadow: 0 1px 2px rgba(31, 29, 25, 0.14);
 }
 
-.switch-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  min-height: 48px;
-  padding: 4px 0;
-  cursor: pointer;
-}
-
-.switch-row > span {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.switch-row strong {
-  font-size: 13.5px;
-}
-
-.switch-row small {
-  font-size: 12px;
-  line-height: 1.4;
-  color: var(--muted);
-}
-
-.switch-inline {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  color: var(--muted);
-  cursor: pointer;
-}
-
-.switch,
 .check input[type='checkbox'] {
   appearance: none;
   -webkit-appearance: none;
   position: relative;
   flex: none;
+  order: 1; /* l'interrupteur se place au bout de la ligne, après son libellé */
   width: 51px;
   height: 31px;
   margin: 0;
@@ -864,7 +827,6 @@ button:disabled {
   transition: background 0.2s ease;
 }
 
-.switch::after,
 .check input[type='checkbox']::after {
   content: '';
   position: absolute;
@@ -878,45 +840,24 @@ button:disabled {
   transition: transform 0.24s var(--spring), width 0.16s ease;
 }
 
-.switch:active::after,
 .check input[type='checkbox']:active::after {
   width: 32px;
 }
 
-.switch:checked,
 .check input[type='checkbox']:checked {
   background: var(--accent);
 }
 
-.switch:checked::after,
 .check input[type='checkbox']:checked::after {
   transform: translateX(20px);
 }
 
-.switch:checked:active::after,
 .check input[type='checkbox']:checked:active::after {
   transform: translateX(15px);
 }
 
-.switch:focus-visible,
 .check input[type='checkbox']:focus-visible {
   box-shadow: var(--focus-ring);
-}
-
-.switch.small {
-  width: 40px;
-  height: 24px;
-}
-
-.switch.small::after {
-  top: 2px;
-  left: 2px;
-  width: 20px;
-  height: 20px;
-}
-
-.switch.small:checked::after {
-  transform: translateX(16px);
 }
 
 /* menu du cahier */
@@ -1503,307 +1444,6 @@ mark.unsure {
   font-size: 12px;
 }
 
-/* ------------------------------------------------------------------ anti-paume */
-
-.palm-panel {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  bottom: 12px;
-  z-index: 7;
-  display: flex;
-  flex-direction: column;
-  width: min(380px, calc(100% - 24px));
-  overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: 18px;
-  background: var(--card);
-  box-shadow: var(--shadow-pop);
-}
-
-.palm-panel > header {
-  display: flex;
-  align-items: flex-start;
-  gap: 11px;
-  padding: 14px 12px 13px 14px;
-  border-bottom: 1px solid var(--line);
-}
-
-.palm-panel > header > div {
-  flex: 1;
-  min-width: 0;
-}
-
-.palm-panel > header strong {
-  display: block;
-  font-size: 15px;
-}
-
-.palm-panel > header p {
-  margin: 2px 0 0;
-  font-size: 12.5px;
-  line-height: 1.35;
-  color: var(--muted);
-}
-
-.palm-badge {
-  display: grid;
-  place-items: center;
-  flex: none;
-  width: 36px;
-  height: 36px;
-  border-radius: 11px;
-  background: var(--accent-soft);
-  color: var(--accent-ink);
-}
-
-.palm-body {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-  padding: 14px;
-  overflow-y: auto;
-}
-
-.palm-body section {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.stat-row {
-  display: flex;
-  gap: 7px;
-}
-
-.stat {
-  flex: 1;
-  padding: 9px 10px;
-  border-radius: 11px;
-  background: var(--sunken);
-}
-
-.stat b {
-  display: block;
-  font-size: 14px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-
-.stat small {
-  font-size: 11px;
-  color: var(--muted);
-}
-
-.tracks {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.tracks li {
-  display: flex;
-  align-items: flex-start;
-  gap: 9px;
-  padding: 8px 10px;
-  border-radius: 11px;
-  background: var(--sunken);
-  font-size: 12.5px;
-}
-
-.track-id {
-  font-size: 11.5px;
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
-
-.track-text {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 0;
-}
-
-.track-text strong {
-  font-size: 12.5px;
-}
-
-.track-text small {
-  font-size: 11.5px;
-  line-height: 1.3;
-  color: var(--muted);
-}
-
-.track-size {
-  font-size: 11px;
-  white-space: nowrap;
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
-
-.track-draw {
-  background: rgba(43, 89, 195, 0.08);
-}
-
-.track-draw strong,
-.track-draw .track-id {
-  color: var(--draw);
-}
-
-.track-palm {
-  background: rgba(168, 67, 26, 0.08);
-}
-
-.track-palm strong,
-.track-palm .track-id {
-  color: var(--palm);
-}
-
-.track-pending {
-  background: rgba(138, 97, 0, 0.1);
-}
-
-.track-pending strong,
-.track-pending .track-id {
-  color: var(--wait);
-}
-
-.track-gesture {
-  background: rgba(106, 75, 196, 0.08);
-}
-
-.track-gesture strong,
-.track-gesture .track-id {
-  color: var(--gesture);
-}
-
-.journal {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.journal li {
-  padding: 4px 0;
-  border-bottom: 1px solid var(--line);
-  font-family: ui-monospace, 'JetBrains Mono', monospace;
-  font-size: 11.5px;
-  color: var(--ink-soft);
-}
-
-.raw summary {
-  font-size: 12.5px;
-  color: var(--muted);
-  cursor: pointer;
-}
-
-.raw dl {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 3px 12px;
-  margin: 8px 0 0;
-  font-size: 12px;
-}
-
-.raw dt {
-  color: var(--muted);
-}
-
-.raw dd {
-  margin: 0;
-}
-
-/* Calibrage de la taille des contacts : deux mesures puis un seuil absolu, posé entre les deux */
-.calib {
-  padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  background: var(--sunken);
-}
-
-.calib-buttons {
-  display: flex;
-  gap: 8px;
-  margin-top: 8px;
-}
-
-.calib-btn {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 5px;
-  min-height: 64px;
-  padding: 10px 8px;
-  border: 1.5px dashed var(--line);
-  border-radius: 12px;
-  background: var(--card);
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 1.25;
-  color: inherit;
-  text-align: center;
-}
-
-.calib-btn svg {
-  width: 20px;
-  height: 20px;
-}
-
-.calib-btn:disabled {
-  opacity: 0.4;
-}
-
-.calib-btn.done {
-  border-style: solid;
-  border-color: var(--accent);
-  background: var(--accent-soft);
-  color: var(--accent-ink);
-}
-
-.calib-live {
-  margin: 8px 0 0;
-  font-size: 12px;
-  color: var(--muted);
-  text-align: center;
-}
-
-.calib-live strong {
-  color: var(--ink);
-  font-variant-numeric: tabular-nums;
-}
-
-.calib-warn {
-  margin: 8px 0 0;
-  padding: 8px 10px;
-  border-radius: 10px;
-  background: rgba(168, 67, 26, 0.12);
-  color: #a8431a;
-  font-size: 12px;
-  line-height: 1.4;
-}
-
-.calib-done p {
-  margin: 0 0 10px;
-  font-size: 12.5px;
-  line-height: 1.4;
-}
-
-.calib-done button:first-of-type {
-  margin-right: 10px;
-  padding: 6px 12px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--card);
-  font-size: 12.5px;
-  color: inherit;
-}
-
 button.link {
   padding: 0;
   border: 0;
@@ -1812,10 +1452,6 @@ button.link {
   font: inherit;
   text-decoration: underline;
   cursor: pointer;
-}
-
-.muted {
-  color: var(--muted);
 }
 
 /* ------------------------------------------------------------------ réglages */
@@ -1863,15 +1499,10 @@ button.link {
 }
 
 .dialog-head {
-  padding-left: 6px;
-  padding-right: 6px;
-}
-
-.dialog-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding-bottom: 14px;
+  padding: 0 6px 14px;
 }
 
 .dialog-head h2 {
@@ -2013,9 +1644,7 @@ button.link {
   line-height: 1.5;
 }
 
-/* Interrupteur façon iOS (la case à cocher native reste accessible : lecteurs d'écran, clavier) ;
-   la recette visuelle elle-même (piste, pastille, vert systemGreen) est partagée avec .switch,
-   juste au-dessus, pour que les deux soient des répliques identiques du même composant. */
+/* Interrupteur façon iOS (la case à cocher native reste accessible : lecteurs d'écran, clavier). */
 .check {
   display: flex;
   align-items: center;
@@ -2029,10 +1658,6 @@ button.link {
 
 .check + .check {
   border-top: 1px solid var(--line);
-}
-
-.check input[type='checkbox'] {
-  order: 1;
 }
 
 button.danger {
@@ -2233,7 +1858,6 @@ code {
 .editor-header .tb-btn:disabled {
   opacity: 0.3;
 }
-
 
 /* Pagination verticale : colonne transparente, la pilule flotte sur le bureau gris */
 .page-rail {
@@ -2942,19 +2566,6 @@ code {
 .welcome-step li {
   margin-bottom: 6px;
 }
-
-@media (orientation: portrait) {
-  /* En portrait, le panneau anti-paume devient une feuille basse : la page reste visible */
-  .palm-panel {
-    top: auto;
-    left: 12px;
-    right: 12px;
-    bottom: 12px;
-    width: auto;
-    max-height: 62%;
-  }
-}
-
 
 /* ================================================================ */
 /* HEADER ÉDITEUR : 3 zones imperméables                             */
