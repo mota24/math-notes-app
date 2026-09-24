@@ -2,11 +2,14 @@ import { useRef, useState } from 'react';
 import { createBackup, restoreBackup } from '../../db/backup';
 import { downloadBlob } from '../../export/download';
 import { isNativeApp } from '../../platform';
+import type { Settings } from '../../settings';
+import { canUseDrive, currentToken, ensureFolder, signIn, uploadFile } from '../../sync/drive';
 
-export function BackupSection() {
+export function BackupSection({ settings }: { settings: Settings }) {
   const [status, setStatus] = useState<{ message: string; error: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
   const input = useRef<HTMLInputElement>(null);
+  const driveAvailable = canUseDrive();
   const run = async (task: () => Promise<string>) => {
     setBusy(true);
     setStatus(null);
@@ -41,6 +44,23 @@ export function BackupSection() {
         </button>
         <button disabled={busy} onClick={() => input.current?.click()}>
           Restaurer une sauvegarde…
+        </button>
+        <button
+          disabled={busy || !driveAvailable.ok || !settings.driveClientId.trim()}
+          title={!driveAvailable.ok ? driveAvailable.reason : !settings.driveClientId.trim() ? 'Renseigne d’abord l’ID client OAuth Google ci-dessus.' : undefined}
+          onClick={() =>
+            void run(async () => {
+              // Envoi seul (upload) : ce bouton ne supprime ni ne remplace jamais rien, ni en local ni sur Drive.
+              const token = currentToken() ?? (await signIn(settings.driveClientId));
+              const folderId = await ensureFolder(token);
+              const blob = await createBackup();
+              const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 16);
+              await uploadFile(token, folderId, `sauvegarde-${stamp}.json`, blob);
+              return `Sauvegarde envoyée sur Drive (${(blob.size / 1024 / 1024).toFixed(1)} Mo).`;
+            })
+          }
+        >
+          Sauvegarder sur Drive
         </button>
         <input
           ref={input}

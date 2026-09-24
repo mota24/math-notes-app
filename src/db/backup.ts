@@ -38,6 +38,7 @@ export async function createBackup(): Promise<Blob> {
     transcripts: await db.transcripts(),
     glyphs: await db.glyphs(),
     files,
+    todos: await db.todos(),
     tombstones: (await db.getMeta<Record<string, Tombstone>>('tombstones')) ?? {},
   };
   return new Blob([JSON.stringify(backup)], { type: 'application/json' });
@@ -96,7 +97,10 @@ export async function restoreBackup(file: File): Promise<{ imported: number }> {
     }
   }
 
+  const todos = mergeRecords(byKey(await db.todos(), (t) => t.id), byKey(data.todos, (t) => t.id), tombstones);
+  for (const id of todos.pull) await db.putTodo(todos.merged[id]);
+
   await db.setMeta('tombstones', tombstones);
-  imported += folders.pull.length + notebooks.pull.length + pages.pull.length + transcripts.pull.length;
+  imported += folders.pull.length + notebooks.pull.length + pages.pull.length + transcripts.pull.length + todos.pull.length;
   return { imported };
 }

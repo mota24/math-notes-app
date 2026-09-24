@@ -83,7 +83,7 @@ export function SettingsDialog({
       </section>
 
       <DriveSection settings={settings} update={update} />
-      <BackupSection />
+      <BackupSection settings={settings} />
 
       <AntiPalmSection settings={settings} update={update} />
 

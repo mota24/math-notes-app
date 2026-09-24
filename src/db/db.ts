@@ -1,7 +1,7 @@
 import { openDB } from 'idb';
 import type { DBSchema, IDBPDatabase } from 'idb';
 import { useEffect, useState } from 'react';
-import type { ConversionResult, Folder, Glyph, Notebook, Page, PageVersion, StoredFile, Transcript } from './schema';
+import type { ConversionResult, Folder, Glyph, Notebook, Page, PageVersion, StoredFile, Todo, Transcript } from './schema';
 
 /** Base locale (IndexedDB) : tout fonctionne hors-ligne, la synchronisation Drive vient par-dessus. */
 
@@ -13,24 +13,32 @@ interface NotesDB extends DBSchema {
   transcripts: { key: string; value: Transcript; indexes: { notebookId: string } };
   results: { key: string; value: ConversionResult; indexes: { pageId: string } };
   glyphs: { key: string; value: Glyph };
+  todos: { key: string; value: Todo };
   meta: { key: string; value: { key: string; value: unknown } };
 }
 
-export type StoreName = 'folders' | 'notebooks' | 'pages' | 'files' | 'transcripts' | 'results' | 'glyphs' | 'meta';
+export type StoreName = 'folders' | 'notebooks' | 'pages' | 'files' | 'transcripts' | 'results' | 'glyphs' | 'todos' | 'meta';
 
 let dbPromise: Promise<IDBPDatabase<NotesDB>> | null = null;
 
 function database() {
-  dbPromise ??= openDB<NotesDB>('notes-maths', 1, {
-    upgrade(db) {
-      db.createObjectStore('folders', { keyPath: 'id' });
-      db.createObjectStore('notebooks', { keyPath: 'id' });
-      db.createObjectStore('pages', { keyPath: 'id' }).createIndex('notebookId', 'notebookId');
-      db.createObjectStore('files', { keyPath: 'id' });
-      db.createObjectStore('transcripts', { keyPath: 'pageId' }).createIndex('notebookId', 'notebookId');
-      db.createObjectStore('results', { keyPath: 'id' }).createIndex('pageId', 'pageId');
-      db.createObjectStore('glyphs', { keyPath: 'char' });
-      db.createObjectStore('meta', { keyPath: 'key' });
+  // Version 2 : ajout du magasin « todos ». `oldVersion` protège les bases existantes (v1) : leurs magasins
+  // ne sont jamais recréés (IndexedDB refuse un createObjectStore sur un nom déjà pris), seul « todos » s'ajoute.
+  dbPromise ??= openDB<NotesDB>('notes-maths', 2, {
+    upgrade(db, oldVersion) {
+      if (oldVersion < 1) {
+        db.createObjectStore('folders', { keyPath: 'id' });
+        db.createObjectStore('notebooks', { keyPath: 'id' });
+        db.createObjectStore('pages', { keyPath: 'id' }).createIndex('notebookId', 'notebookId');
+        db.createObjectStore('files', { keyPath: 'id' });
+        db.createObjectStore('transcripts', { keyPath: 'pageId' }).createIndex('notebookId', 'notebookId');
+        db.createObjectStore('results', { keyPath: 'id' }).createIndex('pageId', 'pageId');
+        db.createObjectStore('glyphs', { keyPath: 'char' });
+        db.createObjectStore('meta', { keyPath: 'key' });
+      }
+      if (oldVersion < 2) {
+        db.createObjectStore('todos', { keyPath: 'id' });
+      }
     },
   });
   return dbPromise;
@@ -218,6 +226,18 @@ export const db = {
   async deleteGlyph(char: string) {
     await (await database()).delete('glyphs', char);
     notify('glyphs');
+  },
+
+  async todos() {
+    return (await database()).getAll('todos');
+  },
+  async putTodo(todo: Todo) {
+    await (await database()).put('todos', todo);
+    notify('todos');
+  },
+  async deleteTodo(id: string) {
+    await (await database()).delete('todos', id);
+    notify('todos');
   },
 
   async getMeta<T>(key: string): Promise<T | undefined> {

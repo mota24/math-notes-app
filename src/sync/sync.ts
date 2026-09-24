@@ -1,13 +1,13 @@
 import { db, notify } from '../db/db';
 import type { Tombstone } from '../db/library';
-import type { Folder, Glyph, Notebook, PageVersion, StoredFile } from '../db/schema';
-import { isFolder, isGlyph, isNotebook, isPage, isRecord, isTranscript } from '../db/backupFormat';
+import type { Folder, Glyph, Notebook, PageVersion, StoredFile, Todo } from '../db/schema';
+import { isFolder, isGlyph, isNotebook, isPage, isRecord, isTodo, isTranscript } from '../db/backupFormat';
 import { deleteFile, downloadFile, ensureFolder, listFiles, uploadFile } from './drive';
 import { byKey, mergeRecords, mergeTombstones } from './merge';
 
 /**
  * Synchronisation avec un dossier Google Drive :
- *   index.json            dossiers, cahiers, versions des pages, écriture perso, suppressions
+ *   index.json            dossiers, cahiers, tâches à faire, versions des pages, écriture perso, suppressions
  *   page-<id>.json        traits d'une page
  *   transcript-<id>.json  transcription LaTeX d'une page
  *   file-<id>             PDF importés
@@ -37,6 +37,7 @@ interface RemoteIndex {
   transcripts: Record<string, TranscriptVersion>;
   files: Record<string, FileMeta>;
   glyphs: Glyph[];
+  todos: Todo[];
   tombstones: Record<string, Tombstone>;
 }
 
@@ -49,7 +50,7 @@ export interface SyncReport {
 
 const json = (value: unknown) => new Blob([JSON.stringify(value)], { type: 'application/json' });
 
-const EMPTY_INDEX: RemoteIndex = { version: 1, updatedAt: 0, folders: [], notebooks: [], pages: {}, transcripts: {}, files: {}, glyphs: [], tombstones: {} };
+const EMPTY_INDEX: RemoteIndex = { version: 1, updatedAt: 0, folders: [], notebooks: [], pages: {}, transcripts: {}, files: {}, glyphs: [], todos: [], tombstones: {} };
 
 /**
  * L'index distant est lu avec méfiance : un fichier abîmé (envoi interrompu, modification à la main dans
@@ -75,6 +76,7 @@ async function readRemoteIndex(text: string): Promise<RemoteIndex> {
     transcripts: map<TranscriptVersion>(raw.transcripts),
     files: map<FileMeta>(raw.files),
     glyphs: list(raw.glyphs, isGlyph),
+    todos: list(raw.todos, isTodo),
     tombstones: map<Tombstone>(raw.tombstones),
   };
 }
@@ -125,6 +127,14 @@ export async function syncWithDrive(token: string, progress: (step: string) => v
   for (const id of notebookPlan.purge) await db.deleteNotebook(id);
   report.pulled += folderPlan.pull.length + notebookPlan.pull.length;
   report.pushed += folderPlan.push.length + notebookPlan.push.length;
+
+  // ---- tâches à faire : objets complets dans l'index, comme dossiers/cahiers
+  progress('Tâches à faire…');
+  const todoPlan = mergeRecords(byKey(await db.todos(), (t) => t.id), byKey(remote.todos, (t) => t.id), tombstones);
+  for (const id of todoPlan.pull) await db.putTodo(todoPlan.merged[id]);
+  for (const id of todoPlan.purge) await db.deleteTodo(id);
+  report.pulled += todoPlan.pull.length;
+  report.pushed += todoPlan.push.length;
 
   // ---- fichiers PDF (immuables)
   progress('Fichiers PDF…');
@@ -206,7 +216,7 @@ export async function syncWithDrive(token: string, progress: (step: string) => v
       report.purged++;
     }
   }
-  report.purged += folderPlan.purge.length + notebookPlan.purge.length + pagePlan.purge.length;
+  report.purged += folderPlan.purge.length + notebookPlan.purge.length + pagePlan.purge.length + todoPlan.purge.length;
 
   // ---- nouvel index
   progress('Mise à jour de l’index…');
@@ -219,11 +229,12 @@ export async function syncWithDrive(token: string, progress: (step: string) => v
     transcripts: transcriptPlan.merged,
     files: filePlan.merged,
     glyphs: Object.values(glyphPlan.merged).map(({ deletedAt: _deleted, ...g }) => g),
+    todos: Object.values(todoPlan.merged),
     tombstones,
   };
   await uploadFile(token, folderId, 'index.json', json(index), remoteFiles.get('index.json'));
   await db.setMeta('tombstones', tombstones);
   await db.setMeta('lastSyncAt', now);
-  notify('folders', 'notebooks', 'pages', 'files', 'transcripts', 'glyphs');
+  notify('folders', 'notebooks', 'pages', 'files', 'transcripts', 'glyphs', 'todos');
   return report;
 }

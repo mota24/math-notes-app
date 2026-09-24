@@ -1,5 +1,5 @@
 import type { Tombstone } from './library';
-import type { Folder, Glyph, Notebook, Page, StoredFile, Transcript } from './schema';
+import type { Folder, Glyph, Notebook, Page, StoredFile, Todo, Transcript } from './schema';
 
 /**
  * Format du fichier de sauvegarde `.json` et sa validation. Sans dépendance (ni base, ni React) :
@@ -18,10 +18,11 @@ export interface BackupFile {
   transcripts: Transcript[];
   glyphs: Glyph[];
   files: FileEntry[];
+  todos: Todo[];
   tombstones: Record<string, Tombstone>;
 }
 
-const TOMBSTONE_KINDS = new Set<Tombstone['kind']>(['folder', 'notebook', 'page', 'file', 'transcript', 'glyph']);
+const TOMBSTONE_KINDS = new Set<Tombstone['kind']>(['folder', 'notebook', 'page', 'file', 'transcript', 'glyph', 'todo']);
 
 /** Objet JSON « simple » (ni null, ni tableau). Partagé avec la synchronisation Drive. */
 export const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -55,6 +56,8 @@ export const isPage = (p: unknown): p is Page => isVersioned(p, 'id') && typeof 
 export const isTranscript = (t: unknown): t is Transcript => isVersioned(t, 'pageId') && Array.isArray(t.blocks);
 export const isGlyph = (g: unknown): g is Glyph => isVersioned(g, 'char') && Array.isArray(g.strokes);
 export const isFileEntry = (f: unknown): f is FileEntry => isVersioned(f, 'id') && typeof f.data === 'string' && typeof f.type === 'string';
+export const isTodo = (t: unknown): t is Todo =>
+  isVersioned(t, 'id') && typeof t.text === 'string' && typeof t.done === 'boolean' && isNullableTime(t.dueAt);
 
 /**
  * Vérifie la forme d'une sauvegarde AVANT d'écrire quoi que ce soit dans la base : un fichier tronqué,
@@ -74,6 +77,7 @@ export function validateBackup(raw: unknown): BackupFile {
     transcripts: cleanList(raw.transcripts, isTranscript),
     glyphs: cleanList(raw.glyphs, isGlyph),
     files: cleanList(raw.files, isFileEntry),
+    todos: cleanList(raw.todos, isTodo),
     tombstones: cleanTombstones(raw.tombstones),
   };
 }
