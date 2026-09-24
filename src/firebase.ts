@@ -21,19 +21,40 @@ import type { User } from 'firebase/auth';
  * l'appli est désormais verrouillée derrière la connexion.
  */
 const env = import.meta.env;
+
+/**
+ * Une variable d'environnement n'est retenue que si elle contient vraiment quelque chose. `??` ne suffisait
+ * pas : une variable définie mais VIDE dans Vercel passait le filtre et Firebase répondait alors
+ * « auth/api-key-not-valid », bloquant tout le site puisque l'accès est verrouillé.
+ */
+const texte = (valeur: unknown, repli: string): string => (typeof valeur === 'string' && valeur.trim() ? valeur.trim() : repli);
+
+/**
+ * La clé, en plus, doit ressembler à une vraie clé Google (« AIza… »). Une valeur de remplacement laissée
+ * dans la console Vercel, une clé tronquée ou collée avec ses guillemets est ainsi ignorée au profit de la
+ * configuration du projet, qui, elle, fonctionne.
+ */
+const CLE_PROJET = 'AIzaSyCSnqte3h5U224vLL_9jWX1tolKvTphBH0';
+const cleEnv = texte(env.VITE_FIREBASE_API_KEY, '');
+const cleValide = /^AIza[\w-]{30,}$/.test(cleEnv);
+
 const firebaseConfig = {
-  apiKey: env.VITE_FIREBASE_API_KEY ?? 'AIzaSyCSnqte3h5U224vLL_9jWX1tolKvTphBH0',
-  authDomain: env.VITE_FIREBASE_AUTH_DOMAIN ?? 'math-notes-pwa.firebaseapp.com',
-  projectId: env.VITE_FIREBASE_PROJECT_ID ?? 'math-notes-pwa',
-  storageBucket: env.VITE_FIREBASE_STORAGE_BUCKET ?? 'math-notes-pwa.firebasestorage.app',
-  messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID ?? '519312910632',
-  appId: env.VITE_FIREBASE_APP_ID ?? '1:519312910632:web:a5f4f416820b75d552c81d',
+  apiKey: cleValide ? cleEnv : CLE_PROJET,
+  authDomain: texte(env.VITE_FIREBASE_AUTH_DOMAIN, 'math-notes-pwa.firebaseapp.com'),
+  projectId: texte(env.VITE_FIREBASE_PROJECT_ID, 'math-notes-pwa'),
+  storageBucket: texte(env.VITE_FIREBASE_STORAGE_BUCKET, 'math-notes-pwa.firebasestorage.app'),
+  messagingSenderId: texte(env.VITE_FIREBASE_MESSAGING_SENDER_ID, '519312910632'),
+  appId: texte(env.VITE_FIREBASE_APP_ID, '1:519312910632:web:a5f4f416820b75d552c81d'),
 };
 
-// Diagnostic : dit si Vite a bien lu les variables, sans jamais afficher la moindre valeur.
+// Diagnostic : l'état des variables, jamais leur contenu.
 console.log(
   'Config Firebase :',
-  env.VITE_FIREBASE_API_KEY ? 'variables VITE_ lues' : 'variables VITE_ MANQUANTES (repli sur la config du projet)',
+  !cleEnv
+    ? 'VITE_FIREBASE_API_KEY absente → clé du projet'
+    : cleValide
+      ? 'VITE_FIREBASE_API_KEY utilisée'
+      : `VITE_FIREBASE_API_KEY ignorée (ne ressemble pas à une clé Google, ${cleEnv.length} caractères) → clé du projet`,
   '· projet', firebaseConfig.projectId,
   '· domaine d’auth', firebaseConfig.authDomain,
 );

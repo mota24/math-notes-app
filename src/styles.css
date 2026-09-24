@@ -931,8 +931,11 @@ button:disabled {
 }
 
 .menu-card {
-  position: absolute;
-  top: calc(100% + 6px);
+  /* Fixe, et non absolue : la carte est rendue dans `.editor-header`, qui fait 48 px de haut avec
+     `overflow: hidden`. En absolu elle tombait juste en dessous (top ≈ 63 px) et se faisait donc rogner
+     entièrement — le menu s'ouvrait sans rien montrer, et le voile plein écran avalait le clic suivant. */
+  position: fixed;
+  top: 54px; /* 48 px de barre + 6 px de marge */
   right: 10px;
   z-index: 21;
   width: 312px;
