@@ -1,13 +1,7 @@
 import { useEffect, useState } from 'react';
 import { initializeApp } from 'firebase/app';
 import type { FirebaseApp } from 'firebase/app';
-import {
-  getAuth,
-  GoogleAuthProvider,
-  onAuthStateChanged,
-  signInWithPopup,
-  signOut,
-} from 'firebase/auth';
+import { getAuth, onAuthStateChanged } from 'firebase/auth';
 import type { Firestore } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
 
@@ -62,11 +56,6 @@ console.log(
 const app: FirebaseApp = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 
-// --- Connexion Drive (inchangée) : la portée drive.file sert à la sauvegarde des fichiers dans Drive.
-const googleProvider = new GoogleAuthProvider();
-googleProvider.addScope('https://www.googleapis.com/auth/drive.file');
-export const loginWithGoogle = () => signInWithPopup(auth, googleProvider);
-export const logout = () => signOut(auth);
 
 // ------------------------------------------------------------------ Firestore (temps réel, opt-in)
 
@@ -80,24 +69,6 @@ let dbPromise: Promise<Firestore> | null = null;
 export function getFirestoreDb(): Promise<Firestore> {
   dbPromise ??= import('firebase/firestore').then(({ getFirestore }) => getFirestore(app));
   return dbPromise;
-}
-
-/** Fournisseur identité seule (sans portée Drive) : la synchro Firestore n'a besoin que de savoir qui tu es. */
-const identityProvider = new GoogleAuthProvider();
-
-/** Sur le web, la connexion est toujours possible (l'appli n'est plus empaquetée en APK). */
-export function canSignInForSync(): { ok: boolean; reason?: string } {
-  return { ok: true };
-}
-
-/** Connexion pour la synchro Firestore : fenêtre Google classique (SDK Web). */
-export async function signInForSync(): Promise<User> {
-  const cred = await signInWithPopup(auth, identityProvider);
-  return cred.user;
-}
-
-export async function signOutSync(): Promise<void> {
-  await signOut(auth);
 }
 
 /** Prévient à chaque changement d'utilisateur connecté (null = déconnecté). Renvoie de quoi se désabonner. */

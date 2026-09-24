@@ -4,6 +4,7 @@ import { db, useQuery } from '../db/db';
 import {
   createFolder,
   createNotebook,
+  emptyTrash,
   importPdfNotebook,
   purgeFolder,
   purgeNotebook,
@@ -28,6 +29,8 @@ import { glassButton, glassButtonAccent, glassIconButton, glassPanel } from './l
 import { ConfirmDialog, FolderPicker, PromptDialog } from './Modal';
 import { NewNotebookDialog } from './NewNotebookDialog';
 import { TodoPanel } from './TodoPanel';
+import { CloudIndicator } from './CloudIndicator';
+import { syncFirestoreNow } from '../sync/useFirestore';
 
 type Dialog =
   | { kind: 'new-folder' }
@@ -388,8 +391,29 @@ export function Library({ route, onOpenSettings }: { route: Extract<Route, { nam
                 {inTrash && !searching && <p className="m-0 mt-0.5 text-sm text-zinc-500 dark:text-zinc-400">Restaure un élément, ou supprime-le pour de bon.</p>}
               </div>
             </div>
-            {!inTrash && (
-              <div className="ml-auto flex items-center gap-2">
+            <div className="ml-auto flex items-center gap-2">
+              <CloudIndicator />
+              {inTrash ? (
+                trashCount > 0 && (
+                  <button
+                    type="button"
+                    className={dangerButton}
+                    onClick={() =>
+                      setDialog({
+                        kind: 'purge',
+                        label: `tout le contenu de la corbeille (${trashCount} élément${trashCount > 1 ? 's' : ''})`,
+                        run: async () => {
+                          await emptyTrash();
+                        },
+                      })
+                    }
+                  >
+                    <Icon name="trash" className="size-[18px]" />
+                    <span className="ml-2">Vider la corbeille</span>
+                  </button>
+                )
+              ) : (
+                <>
                 <button
                   type="button"
                   className={`${glassButton} relative`}
@@ -413,8 +437,9 @@ export function Library({ route, onOpenSettings }: { route: Extract<Route, { nam
                   <Icon name="fileUp" className="size-[18px]" />
                   <span className="hidden @xl:inline">Importer un PDF</span>
                 </button>
-              </div>
-            )}
+                </>
+              )}
+            </div>
           </div>
           <input
             ref={fileRef}
@@ -448,7 +473,7 @@ export function Library({ route, onOpenSettings }: { route: Extract<Route, { nam
         </div>
       </main>
 
-      {todosOpen && <TodoPanel initialView={todosOpen} onClose={() => setTodosOpen(null)} />}
+      {todosOpen && <TodoPanel mode={todosOpen} onClose={() => setTodosOpen(null)} />}
 
       {dialog?.kind === 'new-folder' && (
         <PromptDialog
@@ -537,14 +562,17 @@ export function Library({ route, onOpenSettings }: { route: Extract<Route, { nam
       {dialog?.kind === 'purge' && (
         <ConfirmDialog
           title="Supprimer définitivement ?"
-          message={`Supprimer ${dialog.label} ? Cette action est irréversible, y compris sur Google Drive.`}
+          message={`Supprimer ${dialog.label} ? C’est irréversible : l’effacement touche aussi tes autres appareils et le cloud.`}
           confirmLabel="Supprimer définitivement"
           danger
           onClose={() => setDialog(null)}
           onConfirm={() => {
             const task = dialog.run;
             setDialog(null);
-            void run('Suppression…', task);
+            void run('Suppression…', async () => {
+              await task();
+              syncFirestoreNow(); // l'effacement part tout de suite vers le cloud
+            });
           }}
         />
       )}

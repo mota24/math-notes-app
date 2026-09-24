@@ -23,6 +23,7 @@ import { ConfirmDialog, PromptDialog } from './Modal';
 import { PageStrip } from './PageStrip';
 import { ResultsPanel } from './ResultsPanel';
 import { EditorTabs } from './TabBar';
+import { CloudIndicator } from './CloudIndicator';
 import type { Tab } from '../tabs';
 import { ICONS } from './icons';
 import { Toolbar } from './Toolbar';
@@ -785,6 +786,7 @@ export function NotebookEditor({
 
         {/* ── ZONE DROITE : actions (fixe, ne rétrécit jamais) ── */}
         <div className="editor-zone-right">
+          <CloudIndicator />
           <button
             className="tb-action-btn"
             onClick={() => pdfInput.current?.click()}

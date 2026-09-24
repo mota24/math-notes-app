@@ -10,8 +10,9 @@ import { byKey, mergeRecords, mergeTombstones } from './merge';
  *
  *  - Ne synchronise que les structures : dossiers, cahiers, pages (traits), transcriptions, tâches, écriture
  *    perso. Les PDF importés et les gros fichiers restent LOCAUX (jamais envoyés), comme demandé.
- *  - Économie d'écritures (plan gratuit : 20 000/jour) : les envois sont regroupés et différés (voir QUIET_MS
- *    et le vidage à la fermeture/mise en pause). On n'écrit jamais à chaque trait.
+ *  - Économie d'écritures (plan gratuit : 20 000/jour) : les envois sont regroupés (voir QUIET_MS et
+ *    MAX_WAIT_MS), et partent aussitôt quand on quitte l'éditeur ou que l'appli passe en arrière-plan.
+ *    On n'écrit jamais à chaque trait.
  *  - Fusion « la plus récente gagne », entité par entité, avec le MÊME code éprouvé que la synchro Drive
  *    (mergeRecords/mergeTombstones, 212 tests). Une donnée locale n'est jamais écrasée par une version
  *    distante plus ancienne, et une suppression ne se propage que par pierre tombale.
@@ -21,7 +22,17 @@ import { byKey, mergeRecords, mergeTombstones } from './merge';
  *    on passe en état « erreur » proprement, sans jamais planter ni toucher à la base locale.
  */
 
-const QUIET_MS = 45_000; // temps de calme avant un envoi (regroupe les modifications)
+/**
+ * Rythme des envois. L'ancien réglage (45 s de calme, remis à zéro à chaque modification) repoussait
+ * l'envoi tant qu'on écrivait — l'éditeur enregistre la page ~600 ms après chaque trait — d'où des
+ * minutes d'attente. Désormais : 4 s de calme pour regrouper une rafale de traits, mais JAMAIS plus de
+ * 20 s après la première modification non envoyée. En écriture continue, cela fait au pire ~2 écritures
+ * (la page + l'index) toutes les 20 s, soit ~360 par heure : très loin des 20 000 par jour du plan gratuit.
+ */
+const QUIET_MS = 4_000;
+const MAX_WAIT_MS = 20_000;
+/** Après un envoi « urgent » (sortie de l'éditeur, appli en arrière-plan), les écritures qui suivent partent aussitôt. */
+const URGENT_WINDOW_MS = 2_500;
 const MAX_DOC_BYTES = 1_000_000; // limite Firestore par document (1 Mio) ; on garde une marge
 const BATCH_LIMIT = 400; // Firestore : 500 opérations max par lot
 
@@ -52,11 +63,14 @@ export interface FirestoreState {
   error: string;
   email: string | null;
   lastPushAt: number | null;
+  /** Des modifications locales attendent d'être envoyées */
   pending: boolean;
+  /** Un envoi est en cours */
+  syncing: boolean;
   skippedHeavy: number; // pages trop lourdes (images embarquées) non envoyées
 }
 
-let state: FirestoreState = { status: 'off', error: '', email: null, lastPushAt: null, pending: false, skippedHeavy: 0 };
+let state: FirestoreState = { status: 'off', error: '', email: null, lastPushAt: null, pending: false, syncing: false, skippedHeavy: 0 };
 const listeners = new Set<() => void>();
 function set(patch: Partial<FirestoreState>) {
   state = { ...state, ...patch };
@@ -77,6 +91,36 @@ let session: Session | null = null;
 let applyingRemote = false; // vrai pendant qu'on écrit une donnée venue du distant (ne pas la renvoyer)
 let flushTimer = 0;
 let pullTimer = 0;
+/** Moment de la première modification pas encore envoyée (0 = rien en attente) */
+let firstPendingAt = 0;
+/** Jusqu'à quand les modifications partent tout de suite (après une sortie d'éditeur, une mise en pause…) */
+let urgentUntil = 0;
+/** Un seul envoi à la fois : deux envois concurrents écriraient deux fois les mêmes documents. */
+let running: Promise<void> | null = null;
+let again = false;
+
+function scheduleFlush(delay: number) {
+  window.clearTimeout(flushTimer);
+  flushTimer = window.setTimeout(() => void runFlush(), Math.max(0, delay));
+}
+
+function runFlush(): Promise<void> {
+  window.clearTimeout(flushTimer);
+  if (running) {
+    again = true; // on relancera une fois l'envoi courant terminé
+    return running;
+  }
+  running = (async () => {
+    do {
+      again = false;
+      firstPendingAt = 0;
+      await flushNow();
+    } while (again);
+  })().finally(() => {
+    running = null;
+  });
+  return running;
+}
 
 // json brut des pages/transcriptions distantes, gardé pour ne le lire qu'en cas de pull réel
 const pageDocCache = new Map<string, unknown>();
@@ -194,7 +238,7 @@ async function pullNow() {
 async function flushNow() {
   if (!session) return;
   const s = session;
-  set({ pending: false });
+  set({ pending: false, syncing: true });
   try {
     const fs = await import('firebase/firestore');
     const store = await getFirestoreDb();
@@ -260,9 +304,17 @@ async function flushNow() {
       const ref = fs.doc(store, 'users', s.uid, 'pages', id);
       batchOps.push((b) => b.set(ref, { id, notebookId: page.notebookId, updatedAt: page.updatedAt, deletedAt: page.deletedAt, json }));
     }
-    for (const id of pagePlan.purge) {
-      if (!s.remotePages.has(id)) continue;
+    // Suppression définitive (corbeille vidée, page effacée) : tout document distant frappé d'une pierre
+    // tombale est retiré de Firestore. L'ancienne boucle ne visait que les pages encore présentes en local,
+    // si bien qu'une page supprimée ici n'était jamais effacée du cloud.
+    for (const id of s.remotePages.keys()) {
+      if (!tombstones[id]) continue;
       const ref = fs.doc(store, 'users', s.uid, 'pages', id);
+      batchOps.push((b) => b.delete(ref));
+    }
+    for (const id of s.remoteTranscripts.keys()) {
+      if (!tombstones[`transcript:${id}`]) continue;
+      const ref = fs.doc(store, 'users', s.uid, 'transcripts', id);
       batchOps.push((b) => b.delete(ref));
     }
 
@@ -293,9 +345,9 @@ async function flushNow() {
       s.remoteIndex = nextIndex;
     }
     await db.setMeta('tombstones', tombstones);
-    set({ status: 'live', error: '', lastPushAt: now, skippedHeavy: skipped });
+    set({ status: 'live', error: '', lastPushAt: now, skippedHeavy: skipped, syncing: false });
   } catch (e) {
-    set({ status: 'error', error: friendlyError(e) });
+    set({ status: 'error', error: friendlyError(e), syncing: false });
   }
 }
 
@@ -392,7 +444,7 @@ export const firestoreController = {
     set({ status: 'connecting', error: '', email });
     try {
       await subscribe();
-      await flushNow(); // pousse tout de suite l'état local vers le cloud (le crée le cas échéant)
+      await runFlush(); // pousse tout de suite l'état local vers le cloud (le crée le cas échéant)
     } catch (e) {
       set({ status: 'error', error: friendlyError(e) });
     }
@@ -401,6 +453,8 @@ export const firestoreController = {
   stop() {
     window.clearTimeout(flushTimer);
     window.clearTimeout(pullTimer);
+    firstPendingAt = 0;
+    urgentUntil = 0;
     if (session) {
       for (const u of session.unsub) {
         try {
@@ -415,20 +469,35 @@ export const firestoreController = {
     transcriptDocCache.clear();
   },
 
-  /** À appeler quand la base locale change : programme un envoi différé (jamais immédiat). */
+  /** La base locale a changé : envoi groupé, au plus tard MAX_WAIT_MS après la première modification. */
   onLocalChange(stores: string[]) {
     if (!enabled || !session || applyingRemote) return;
     if (!stores.some((st) => SYNCED.has(st))) return;
+    const now = Date.now();
+    if (!firstPendingAt) firstPendingAt = now;
     set({ pending: true });
-    window.clearTimeout(flushTimer);
-    flushTimer = window.setTimeout(() => void flushNow(), QUIET_MS);
+    if (now < urgentUntil) {
+      scheduleFlush(150); // juste de quoi regrouper les dernières écritures de la page qu'on quitte
+      return;
+    }
+    scheduleFlush(Math.min(QUIET_MS, firstPendingAt + MAX_WAIT_MS - now));
   },
 
-  /** Envoi immédiat (fermeture d'une page, bouton « synchroniser », mise en pause de l'appli). */
+  /** Envoi immédiat : appli mise en arrière-plan, bouton de l'indicateur, corbeille vidée. */
   flush() {
     if (!enabled || !session) return;
-    window.clearTimeout(flushTimer);
-    void flushNow();
+    urgentUntil = Date.now() + URGENT_WINDOW_MS;
+    void runFlush();
+  },
+
+  /**
+   * Envoi dans un instant : on vient de quitter l'éditeur, qui enregistre encore sa dernière page. On laisse
+   * à cette écriture le temps d'arriver en base, puis tout part, sans attendre le rythme habituel.
+   */
+  flushSoon(delay = 900) {
+    if (!enabled || !session) return;
+    urgentUntil = Date.now() + delay + URGENT_WINDOW_MS;
+    scheduleFlush(delay);
   },
 };
 

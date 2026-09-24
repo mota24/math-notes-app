@@ -279,6 +279,30 @@ export async function purgeNotebook(id: string) {
   await addTombstones(stones);
 }
 
+/**
+ * Vide la corbeille : suppression définitive de tout ce qui s'y trouve. Chaque élément laisse une pierre
+ * tombale, que la synchronisation transmet aux autres appareils et au cloud (documents Firestore effacés).
+ * Les dossiers d'abord — un dossier emporte ses sous-dossiers et ses cahiers — puis les cahiers mis à la
+ * corbeille seuls. Renvoie le nombre d'éléments supprimés.
+ */
+export async function emptyTrash(): Promise<number> {
+  const trashedFolders = (await db.folders()).filter((f) => f.deletedAt);
+  const inTrash = new Set(trashedFolders.map((f) => f.id));
+  let count = 0;
+  // Seuls les dossiers « racines » de la corbeille : leurs descendants partent avec eux
+  for (const f of trashedFolders) {
+    if (f.parentId && inTrash.has(f.parentId)) continue;
+    await purgeFolder(f.id);
+    count++;
+  }
+  // Relu après les dossiers : ceux-ci ont déjà emporté les cahiers qu'ils contenaient
+  for (const n of (await db.notebooks()).filter((nb) => nb.deletedAt)) {
+    await purgeNotebook(n.id);
+    count++;
+  }
+  return count;
+}
+
 // ------------------------------------------------------------------ pages
 
 export async function addPage(notebookId: string, afterIndex: number): Promise<number> {

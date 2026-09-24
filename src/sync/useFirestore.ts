@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import type { User } from 'firebase/auth';
-import { canSignInForSync, onSyncUser, signInForSync, signOutSync } from '../firebase';
+import { onSyncUser } from '../firebase';
 import { onDbChange } from '../db/db';
 import { firestoreController, getFirestoreState, subscribeFirestoreState } from './firestore';
 import type { FirestoreState } from './firestore';
@@ -37,31 +37,33 @@ export function startFirestoreTriggers() {
     user = u;
     reconcile();
   });
+  // Appli en arrière-plan (onglet caché, tablette mise en veille) : tout part tout de suite
   const flushIfHidden = () => {
     if (document.visibilityState === 'hidden') firestoreController.flush();
   };
   document.addEventListener('visibilitychange', flushIfHidden);
   window.addEventListener('pagehide', () => firestoreController.flush());
+
+  // Sortie d'un cahier (retour à la bibliothèque, autre onglet) : `visibilitychange` ne se déclenche pas
+  // pour une navigation interne, on surveille donc l'adresse. Tourner les pages d'un même cahier ne compte pas.
+  const cahierDe = (hash: string) => /^#\/cahier\/([^/]+)/.exec(hash)?.[1] ?? null;
+  let cahierCourant = cahierDe(window.location.hash);
+  window.addEventListener('hashchange', () => {
+    const suivant = cahierDe(window.location.hash);
+    if (cahierCourant && suivant !== cahierCourant) firestoreController.flushSoon();
+    cahierCourant = suivant;
+  });
+}
+
+/** Bouton de l'indicateur : envoyer maintenant. */
+export function syncFirestoreNow() {
+  firestoreController.flush();
 }
 
 /** Reflète le réglage (case à cocher) dans le moteur. */
 export function configureFirestore(on: boolean) {
   want = on;
   reconcile();
-}
-
-export function canConnectFirestore() {
-  return canSignInForSync();
-}
-
-/** Bouton « Se connecter » : ouvre la connexion Google (fenêtre sur le web, plugin natif dans l'APK). */
-export async function connectFirestore() {
-  await signInForSync();
-  // onSyncUser fera démarrer la session
-}
-
-export async function disconnectFirestore() {
-  await signOutSync();
 }
 
 export function useFirestoreState(): FirestoreState {

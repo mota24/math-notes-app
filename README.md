@@ -66,7 +66,6 @@ npm run tablette    # accessible depuis la tablette sur le même Wi-Fi (adresse 
 npm test            # tests : anti-paume, formes, géométrie, bibliothèque, format des transcriptions, fusion de la synchronisation, sauvegardes
 npm run lint        # vérification du code (ESLint : TypeScript, React hooks)
 npm run build       # version de production dans dist/
-npm run android:sync  # build + copie dans le projet Android (voir « Application Android »)
 ```
 
 Ajoute `?demo` à l'adresse pour tester la conversion sans clé (réponses fictives).
@@ -81,8 +80,6 @@ Ajoute `?demo` à l'adresse pour tester la conversion sans clé (réponses ficti
    → *Identifiants* → ta clé → *Restrictions liées aux applications* : **Référents HTTP**, et ajoute
    `https://math-notes-app-indol.vercel.app/*` (et `http://localhost:5173/*` pour le PC) ; *Restrictions liées aux API* :
    **Generative Language API** seulement. Ainsi la clé ne sert à rien ailleurs que dans l'appli.
-   (Dans l'application Android, la WebView n'envoie pas de référent : garde une clé séparée, non restreinte par
-   référent, ou accepte de saisir la clé du site et laisse la restriction de côté sur la tablette.)
 
 ## Mettre l'appli en ligne (Vercel, gratuit)
 
@@ -114,64 +111,9 @@ Rappel de ce qui est stocké où : les notes sont dans IndexedDB sur l'appareil 
 `localStorage` ; le jeton Google Drive (1 h) seulement en mémoire et dans `sessionStorage`, effacé à la fermeture de
 l'appli. Aucun serveur à toi : rien ne transite ailleurs que vers Google.
 
-**Chaque adresse a ses propres notes** : le site Vercel, l'application Android et tout autre site ne partagent pas
-leur stockage. Pour passer des notes de l'un à l'autre, fais une sauvegarde sur fichier (Réglages → Sauvegarde sur
-fichier), puis « Restaurer » de l'autre côté.
-
-## Application Android (.apk, 100 % hors-ligne)
-
-L'appli est empaquetée avec **Capacitor** : l'APK embarque directement les fichiers compilés (`dist/`), donc
-tout marche sans réseau (le réseau ne sert qu'à la conversion Gemini). Le projet Android est dans `android/`.
-
-### Générer l'APK
-
-Trois façons, de la plus simple à la plus légère. Dans les trois cas, l'APK obtenu s'appelle `app-debug.apk`
-(signé avec la clé de debug d'Android : parfait pour ta tablette, à ne pas publier sur le Play Store).
-
-**A. Android Studio (gratuit).** Il apporte tout ce qu'il faut (JDK 21 et SDK Android).
-
-1. Installe [Android Studio](https://developer.android.com/studio) et lance-le une fois pour qu'il télécharge le SDK.
-2. Dans ce dossier : `npm install`, puis `npm run android:sync` (compile l'appli et copie `dist/` dans `android/`).
-3. `npm run android:open` ouvre le projet dans Android Studio. Attends la fin de « Gradle sync » (la première fois : plusieurs minutes, ça télécharge).
-4. Menu **Build → Generate App Bundles or APKs → Generate APKs** (ou **Build APK(s)**).
-5. L'APK est dans `android/app/build/outputs/apk/debug/app-debug.apk`.
-
-**B. Ligne de commande** (si le JDK 21 et le SDK Android sont installés, avec `ANDROID_HOME` défini) :
-
-```bash
-npm run android:sync
-cd android
-gradlew assembleDebug        # Windows  (./gradlew assembleDebug sous Linux/macOS)
-```
-
-**C. Sans rien installer, sur GitHub.** Une fois le dépôt sur GitHub (voir plus haut) : onglet **Actions** →
-**APK Android (debug)** → **Run workflow**. Au bout de quelques minutes, l'APK est à télécharger en bas de la
-page de l'exécution, dans **Artifacts**. (Workflow : `.github/workflows/android-apk.yml`.)
-
-### Installer sur la tablette
-
-Copie `app-debug.apk` sur la tablette (câble USB, Drive, mail…) et ouvre-le. Android demandera d'autoriser
-« l'installation d'applications inconnues » pour l'application qui l'ouvre (Fichiers, Chrome…). Avec un câble et le
-débogage USB : `adb install -r app-debug.apk`. Pour **mettre à jour**, réinstalle par-dessus (les notes sont conservées) :
-après un changement de code, refais `npm run android:sync`, augmente `versionCode` dans `android/app/build.gradle`,
-puis recompile.
-
-### À savoir
-
-- **Tes notes sont dans l'appli** (stockage de la WebView). Désinstaller l'appli ou « Effacer les données » les
-  supprime : fais une sauvegarde `.json` (Réglages → Sauvegarde sur fichier) avant, puis « Restaurer » après.
-  L'appli refuse les sauvegardes Android automatiques (`allowBackup="false"`) : tes notes et ta clé Gemini ne
-  partent pas dans un transfert d'appareil ni dans une copie ADB, seule ta sauvegarde `.json` compte.
-- **Ne change plus** `appId` (`com.notesmaths.app`) ni `server.androidScheme` dans `capacitor.config.ts` une fois
-  l'appli installée : Android verrait une autre appli, vide.
-- **Exports** : dans l'APK, un fichier généré (PDF, .tex, sauvegarde) s'ouvre dans la **feuille de partage** d'Android :
-  enregistre-le dans Drive ou les fichiers, envoie-le par mail, ouvre-le dans un lecteur PDF…
-- **Pas dans l'APK** : « Ouvrir et enregistrer en PDF » (PDF propre LaTeX : la WebView n'a pas de fenêtre
-  d'impression — prends le fichier .tex ou le PDF de tes notes en Mode impression) et la synchronisation
-  Google Drive (Google refuse la connexion depuis une WebView — utilise la sauvegarde sur fichier).
-- **Site web** : rien ne change, Vercel compile avec des chemins relatifs (sans `BASE_PATH`). `BASE_PATH` ne sert
-  que si tu publies un jour dans un sous-dossier (GitHub Pages par exemple).
-- Il faut une **WebView à jour** (Android System WebView, mise à jour par le Play Store), comme pour Chrome.
+**Chaque adresse a ses propres notes locales** (le site Vercel, `localhost`…) : c'est la synchronisation en temps réel
+(Réglages → Cloud & Sauvegarde) qui les réunit sur tous tes appareils. À défaut, une copie de sauvegarde sur fichier
+(« Télécharger » puis « Restaurer… ») fait le pont.
 
 ## Sauvegarde Google Drive (gratuite)
 
@@ -201,9 +143,6 @@ récente gagne.
 | `vercel.json` | En-têtes de sécurité (CSP…) et règles de cache du site en ligne |
 | `src/components/` | Écrans : bibliothèque (`Library*.tsx`), éditeur, barre d'onglets, exports, mon écriture, réglages (`SettingsDialog.tsx` + une section par fichier dans `settings/`), pictogrammes (`icons.tsx`) et catalogue des tampons (`stamps.tsx`) |
 | `src/index.css` | Point d'entrée des styles : Tailwind CSS, KaTeX et l'ancienne feuille `styles.css`, rangés en couches (voir ci-dessous) |
-| `android/` | Projet Android (Capacitor) : embarque `dist/` dans l'APK ; icônes et écran de démarrage de l'appli |
-| `capacitor.config.ts` | Réglages Capacitor (identifiant de l'appli, dossier embarqué `dist`) |
-| `src/platform.ts` | `isNativeApp()` : dans l'APK ou dans un navigateur (exports par partage, Drive et impression) |
 | `tests/` | Tests exécutés directement par Node (`npm test`) : anti-paume, formes, géométrie, feuilles, historique, bibliothèque, réponses du modèle, tableaux tkz-tab, rendu des maths, navigation, sauvegardes, fusion de la synchronisation |
 
 ### Les styles : Tailwind CSS et l'ancienne feuille

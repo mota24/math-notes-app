@@ -227,9 +227,13 @@ function Calendrier({
 
 // ------------------------------------------------------------------ panneau
 
-export function TodoPanel({ onClose, initialView = 'liste' }: { onClose(): void; initialView?: 'liste' | 'calendrier' }) {
+/**
+ * Deux entrées distinctes : « À faire » (liste des tâches, bouton de la bibliothèque) et « Calendrier »
+ * (barre latérale). Plus de bascule entre les deux dans le panneau : chacun a déjà son bouton.
+ */
+export function TodoPanel({ onClose, mode = 'liste' }: { onClose(): void; mode?: 'liste' | 'calendrier' }) {
   const todos = useQuery(() => db.todos(), [], ['todos']) ?? NO_TODOS;
-  const [vue, setVue] = useState<'liste' | 'calendrier'>(initialView);
+  const vue = mode;
   const [texte, setTexte] = useState('');
   const [date, setDate] = useState('');
   const [jourChoisi, setJourChoisi] = useState<number | null>(null);
@@ -270,25 +274,10 @@ export function TodoPanel({ onClose, initialView = 'liste' }: { onClose(): void;
   };
 
   return (
-    <Modal title="À faire" onClose={onClose} wide>
+    <Modal title={mode === 'calendrier' ? 'Calendrier' : 'À faire'} onClose={onClose} wide>
       <div className="flex flex-col gap-4">
-        {/* Bascule de vue + compteurs */}
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="inline-flex rounded-xl bg-black/[0.06] p-1 dark:bg-white/10" role="group" aria-label="Affichage">
-            {(['liste', 'calendrier'] as const).map((v) => (
-              <button
-                key={v}
-                type="button"
-                onClick={() => setVue(v)}
-                aria-pressed={vue === v}
-                className={`${btnSegment} ${
-                  vue === v ? 'bg-white text-zinc-900 shadow-sm dark:bg-zinc-700 dark:text-white' : 'bg-transparent text-zinc-500 dark:text-zinc-400'
-                }`}
-              >
-                {v === 'liste' ? 'Liste' : 'Calendrier'}
-              </button>
-            ))}
-          </div>
+        {/* Compteurs */}
+        <div className="flex flex-wrap items-center justify-end gap-3">
           <div className="flex flex-wrap items-center gap-1.5">
             {groupes.retard.length > 0 && (
               <span className="rounded-full bg-red-500/10 px-2.5 py-1 text-[11px] font-semibold text-red-600 dark:text-red-400">

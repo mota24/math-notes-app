@@ -127,8 +127,12 @@ function load(): Settings {
     // Ancien seuil fixe de 50 px, inadapté aux stylets vus comme de gros doigts
     if (saved.sizeMode === undefined) delete saved.palmSize;
     // Réglages d'anciennes versions (trousse, ruban d'étude) : abandonnés
-    // `lockEnabled` : le verrouillage n'est plus optionnel, il est systématique
-    for (const legacy of ['pencilCase', 'tapeColor', 'tapeSize', 'tapeHintSeen', 'lockEnabled']) delete (saved as Record<string, unknown>)[legacy];
+    // `lockEnabled` : le verrouillage n'est plus optionnel, il est systématique.
+    // `showContacts` (diagnostic dessiné sur la page) et `restZone` (bande réservée à la main) ont quitté les
+    // Réglages : on les remet à leur valeur par défaut, sinon ils resteraient actifs sans aucun moyen de les
+    // couper. Le calibrage anti-paume déjà enregistré, lui, est conservé tel quel.
+    for (const legacy of ['pencilCase', 'tapeColor', 'tapeSize', 'tapeHintSeen', 'lockEnabled', 'showContacts', 'restZone'])
+      delete (saved as Record<string, unknown>)[legacy];
     // Migration vers le mode actif strict par défaut
     if (saved.stylusMode === 'auto' || saved.stylusMode === 'capacitive' || !saved.stylusMode) {
       saved.stylusMode = 'active';
