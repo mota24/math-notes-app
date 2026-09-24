@@ -1,8 +1,9 @@
 import { getStroke } from 'perfect-freehand';
 import type { StrokeOptions } from 'perfect-freehand';
 import { PAGE_H, PAGE_W } from './types';
-import { volumeParts } from './volumes';
+import { volumeParts, volumePolylines } from './volumes';
 import type { ShapePart } from './volumes';
+import { registerShapeOutlines } from './geometry';
 import type { InkPoint, InputKind, PaperColor, PaperStyle, ShapeKind, Stroke, StrokeTool } from './types';
 
 /**
@@ -230,9 +231,15 @@ function drawVector(ctx: CanvasRenderingContext2D, x0: number, y0: number, x1: n
  * verticale, presque droite, avec un petit crochet en haut et en bas, et une pointe nette qui se
  * referme au centre — comme au tableau, avec toute la hauteur libre à droite pour écrire à côté.
  */
+/** Profondeur (creux) des accolades d'un torseur, pour que l'écran et le PDF soient identiques. */
+export function braceDepth(w: number, h: number): number {
+  return Math.min(w * 0.22, h * 0.3);
+}
+
 export function bracePathD(x0: number, y0: number, y1: number, depth: number): string {
   const midY = (y0 + y1) / 2;
-  const q = Math.min((y1 - y0) * 0.08, depth * 0.5);
+  // `depth` négatif retourne l'accolade (pointe vers la gauche) : le creux, lui, reste positif
+  const q = Math.min((y1 - y0) * 0.08, Math.abs(depth) * 0.5);
   const hookIn = depth * 0.15;
   return (
     `M${f3(x0 + hookIn)},${f3(y0)} ` +
@@ -370,23 +377,13 @@ export function drawShapeOn(
       break;
     }
     case 'torseur': {
-      // Grande accolade dessinée (pas un glyphe de police) : attache verticale à gauche, pointe nette
-      // au centre, toute la hauteur du tampon reste libre à droite pour écrire la résultante et le moment.
-      const spineX = x0 + w * 0.1;
+      // Deux grandes accolades qui se font face : tout le centre reste vide pour écrire les colonnes
+      // (résultante et moment). Ni point de réduction ni lettre : on les écrit à la main si besoin.
       const topY = y0 + h * 0.04;
       const botY = y1 - h * 0.04;
-      const depth = w * 0.42;
-      ctx.stroke(new Path2D(bracePathD(spineX, topY, botY, depth)));
-      const px = spineX + depth + Math.max(2.2, weight * 2.6);
-      const py = (topY + botY) / 2;
-      const r = Math.max(1.4, weight * 1.4);
-      ctx.beginPath();
-      ctx.arc(px, py, r, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.font = `italic ${Math.max(9, h * 0.2)}px Georgia, serif`;
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'middle';
-      ctx.fillText('A', px + r * 2.2, py);
+      const depth = braceDepth(w, h);
+      ctx.stroke(new Path2D(bracePathD(x0 + w * 0.06, topY, botY, depth)));
+      ctx.stroke(new Path2D(bracePathD(x1 - w * 0.06, topY, botY, -depth)));
       break;
     }
     case 'matrix': {
@@ -535,3 +532,41 @@ export function drawPaper(
     });
   }
 }
+
+
+/**
+ * Contour exact des formes que geometry.ts ne sait pas décrire seul (repères, volumes 3D), pour que la gomme
+ * ne les efface qu'en touchant une arête — et non en passant dans leur intérieur vide. Enregistré au
+ * chargement de ce module ; geometry.ts reste ainsi sans import de valeur, donc testable sous Node.
+ */
+registerShapeOutlines((s): InkPoint[][] | null => {
+  if (s.tool !== 'shape' || !s.shape || s.points.length < 2) return null;
+  const [ax, ay] = s.points[0];
+  const [bx, by] = s.points[1];
+  const x0 = Math.min(ax, bx);
+  const y0 = Math.min(ay, by);
+  const x1 = Math.max(ax, bx);
+  const y1 = Math.max(ay, by);
+  const w = x1 - x0;
+  const h = y1 - y0;
+  const pt = (x: number, y: number): InkPoint => [x, y, 0.5];
+  if (s.shape === 'axes2d') {
+    return [
+      [pt(x0, y1), pt(x1, y1)],
+      [pt(x0, y1), pt(x0, y0)],
+    ];
+  }
+  if (s.shape === 'axes3d') {
+    // Mêmes branches que le dessin : z vertical, y horizontal, x en fuite à 45°
+    const ox = x0 + w * 0.4;
+    const oy = y0 + h * 0.62;
+    const diag = Math.min(ox - x0, y1 - oy) * 1.15 * Math.SQRT1_2;
+    return [
+      [pt(ox, oy), pt(ox, oy - (oy - y0) * 0.9)],
+      [pt(ox, oy), pt(ox + (x1 - ox) * 0.9, oy)],
+      [pt(ox, oy), pt(ox - diag, oy + diag)],
+    ];
+  }
+  const lines = volumePolylines(s.shape, x0, y0, w, h);
+  return lines.length ? lines.map((line) => line.map(([x, y]): InkPoint => [x, y, 0.5])) : null;
+});

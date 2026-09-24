@@ -41,7 +41,7 @@ type Dialog =
   | null;
 
 /** Les grilles suivent la largeur de la zone de contenu (la barre latérale n'en fait pas partie), pas celle de l'écran */
-const notebookGrid = 'grid grid-cols-2 gap-4 @2xl:grid-cols-3 @5xl:grid-cols-4 @7xl:grid-cols-5 @8xl:grid-cols-6';
+const notebookGrid = 'grid grid-cols-2 gap-5 @2xl:grid-cols-3 @5xl:grid-cols-4 @7xl:grid-cols-5 @8xl:grid-cols-6';
 const folderGrid = 'grid grid-cols-1 gap-3 @lg:grid-cols-2 @3xl:grid-cols-3 @6xl:grid-cols-4';
 
 /** Les récents tiennent sur une seule rangée : la Nᵉ carte n'apparaît que quand la grille a au moins N colonnes */
@@ -51,8 +51,8 @@ const recentSlot = ['', '', 'hidden @2xl:block', 'hidden @5xl:block', 'hidden @7
 /** Un bloc de la page : un petit titre en capitales, puis son contenu (il apparaît en douceur) */
 function Section({ title, children }: { title?: string; children: ReactNode }) {
   return (
-    <section className="mt-8 animate-rise first:mt-0 motion-reduce:animate-none">
-      {title && <h2 className="m-0 mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">{title}</h2>}
+    <section className="mt-10 animate-rise first:mt-0 motion-reduce:animate-none">
+      {title && <h2 className="m-0 mb-4 text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">{title}</h2>}
       {children}
     </section>
   );
@@ -92,7 +92,7 @@ export function Library({ route, onOpenSettings }: { route: Extract<Route, { nam
   const [error, setError] = useState<string | null>(null);
   /** Le tiroir de navigation (petits écrans) */
   const [menuOpen, setMenuOpen] = useState(false);
-  const [todosOpen, setTodosOpen] = useState(false);
+  const [todosOpen, setTodosOpen] = useState<null | 'liste' | 'calendrier'>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLElement>(null);
 
@@ -147,6 +147,10 @@ export function Library({ route, onOpenSettings }: { route: Extract<Route, { nam
     { label: 'Mettre à la corbeille', danger: true, onClick: () => void trashFolder(f.id) },
   ];
   const notebookMenu = (n: Notebook): MenuItem[] => [
+    {
+      label: n.favorite ? 'Retirer des favoris' : 'Ajouter aux favoris',
+      onClick: () => void updateNotebook(n.id, { favorite: !n.favorite }),
+    },
     { label: 'Renommer', onClick: () => setDialog({ kind: 'rename-notebook', notebook: n }) },
     { label: 'Matière / contexte…', onClick: () => setDialog({ kind: 'subject', notebook: n }) },
     { label: 'Déplacer…', onClick: () => setDialog({ kind: 'move-notebook', notebook: n }) },
@@ -159,7 +163,6 @@ export function Library({ route, onOpenSettings }: { route: Extract<Route, { nam
       className={className}
       notebook={n}
       onOpen={() => openNotebook(n, pageIndex)}
-      onFavorite={() => void updateNotebook(n.id, { favorite: !n.favorite })}
       menu={notebookMenu(n)}
       onColor={(color) => void updateNotebook(n.id, { color })}
       badge={badge}
@@ -350,6 +353,7 @@ export function Library({ route, onOpenSettings }: { route: Extract<Route, { nam
         onTrash={() => navigate({ name: 'trash' })}
         onNewFolder={() => (setMenuOpen(false), setDialog({ kind: 'new-folder' }))}
         onHandwriting={() => go({ name: 'handwriting' })}
+        onCalendar={() => (setMenuOpen(false), setTodosOpen('calendrier'))}
         onSettings={() => (setMenuOpen(false), onOpenSettings())}
       />
 
@@ -389,7 +393,7 @@ export function Library({ route, onOpenSettings }: { route: Extract<Route, { nam
                 <button
                   type="button"
                   className={`${glassButton} relative`}
-                  onClick={() => setTodosOpen(true)}
+                  onClick={() => setTodosOpen('liste')}
                   aria-label="À faire"
                   title="À faire"
                 >
@@ -444,7 +448,7 @@ export function Library({ route, onOpenSettings }: { route: Extract<Route, { nam
         </div>
       </main>
 
-      {todosOpen && <TodoPanel onClose={() => setTodosOpen(false)} />}
+      {todosOpen && <TodoPanel initialView={todosOpen} onClose={() => setTodosOpen(null)} />}
 
       {dialog?.kind === 'new-folder' && (
         <PromptDialog

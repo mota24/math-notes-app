@@ -5,8 +5,6 @@
  * Nécessite un « ID client OAuth » (gratuit) et une adresse https:// ou http://localhost.
  */
 
-import { isNativeApp } from '../platform';
-
 interface TokenResponse {
   access_token?: string;
   expires_in?: number;
@@ -109,14 +107,6 @@ function loadGis(): Promise<void> {
 }
 
 export function canUseDrive(): { ok: boolean; reason?: string } {
-  // Google interdit la connexion OAuth depuis une WebView (erreur « disallowed_useragent »)
-  if (isNativeApp()) {
-    return {
-      ok: false,
-      reason:
-        'Indisponible dans l’application Android : Google refuse la connexion depuis une WebView. Utilise « Sauvegarde sur fichier » ci-dessous (partage vers Drive, mail…) pour garder tes notes en lieu sûr.',
-    };
-  }
   const { protocol, hostname } = window.location;
   if (protocol === 'https:' || hostname === 'localhost' || hostname === '127.0.0.1') return { ok: true };
   return {

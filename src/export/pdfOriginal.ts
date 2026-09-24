@@ -1,8 +1,8 @@
-import { BlendMode, PDFDocument, StandardFonts, concatTransformationMatrix, degrees, popGraphicsState, pushGraphicsState, rgb } from 'pdf-lib';
-import type { PDFFont, PDFImage, PDFPage } from 'pdf-lib';
+import { BlendMode, PDFDocument, concatTransformationMatrix, degrees, popGraphicsState, pushGraphicsState, rgb } from 'pdf-lib';
+import type { PDFImage, PDFPage } from 'pdf-lib';
 import { db } from '../db/db';
 import type { Page } from '../db/schema';
-import { HIGHLIGHT_ALPHA, PAPER_BACKGROUND, bracePathD, dashPattern, paperLines, parenPathD, strokeSvgPath } from '../ink/draw';
+import { HIGHLIGHT_ALPHA, PAPER_BACKGROUND, braceDepth, bracePathD, dashPattern, paperLines, parenPathD, strokeSvgPath } from '../ink/draw';
 import { strokeBBox } from '../ink/geometry';
 import { sheetRanges } from '../ink/pageExtent';
 import { volumeParts } from '../ink/volumes';
@@ -59,7 +59,6 @@ function drawShapeOnPdf(
   box: { x: number; y: number; width: number; height: number },
   scale: number,
   s: Stroke,
-  fonts: { serifItalic: PDFFont },
 ) {
   if (!s.shape || s.points.length < 2) return;
   const [ax, ay] = s.points[0];
@@ -169,19 +168,12 @@ function drawShapeOnPdf(
       break;
     }
     case 'torseur': {
-      // Grande accolade dessinée (chemin vectoriel, pas un glyphe de police) : attache verticale à
-      // gauche, pointe nette au centre, toute la hauteur reste libre à droite pour écrire R et M.
-      const spineX = x0 + w * 0.1;
+      // Deux grandes accolades qui se font face, le centre laissé vide pour les colonnes (comme à l'écran).
       const topY = y0 + h * 0.04;
       const botY = y1 - h * 0.04;
-      const depth = w * 0.42;
-      path(bracePathD(spineX, topY, botY, depth), {});
-      const r = Math.max(1.4, weight);
-      const px = toX(spineX + depth + Math.max(2.2, strokeMm * 2.6));
-      const py = toY((topY + botY) / 2);
-      target.drawCircle({ x: px, y: py, size: r, color: c });
-      const asize = Math.max(9, h * 0.2) * scale;
-      target.drawText('A', { x: px + r * 2.2, y: py - asize * 0.32, size: asize, font: fonts.serifItalic, color: c });
+      const depth = braceDepth(w, h);
+      path(bracePathD(x0 + w * 0.06, topY, botY, depth), {});
+      path(bracePathD(x1 - w * 0.06, topY, botY, -depth), {});
       break;
     }
     case 'matrix': {
@@ -225,7 +217,6 @@ export async function exportInkPdf(
   { defaultPaperColor = 'light', print = false }: InkPdfOptions = {},
 ): Promise<Blob> {
   const out = await PDFDocument.create();
-  const shapeFonts = { serifItalic: await out.embedFont(StandardFonts.TimesRomanItalic) };
   const sources = new Map<string, PDFDocument>();
   const embeddedImages = new Map<string, PDFImage>();
   const embedStrokeImage = async (dataUrl: string): Promise<PDFImage> => {
@@ -253,7 +244,7 @@ export async function exportInkPdf(
       }
       const s = print ? forPrint(original) : original;
       if (s.tool === 'shape') {
-        rotated(target, box, scale, s, () => drawShapeOnPdf(target, box, scale, s, shapeFonts));
+        rotated(target, box, scale, s, () => drawShapeOnPdf(target, box, scale, s));
         continue;
       }
       if (s.tool === 'image') {

@@ -4,7 +4,7 @@ import { NOTEBOOK_COLORS } from '../db/schema';
 import type { Folder, Notebook } from '../db/schema';
 import { Icon } from './LibraryIcons';
 import { paperPreview } from './libraryModel';
-import { focusRing, glassPanel, roundButton, roundButtonOn } from './libraryStyles';
+import { focusRing, glassPanel, roundButton } from './libraryStyles';
 
 const date = (t: number) => new Date(t).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
 
@@ -36,10 +36,15 @@ function CardMenu({ items, color, onColor, className }: { items: MenuItem[]; col
   const [open, setOpen] = useState(false);
   const [side, setSide] = useState({ up: true, shift: 0 });
   const root = useRef<HTMLDivElement>(null);
+  /** Instant d'ouverture : la fin du geste qui ouvre le menu ne doit pas le refermer aussitôt. */
+  const openedAt = useRef(0);
 
   useEffect(() => {
     if (!open) return;
     const onDown = (e: PointerEvent) => {
+      // Les événements de la fin du tap qui vient d'ouvrir le menu (contacts multiples, événements de
+      // compatibilité souris émis après un tap tactile) arrivent juste après : on les laisse passer.
+      if (Date.now() - openedAt.current < 350) return;
       if (e.pointerType === 'touch' && Math.max(e.width, e.height) >= PALM_CONTACT) return;
       if (!root.current?.contains(e.target as Node)) setOpen(false);
     };
@@ -70,6 +75,7 @@ function CardMenu({ items, color, onColor, className }: { items: MenuItem[]; col
       else if (r.right > clipRight - 8) shift = clipRight - 8 - r.right;
       setSide({ up: clipBottom - r.bottom < MENU_H && r.top - clipTop > MENU_H, shift });
     }
+    openedAt.current = Date.now();
     setOpen((v) => !v);
   };
 
@@ -80,13 +86,21 @@ function CardMenu({ items, color, onColor, className }: { items: MenuItem[]; col
         className={`${roundButton} ${open ? '' : revealOnHover}`}
         aria-label="Options"
         aria-expanded={open}
-        onClick={toggle}
+        // Le bouton « ouvrir le cahier » couvre toute la carte juste en dessous : on coupe la propagation
+        // pour qu'aucun geste sur le menu ne lui parvienne.
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          toggle();
+        }}
       >
         <Icon name="ellipsis" />
       </button>
       {open && (
         <div
           role="menu"
+          onPointerDown={(e) => e.stopPropagation()}
           style={{ marginRight: -side.shift }}
           className={`absolute right-0 z-40 w-60 max-w-[calc(100vw-1rem)] animate-pop rounded-2xl border border-zinc-200 bg-white/95 p-1.5 shadow-2xl backdrop-blur-xl dark:border-zinc-700 dark:bg-zinc-900/95 ${
             side.up ? 'bottom-full mb-2 origin-bottom-right' : 'top-full mt-2 origin-top-right'
@@ -221,7 +235,6 @@ export function FolderCard({
 export function NotebookCard({
   notebook,
   onOpen,
-  onFavorite,
   menu,
   onColor,
   badge,
@@ -229,7 +242,6 @@ export function NotebookCard({
 }: {
   notebook: Notebook;
   onOpen(): void;
-  onFavorite(): void;
   menu: MenuItem[];
   onColor(c: string): void;
   /** Un mot de contexte à la suite de la date (page trouvée par une recherche) */
@@ -246,17 +258,8 @@ export function NotebookCard({
       onColor={onColor}
       menuClass="bottom-3 right-3"
       className={className}
-      corner={
-        <button
-          type="button"
-          className={`absolute right-5 top-5 z-20 ${notebook.favorite ? roundButtonOn : roundButton}`}
-          aria-label={notebook.favorite ? 'Retirer des favoris' : 'Ajouter aux favoris'}
-          aria-pressed={notebook.favorite}
-          onClick={onFavorite}
-        >
-          <Icon name="star" filled={notebook.favorite} className="size-[18px]" />
-        </button>
-      }
+      // Un cahier favori se reconnaît à une petite étoile dans son pied de carte : plus de bouton flottant
+      // qui passait par-dessus le titre de la section (l'action est passée dans le menu « ⋯ »).
     >
       <div className="flex h-full min-h-[210px] flex-col">
         {/* Le papier du cahier, en miniature : il s'efface vers le bas, comme une page qui dépasse de la carte */}
@@ -266,9 +269,16 @@ export function NotebookCard({
           style={paperPreview(notebook.paper, notebook.paperColor)}
         />
         <div className="flex flex-1 flex-col gap-1 px-4 pb-4 pt-3">
-          <h3 className="m-0 line-clamp-2 text-lg font-semibold leading-snug text-zinc-100">{notebook.title}</h3>
+          <h3 className="m-0 line-clamp-2 flex items-start gap-1.5 text-lg font-semibold leading-snug text-zinc-100">
+            {notebook.favorite && (
+              <span className="mt-0.5 shrink-0 text-amber-300" title="Favori">
+                <Icon name="star" filled className="size-4" />
+              </span>
+            )}
+            {notebook.title}
+          </h3>
           {notebook.subject && <p className="m-0 truncate text-[13px] text-zinc-300">{notebook.subject}</p>}
-          <p className="m-0 mt-auto truncate pr-11 pt-2 text-xs text-zinc-400">
+          <p className="m-0 mt-auto truncate pt-2 text-xs text-zinc-400">
             {pages} page{pages > 1 ? 's' : ''} · {date(notebook.updatedAt)}
             {badge && <span className="text-accent"> · {badge}</span>}
           </p>

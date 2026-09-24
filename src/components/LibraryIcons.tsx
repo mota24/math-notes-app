@@ -85,6 +85,16 @@ const PATHS = {
       <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
     </>
   ),
+  calendar: (
+    <>
+      <rect x="3" y="5" width="18" height="16" rx="2" />
+      <path d="M8 3v4" />
+      <path d="M16 3v4" />
+      <path d="M3 11h18" />
+      <path d="M8 15h2" />
+      <path d="M14 15h2" />
+    </>
+  ),
   checklist: (
     <>
       <rect x="3" y="4.5" width="5" height="5" rx="1.2" />

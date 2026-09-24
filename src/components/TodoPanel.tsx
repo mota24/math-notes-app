@@ -227,9 +227,9 @@ function Calendrier({
 
 // ------------------------------------------------------------------ panneau
 
-export function TodoPanel({ onClose }: { onClose(): void }) {
+export function TodoPanel({ onClose, initialView = 'liste' }: { onClose(): void; initialView?: 'liste' | 'calendrier' }) {
   const todos = useQuery(() => db.todos(), [], ['todos']) ?? NO_TODOS;
-  const [vue, setVue] = useState<'liste' | 'calendrier'>('liste');
+  const [vue, setVue] = useState<'liste' | 'calendrier'>(initialView);
   const [texte, setTexte] = useState('');
   const [date, setDate] = useState('');
   const [jourChoisi, setJourChoisi] = useState<number | null>(null);

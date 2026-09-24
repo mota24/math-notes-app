@@ -3,6 +3,16 @@ import type { BBox, InkPoint, Stroke } from './types';
 const bboxCache = new WeakMap<Stroke, BBox>();
 
 /**
+ * Contour réel des formes que ce module ne sait pas décrire seul (repères, volumes 3D) : il est fourni par
+ * draw.ts, qui connaît leur géométrie. Passer par un enregistrement garde geometry.ts sans import de valeur,
+ * donc testable sous Node. Sans fournisseur (tests), on retombe sur l'ancien comportement (boîte pleine).
+ */
+let extraOutlines: ((s: Stroke) => InkPoint[][] | null) | null = null;
+export function registerShapeOutlines(fn: (s: Stroke) => InkPoint[][] | null) {
+  extraOutlines = fn;
+}
+
+/**
  * Une forme à deux coins (cercle, rectangle, volumes…) ou une image tourne par son `angle` ; une ligne,
  * une flèche et un trait à main levée tournent en réécrivant leurs points.
  */
@@ -111,6 +121,20 @@ export function strokeHit(s: Stroke, x: number, y: number, r: number): boolean {
       const wing = s.shape === 'arrow' ? 0.44 * Math.max(Math.max(0.35, s.size) * 3.4, 3) : 0;
       const reach = r + s.size / 2 + wing;
       return distToSegmentSq(x, y, s.points[0][0], s.points[0][1], s.points[1][0], s.points[1][1]) <= reach * reach;
+    }
+    // Une forme est creuse : on ne la touche qu'en touchant son trait, jamais en survolant son intérieur vide
+    if (s.tool === 'shape') {
+      const outline = shapeInkLines(s);
+      if (outline) {
+        const reach = r + s.size / 2;
+        const reachSq = reach * reach;
+        for (const line of outline) {
+          for (let i = 1; i < line.length; i++) {
+            if (distToSegmentSq(x, y, line[i - 1][0], line[i - 1][1], line[i][0], line[i][1]) <= reachSq) return true;
+          }
+        }
+        return false;
+      }
     }
     if (!rotates(s) || !s.angle) return true;
     // Tournée : on ramène le point dans le repère de la forme, où son rectangle est à nouveau droit
@@ -372,6 +396,14 @@ function ownShapePolylines(s: Stroke): InkPoint[][] | null {
  * simples, les deux côtés (accolades, parenthèses) pour torseur et matrice. `null` pour ce qui occupe
  * toute sa boîte (repères, volumes), qui se sélectionne alors comme un rectangle plein.
  */
+/** Tout l'encre d'une forme : ce que ce module sait tracer, complété par le fournisseur de draw.ts. */
+function shapeInkLines(s: Stroke): InkPoint[][] | null {
+  const known = shapeHitLines(s);
+  if (known) return known;
+  const extra = extraOutlines?.(s);
+  return extra && extra.length ? spun(s, extra) : null;
+}
+
 function shapeHitLines(s: Stroke): InkPoint[][] | null {
   const simple = shapePolylines(s);
   if (simple) return simple;

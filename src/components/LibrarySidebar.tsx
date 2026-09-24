@@ -87,6 +87,7 @@ export interface SidebarProps {
   onNewFolder(): void;
   onHandwriting(): void;
   onSettings(): void;
+  onCalendar(): void;
 }
 
 /**
@@ -219,6 +220,7 @@ export function LibrarySidebar(p: SidebarProps) {
       </nav>
 
       <div className="flex flex-col gap-1 border-t border-black/5 pt-3 dark:border-white/5">
+        <NavButton icon="calendar" label="Calendrier" onClick={p.onCalendar} />
         <NavButton icon="trash" label="Corbeille" active={p.inTrash} badge={p.trashCount} onClick={p.onTrash} />
         <NavButton icon="pen" label="Mon écriture" onClick={p.onHandwriting} />
         <NavButton icon="settings" label="Réglages" onClick={p.onSettings} />

@@ -355,3 +355,80 @@ export function volumeParts(shape: ShapeKind, x0: number, y0: number, w: number,
     }
   }
 }
+
+// ------------------------------------------------------------------ contours échantillonnés
+
+/**
+ * Les tracés d'un volume convertis en polylignes (mm), pour savoir où il y a VRAIMENT de l'encre : la gomme
+ * ne doit effacer un volume que si elle touche une arête ou une courbe, pas en survolant son intérieur vide.
+ * Les chemins produits ici n'utilisent que M, L et A (arcs d'ellipse à axes droits).
+ */
+export function volumePolylines(shape: ShapeKind, x0: number, y0: number, w: number, h: number): P2[][] {
+  return volumeParts(shape, x0, y0, w, h).flatMap((part) => flattenPathD(part.d));
+}
+
+/** Échantillonne un chemin SVG (M/L/A seulement) en polylignes. */
+export function flattenPathD(d: string): P2[][] {
+  const lines: P2[][] = [];
+  let current: P2[] = [];
+  let cx = 0;
+  let cy = 0;
+  // « M12.5,3 A4,2 0 0 1 8,9 L1,2 » → [['M','12.5,3'], ['A','4,2 0 0 1 8,9'], …]
+  const steps = d.match(/[MLA][^MLA]*/g) ?? [];
+  for (const step of steps) {
+    const cmd = step[0];
+    const n = (step.slice(1).match(/-?\d*\.?\d+(?:e[-+]?\d+)?/gi) ?? []).map(Number);
+    if (cmd === 'M') {
+      if (current.length >= 2) lines.push(current);
+      cx = n[0];
+      cy = n[1];
+      current = [[cx, cy]];
+    } else if (cmd === 'L') {
+      cx = n[0];
+      cy = n[1];
+      current.push([cx, cy]);
+    } else if (cmd === 'A') {
+      const [rx, ry, , large, sweep, ex, ey] = n;
+      for (const p of arcPoints(cx, cy, rx, ry, large === 1, sweep === 1, ex, ey)) current.push(p);
+      cx = ex;
+      cy = ey;
+    }
+  }
+  if (current.length >= 2) lines.push(current);
+  return lines;
+}
+
+/** Points d'un arc d'ellipse à axes droits, du point courant jusqu'à (ex, ey) (conversion SVG F.6.5). */
+function arcPoints(sx: number, sy: number, rxIn: number, ryIn: number, large: boolean, sweep: boolean, ex: number, ey: number): P2[] {
+  let rx = Math.abs(rxIn);
+  let ry = Math.abs(ryIn);
+  if (!rx || !ry || (sx === ex && sy === ey)) return [[ex, ey]];
+  const dx2 = (sx - ex) / 2;
+  const dy2 = (sy - ey) / 2;
+  const lambda = (dx2 * dx2) / (rx * rx) + (dy2 * dy2) / (ry * ry);
+  if (lambda > 1) {
+    const k = Math.sqrt(lambda);
+    rx *= k;
+    ry *= k;
+  }
+  const denom = rx * rx * dy2 * dy2 + ry * ry * dx2 * dx2;
+  const num = rx * rx * ry * ry - denom;
+  const coef = (large === sweep ? -1 : 1) * Math.sqrt(Math.max(0, num / denom));
+  const cxp = (coef * rx * dy2) / ry;
+  const cyp = (-coef * ry * dx2) / rx;
+  const cx = cxp + (sx + ex) / 2;
+  const cy = cyp + (sy + ey) / 2;
+  const a0 = Math.atan2((dy2 - cyp) / ry, (dx2 - cxp) / rx);
+  const a1 = Math.atan2((-dy2 - cyp) / ry, (-dx2 - cxp) / rx);
+  let sweepAngle = a1 - a0;
+  if (!sweep && sweepAngle > 0) sweepAngle -= Math.PI * 2;
+  if (sweep && sweepAngle < 0) sweepAngle += Math.PI * 2;
+  // Un point tous les ~0,5 mm de contour, entre 8 et 180 points
+  const steps = Math.min(180, Math.max(8, Math.ceil((Math.abs(sweepAngle) * (rx + ry)) / 1)));
+  const out: P2[] = [];
+  for (let i = 1; i <= steps; i++) {
+    const a = a0 + (sweepAngle * i) / steps;
+    out.push([cx + rx * Math.cos(a), cy + ry * Math.sin(a)]);
+  }
+  return out;
+}

@@ -1,7 +1,0 @@
-<?xml version='1.0' encoding='utf-8'?>
-<resources>
-    <string name="app_name">Notes Maths</string>
-    <string name="title_activity_main">Notes Maths</string>
-    <string name="package_name">com.notesmaths.app</string>
-    <string name="custom_url_scheme">com.notesmaths.app</string>
-</resources>

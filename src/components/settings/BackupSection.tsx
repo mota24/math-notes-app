@@ -1,7 +1,6 @@
 import { useRef, useState } from 'react';
 import { createBackup, restoreBackup } from '../../db/backup';
 import { downloadBlob } from '../../export/download';
-import { isNativeApp } from '../../platform';
 import type { Settings } from '../../settings';
 import { canUseDrive, currentToken, ensureFolder, signIn, uploadFile } from '../../sync/drive';
 
@@ -27,7 +26,6 @@ export function BackupSection({ settings }: { settings: Settings }) {
       <p className="hint">
         Sans compte Google : un fichier avec tous tes dossiers, cahiers, PDF, transcriptions et ton écriture. Restaurer fusionne
         (la version la plus récente de chaque élément gagne).
-        {isNativeApp() && ' Dans l’application Android, la sauvegarde s’ouvre dans la feuille de partage : enregistre-la dans Drive, envoie-la par mail…'}
       </p>
       <div className="row">
         <button

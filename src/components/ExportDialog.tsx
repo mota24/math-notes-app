@@ -9,7 +9,6 @@ import type { HandSize, HandStyle } from '../export/handwriting';
 import type { PaperStyle } from '../ink/types';
 import { BlocksView } from '../render/BlocksView';
 import { notebookLatex } from '../render/math';
-import { isNativeApp } from '../platform';
 import { go } from '../router';
 import type { Settings } from '../settings';
 import { Modal } from './Modal';
@@ -167,7 +166,7 @@ export function ExportDialog({
           </p>
           <button
             className="primary"
-            disabled={noTranscript || !!busy || isNativeApp()}
+            disabled={noTranscript || !!busy}
             onClick={() => {
               onClose();
               go({ name: 'print', notebookId: notebook.id, pageIndex: scope === 'page' ? pageIndex : null });
@@ -175,12 +174,6 @@ export function ExportDialog({
           >
             Ouvrir et enregistrer en PDF
           </button>
-          {isNativeApp() && (
-            <p className="export-hint">
-              Indisponible dans l’application Android (pas de fenêtre d’impression) : prends le fichier .tex, ou le PDF de tes notes en Mode
-              impression.
-            </p>
-          )}
           <button disabled={noTranscript} onClick={exportTex}>
             Fichier .tex (Overleaf)
           </button>

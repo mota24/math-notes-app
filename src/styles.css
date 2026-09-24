@@ -3018,7 +3018,9 @@ code {
   display: flex;
   flex-direction: row;
   align-items: flex-end;
-  flex: 1 1 0%;
+  /* Façon Chrome : la bande d'onglets ne prend que sa largeur, pour que le « + » reste collé au dernier
+     onglet au lieu d'être repoussé à l'autre bout de la barre. Elle rétrécit quand les onglets débordent. */
+  flex: 0 1 auto;
   min-width: 0;
   height: 100%;
   overflow-x: auto;

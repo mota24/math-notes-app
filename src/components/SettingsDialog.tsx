@@ -6,6 +6,7 @@ import { AntiPalmSection } from './settings/AntiPalmSection';
 import { BackupSection } from './settings/BackupSection';
 import { DriveSection } from './settings/DriveSection';
 import { FirestoreSection } from './settings/FirestoreSection';
+import { LockSection } from './settings/LockSection';
 
 export function SettingsDialog({
   settings,
@@ -86,6 +87,7 @@ export function SettingsDialog({
       <DriveSection settings={settings} update={update} />
       <FirestoreSection settings={settings} update={update} />
       <BackupSection settings={settings} />
+      <LockSection settings={settings} update={update} />
 
       <AntiPalmSection settings={settings} update={update} />
 

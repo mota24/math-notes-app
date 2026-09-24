@@ -56,6 +56,11 @@ export interface Settings {
    * exactement comme avant (hors-ligne + Drive). Voir src/sync/firestore.ts.
    */
   firestoreSync: boolean;
+  /**
+   * Verrouillage de l'appli derrière une connexion Firebase (écran « Accès Réservé »). Désactivé par défaut :
+   * une fois actif, il faut un compte du projet Firebase pour entrer.
+   */
+  lockEnabled: boolean;
   /** Export manuscrit */
   handStyle: 'mine' | 'caveat' | 'kalam' | 'patrick';
   handInk: string;
@@ -107,6 +112,7 @@ const DEFAULTS: Settings = {
   driveClientId: '',
   driveAutoSync: true,
   firestoreSync: false,
+  lockEnabled: false,
   handStyle: 'caveat',
   handInk: '#1f3a8a',
   handPaper: 'seyes',

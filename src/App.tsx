@@ -7,9 +7,11 @@ import { PrintView } from './components/PrintView';
 import { SettingsDialog } from './components/SettingsDialog';
 import { TabBar } from './components/TabBar';
 import { WelcomeDialog } from './components/WelcomeDialog';
+import { AuthPanel } from './components/AuthPanel';
 import { NewNotebookDialog } from './components/NewNotebookDialog';
 import { createNotebook } from './db/library';
 import { migrateLegacyDraft } from './db/migrate';
+import { useAuthUser } from './firebase';
 import { go, routeHash, useRoute } from './router';
 import { useSettings } from './settings';
 import { startSyncTriggers, syncController } from './sync/useSync';
@@ -29,6 +31,7 @@ function welcomeSeen() {
 
 export default function App() {
   const [settings, update] = useSettings();
+  const user = useAuthUser();
   const route = useRoute();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [newNotebookOpen, setNewNotebookOpen] = useState(false);
@@ -103,6 +106,11 @@ export default function App() {
       screen = <PrintView notebookId={route.notebookId} pageIndex={route.pageIndex} />;
       break;
   }
+
+  // Verrou « Accès Réservé » : tant que Firebase n'a pas répondu on n'affiche rien (évite un clignotement
+  // de l'appli avant l'écran de connexion) ; ensuite, pas d'utilisateur = pas d'appli.
+  if (settings.lockEnabled && user === undefined) return <div className="shell" />;
+  if (settings.lockEnabled && user === null) return <AuthPanel />;
 
   return (
     <ErrorBoundary resetKey={routeHash(route)}>

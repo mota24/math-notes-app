@@ -2,7 +2,7 @@ import { plainText } from '../ai/notesText';
 import { newId } from '../ink/types';
 import type { PaperColor, PaperStyle } from '../ink/types';
 import { pdfPageSizes } from '../pdf/pdfjs';
-import { db } from './db';
+import { db, notify } from './db';
 import { NOTEBOOK_COLORS, PAPER_SIZES } from './schema';
 import type { Folder, Glyph, Notebook, Page, Todo } from './schema';
 
@@ -202,6 +202,9 @@ export async function importPdfNotebook(file: File, folderId: string | null): Pr
   for (const page of pages) await db.putPage(page, true);
   const updated = { ...notebook, pageIds: pages.map((p) => p.id), updatedAt: now() };
   await db.putNotebook(updated);
+  // Les pages ont été écrites en silence (une notification par page ferait autant de rendus) : on prévient
+  // une seule fois à la fin, sinon l'éditeur garde son ancienne liste et le PDF ne s'affiche pas.
+  notify('pages');
   return updated;
 }
 
@@ -212,6 +215,9 @@ export async function appendPdf(notebookId: string, file: File) {
   const pages = await pdfPages(file, notebookId, 'blank');
   for (const page of pages) await db.putPage(page, true);
   await db.mutateNotebook(notebookId, (n) => ({ ...n, pageIds: [...n.pageIds, ...pages.map((p) => p.id)], updatedAt: now() }));
+  // Même raison qu'à l'import : sans cette notification, les pages ajoutées n'apparaissaient qu'après avoir
+  // créé une page vide à la main.
+  notify('pages');
 }
 
 export async function updateNotebook(
