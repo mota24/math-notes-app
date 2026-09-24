@@ -16,11 +16,13 @@ export function TabBar({
   route,
   onClose,
   onPrune,
+  onNewNotebook,
 }: {
   tabs: Tab[];
   route: Route;
   onClose(id: string): void;
   onPrune(ids: string[]): void;
+  onNewNotebook(): void;
 }) {
   const ids = tabs.map((t) => t.notebookId);
   const loaded = useQuery(
@@ -75,12 +77,7 @@ export function TabBar({
           );
         })}
       </div>
-      <button
-        className="tab tab-new"
-        onClick={() => go({ name: 'library', folderId: null })}
-        aria-label="Ouvrir un autre cahier"
-        title="Ouvrir un autre cahier"
-      >
+      <button className="tab tab-new" onClick={onNewNotebook} aria-label="Nouveau cahier" title="Nouveau cahier">
         {ICONS.plus}
       </button>
     </nav>
@@ -97,12 +94,14 @@ export function EditorTabs({
   currentNotebook,
   onClose,
   onRename,
+  onNewNotebook,
 }: {
   tabs?: Tab[];
   activeId: string;
   currentNotebook?: { id: string; title: string; color: string } | null;
   onClose?(id: string): void;
   onRename?(): void;
+  onNewNotebook?(): void;
 }) {
   const ids = tabs.map((t) => t.notebookId);
   const loaded = useQuery(
@@ -141,7 +140,8 @@ export function EditorTabs({
                 <span className="dot" style={{ background: nb?.color ?? 'var(--line-strong)' }} />
                 <span className="tab-title">{nb?.title ?? '…'}</span>
               </button>
-              {onClose && effectiveTabs.length > 1 && (
+              {/* Toujours proposé, même pour le dernier onglet : le fermer ramène simplement à la bibliothèque */}
+              {onClose && (
                 <button
                   className="tab-close"
                   onClick={(e) => {
@@ -158,14 +158,11 @@ export function EditorTabs({
           );
         })}
       </div>
-      <button
-        className="tab tab-new"
-        onClick={() => go({ name: 'library', folderId: null })}
-        aria-label="Ouvrir un autre cahier"
-        title="Ouvrir un autre cahier"
-      >
-        {ICONS.plus}
-      </button>
+      {onNewNotebook && (
+        <button className="tab tab-new" onClick={onNewNotebook} aria-label="Nouveau cahier" title="Nouveau cahier">
+          {ICONS.plus}
+        </button>
+      )}
     </div>
   );
 }

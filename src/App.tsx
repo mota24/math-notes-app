@@ -7,6 +7,8 @@ import { PrintView } from './components/PrintView';
 import { SettingsDialog } from './components/SettingsDialog';
 import { TabBar } from './components/TabBar';
 import { WelcomeDialog } from './components/WelcomeDialog';
+import { NewNotebookDialog } from './components/NewNotebookDialog';
+import { createNotebook } from './db/library';
 import { migrateLegacyDraft } from './db/migrate';
 import { go, routeHash, useRoute } from './router';
 import { useSettings } from './settings';
@@ -28,6 +30,7 @@ export default function App() {
   const [settings, update] = useSettings();
   const route = useRoute();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [newNotebookOpen, setNewNotebookOpen] = useState(false);
   const [welcomeOpen, setWelcomeOpen] = useState(() => !welcomeSeen());
   const { tabs, close: closeTabState, prune: pruneTabs } = useTabs(route);
 
@@ -42,6 +45,8 @@ export default function App() {
   }, [settings.driveClientId, settings.driveAutoSync]);
 
   const openSettings = () => setSettingsOpen(true);
+  /** Le « + » des onglets : un nouveau cahier, créé là où on est, et ouvert aussitôt dans son propre onglet. */
+  const openNewNotebook = () => setNewNotebookOpen(true);
   const closeWelcome = () => {
     setWelcomeOpen(false);
     try {
@@ -81,6 +86,7 @@ export default function App() {
           onOpenSettings={openSettings}
           tabs={tabs}
           onCloseTab={closeTab}
+          onNewNotebook={openNewNotebook}
         />
       );
       break;
@@ -95,7 +101,7 @@ export default function App() {
   return (
     <ErrorBoundary resetKey={routeHash(route)}>
       <div className="shell" style={{ '--tabbar-h': showTabs ? '46px' : '0px' } as CSSProperties}>
-        {showTabs && <TabBar tabs={tabs} route={route} onClose={closeTab} onPrune={pruneTabs} />}
+        {showTabs && <TabBar tabs={tabs} route={route} onClose={closeTab} onPrune={pruneTabs} onNewNotebook={openNewNotebook} />}
         {screen}
       </div>
       {settingsOpen && (
@@ -106,6 +112,19 @@ export default function App() {
           onShowWelcome={() => {
             setSettingsOpen(false);
             setWelcomeOpen(true);
+          }}
+        />
+      )}
+      {newNotebookOpen && (
+        <NewNotebookDialog
+          onClose={() => setNewNotebookOpen(false)}
+          onCreate={(title, paper, subject) => {
+            setNewNotebookOpen(false);
+            // Créé dans le dossier courant si on est dans la bibliothèque, à la racine sinon
+            const folderId = route.name === 'library' ? route.folderId : null;
+            void createNotebook({ title, folderId, paper, subject }).then((n) =>
+              go({ name: 'notebook', notebookId: n.id, pageIndex: 0 }),
+            );
           }}
         />
       )}

@@ -56,6 +56,7 @@ interface Props {
   onOpenSettings(): void;
   tabs?: Tab[];
   onCloseTab?(id: string): void;
+  onNewNotebook?(): void;
 }
 
 // Tableau vide stable : `?? []` en créerait un nouveau à chaque rendu et le useMemo des résultats ne servirait à rien
@@ -69,6 +70,7 @@ export function NotebookEditor({
   onOpenSettings,
   tabs = [],
   onCloseTab,
+  onNewNotebook,
 }: Props) {
   const demo = useMemo(() => new URLSearchParams(window.location.search).has('demo'), []);
   const settingsRef = useRef(settings);
@@ -231,6 +233,64 @@ export function NotebookEditor({
     ]);
     flash('Posée sur la page : glisse-la (lasso) pour la placer où tu veux.');
   };
+  /**
+   * Une image de la galerie posée sur la page comme objet libre : elle se déplace, se redimensionne et se
+   * tourne au lasso comme n'importe quel objet, ne remplace pas le fond et ne crée pas de page.
+   */
+  const insertImageFile = async (file: File) => {
+    const p = pageRef.current;
+    if (!p) return;
+    let bitmap: ImageBitmap;
+    try {
+      bitmap = await createImageBitmap(file);
+    } catch {
+      flash('Impossible de lire cette image.');
+      return;
+    }
+    // Réduite avant d'être stockée : une photo de 12 Mpx dans la page pèserait des mégaoctets pour rien
+    const ratio = Math.min(1, 1600 / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(bitmap.width * ratio));
+    canvas.height = Math.max(1, Math.round(bitmap.height * ratio));
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      bitmap.close();
+      flash('Impossible de préparer cette image.');
+      return;
+    }
+    // Le PNG garde sa transparence (formule découpée, logo) ; le reste passe en JPEG sur fond blanc
+    const png = file.type === 'image/png';
+    if (!png) {
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close();
+    const dataUrl = png ? canvas.toDataURL('image/png') : canvas.toDataURL('image/jpeg', 0.85);
+
+    // Posée sous la dernière encre, à une largeur confortable sans déborder de la page
+    const w = Math.min(120, p.width - 30);
+    const h = (w * canvas.height) / canvas.width;
+    const below = unionBBox(strokesRef.current.map(strokeBBox))?.maxY ?? 12;
+    const x = 15;
+    const y = imageTop(p, below, h);
+    addStrokes([
+      {
+        id: newId(),
+        tool: 'image',
+        image: dataUrl,
+        points: [
+          [x, y, 1],
+          [x + w, y + h, 1],
+        ],
+        color: settingsRef.current.color,
+        size: 0,
+        input: 'mouse',
+      },
+    ]);
+    flash('Image posée : sélectionne-la au lasso pour la déplacer, l’agrandir ou la tourner.');
+  };
+
   /** Lasso de capture : rasterise exactement la zone encadrée (fond + traits) et la garde en mémoire. */
   const copyCapture = async () => {
     const p = pageRef.current;
@@ -583,6 +643,7 @@ export function NotebookEditor({
   const [deleting, setDeleting] = useState(false);
   const pdfInput = useRef<HTMLInputElement>(null);
   const photoInput = useRef<HTMLInputElement>(null);
+  const imageInput = useRef<HTMLInputElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const photoConvertInput = useRef<HTMLInputElement>(null);
   const classifierConfig = useMemo(
@@ -719,6 +780,7 @@ export function NotebookEditor({
           currentNotebook={notebook}
           onClose={onCloseTab}
           onRename={() => setRenaming(true)}
+          onNewNotebook={onNewNotebook}
         />
 
         {/* ── ZONE DROITE : actions (fixe, ne rétrécit jamais) ── */}
@@ -850,9 +912,12 @@ export function NotebookEditor({
             dashed={settings.dashed}
             eraserMode={settings.eraserMode}
             eraserSize={settings.eraserSize}
+            lassoShape={settings.lassoShape}
             canUndo={history.current.undo.length > 0}
             canRedo={history.current.redo.length > 0}
             canPaste={canPaste}
+            onLassoShape={(lassoShape) => update({ lassoShape })}
+            onImage={() => imageInput.current?.click()}
             onTool={(t) => {
               setTool(t);
               if (t !== 'lasso') select([]);
@@ -895,6 +960,7 @@ export function NotebookEditor({
               dashed={settings.dashed}
               eraserMode={settings.eraserMode}
               eraserSize={settings.eraserSize}
+              lassoShape={settings.lassoShape}
               paper={page.paper}
               paperColor={paperColor}
               pageWidth={page.width}
@@ -1008,6 +1074,17 @@ export function NotebookEditor({
             void insertPhotoPage(notebookId, index, file)
               .then((i) => goToPage(i))
               .catch((err: Error) => flash(err.message));
+        }}
+      />
+      <input
+        ref={imageInput}
+        type="file"
+        accept="image/*"
+        hidden
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          e.target.value = '';
+          if (file) void insertImageFile(file);
         }}
       />
       <input

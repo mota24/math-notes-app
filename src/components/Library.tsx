@@ -16,7 +16,6 @@ import {
   updateNotebook,
 } from '../db/library';
 import type { Folder, Notebook, Todo } from '../db/schema';
-import type { PaperStyle } from '../ink/types';
 import { go } from '../router';
 import type { Route } from '../router';
 import { FolderCard, NewNotebookCard, NotebookCard } from './LibraryCards';
@@ -26,7 +25,8 @@ import type { IconName } from './LibraryIcons';
 import { buildFolderTree, countChildren, countLabel, folderPath, viewTitle } from './libraryModel';
 import { LibrarySidebar } from './LibrarySidebar';
 import { glassButton, glassButtonAccent, glassIconButton, glassPanel } from './libraryStyles';
-import { ConfirmDialog, FolderPicker, Modal, PromptDialog } from './Modal';
+import { ConfirmDialog, FolderPicker, PromptDialog } from './Modal';
+import { NewNotebookDialog } from './NewNotebookDialog';
 import { TodoPanel } from './TodoPanel';
 
 type Dialog =
@@ -40,13 +40,6 @@ type Dialog =
   | { kind: 'purge'; label: string; run(): Promise<void> }
   | null;
 
-const PAPERS: { value: PaperStyle; label: string }[] = [
-  { value: 'grid', label: 'Petits carreaux' },
-  { value: 'seyes', label: 'Seyès (grands carreaux)' },
-  { value: 'lined', label: 'Lignes' },
-  { value: 'blank', label: 'Blanc' },
-];
-
 /** Les grilles suivent la largeur de la zone de contenu (la barre latérale n'en fait pas partie), pas celle de l'écran */
 const notebookGrid = 'grid grid-cols-2 gap-4 @2xl:grid-cols-3 @5xl:grid-cols-4 @7xl:grid-cols-5 @8xl:grid-cols-6';
 const folderGrid = 'grid grid-cols-1 gap-3 @lg:grid-cols-2 @3xl:grid-cols-3 @6xl:grid-cols-4';
@@ -54,47 +47,6 @@ const folderGrid = 'grid grid-cols-1 gap-3 @lg:grid-cols-2 @3xl:grid-cols-3 @6xl
 /** Les récents tiennent sur une seule rangée : la Nᵉ carte n'apparaît que quand la grille a au moins N colonnes */
 const recentSlot = ['', '', 'hidden @2xl:block', 'hidden @5xl:block', 'hidden @7xl:block', 'hidden @8xl:block'];
 
-function NewNotebookDialog({ onCreate, onClose }: { onCreate(title: string, paper: PaperStyle, subject: string): void; onClose(): void }) {
-  const [title, setTitle] = useState('');
-  const [paper, setPaper] = useState<PaperStyle>('grid');
-  const [subject, setSubject] = useState('');
-  const submit = () => onCreate(title, paper, subject);
-  return (
-    <Modal
-      title="Nouveau cahier"
-      onClose={onClose}
-      footer={
-        <>
-          <button onClick={onClose}>Annuler</button>
-          <button className="primary" onClick={submit}>
-            Créer
-          </button>
-        </>
-      }
-    >
-      <form onSubmit={(e) => (e.preventDefault(), submit())}>
-        <label className="field">
-          <span>Titre</span>
-          <input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} placeholder="ex. Analyse 2 — Cours" />
-        </label>
-        <label className="field">
-          <span>Papier</span>
-          <select value={paper} onChange={(e) => setPaper(e.target.value as PaperStyle)}>
-            {PAPERS.map((p) => (
-              <option key={p.value} value={p.value}>
-                {p.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="field">
-          <span>Matière / contexte (aide Gemini)</span>
-          <input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="ex. Analyse 2 : séries entières" />
-        </label>
-      </form>
-    </Modal>
-  );
-}
 
 /** Un bloc de la page : un petit titre en capitales, puis son contenu (il apparaît en douceur) */
 function Section({ title, children }: { title?: string; children: ReactNode }) {

@@ -29,11 +29,14 @@ const QUICK_HIGHLIGHT = [
   { value: '#4ade80', name: 'Vert' },
   { value: '#1d2433', name: 'Noir' },
 ];
-/** Les épaisseurs sont en mm (indépendantes du zoom) ; le curseur, lui, parle en px d'écran. */
+/**
+ * Les épaisseurs sont en mm (indépendantes du zoom) ; le curseur, lui, parle en px d'écran.
+ * L'arrondi se fait au quart de pixel : au demi-pixel, un réglage à 1,75 px retombait aussitôt sur 2.
+ */
 const PX_PER_MM = 3.7795;
-const toPx = (mm: number) => Math.round(mm * PX_PER_MM * 2) / 2;
+const toPx = (mm: number) => Math.round(mm * PX_PER_MM * 4) / 4;
 const toMm = (px: number) => px / PX_PER_MM;
-const PEN_RANGE = { min: 1, max: 20, step: 0.5, ticks: [1, 5, 10, 15, 20] };
+const PEN_RANGE = { min: 1, max: 20, step: 0.25, ticks: [1, 5, 10, 15, 20] };
 const HIGHLIGHT_RANGE = { min: 4, max: 40, step: 1, ticks: [4, 13, 22, 31, 40] };
 
 interface Props {
@@ -50,9 +53,14 @@ interface Props {
   dashed: boolean;
   eraserMode: 'stroke' | 'precision';
   eraserSize: number;
+  /** Lasso à main levée ou cadre rectangulaire */
+  lassoShape: 'free' | 'rect';
   canUndo: boolean;
   canRedo: boolean;
   canPaste: boolean;
+  onLassoShape(s: 'free' | 'rect'): void;
+  /** Poser une image de la galerie sur la page, comme objet libre */
+  onImage(): void;
   onTool(t: Tool): void;
   onColor(c: string): void;
   onSize(s: number): void;
@@ -89,10 +97,10 @@ function DashStyle({ dashed, onDashed }: { dashed: boolean; onDashed(v: boolean)
   );
 }
 
-type Pop = 'pen' | 'eraser' | 'shapes' | null;
+type Pop = 'pen' | 'eraser' | 'shapes' | 'lasso' | null;
 
 /** Les outils dont un second tap (quand ils sont déjà choisis) ouvre les réglages : un premier tap se contente de les choisir. */
-const SETTINGS_POP: Partial<Record<Tool, Exclude<Pop, null>>> = { pen: 'pen', highlighter: 'pen', eraser: 'eraser' };
+const SETTINGS_POP: Partial<Record<Tool, Exclude<Pop, null>>> = { pen: 'pen', highlighter: 'pen', eraser: 'eraser', lasso: 'lasso' };
 
 /** Pilule d'outils flottante au-dessus de la page, façon tablette. */
 export function Toolbar(p: Props) {
@@ -115,7 +123,8 @@ export function Toolbar(p: Props) {
     else if (shapes) p.onShapeColor(value);
     else p.onColor(value);
   };
-  const sizeLabel = sizePx % 1 ? sizePx.toFixed(1).replace('.', ',') : String(sizePx);
+  // 2 → « 2 », 1,5 → « 1,5 », 1,75 → « 1,75 » (jamais « 1,8 » : le quart de pixel doit rester lisible)
+  const sizeLabel = sizePx % 1 ? String(sizePx).replace('.', ',') : String(sizePx);
 
   // Le popover se referme dès qu'on touche ailleurs (la page, un autre outil)
   useEffect(() => {
@@ -216,6 +225,9 @@ export function Toolbar(p: Props) {
           />
         </div>
         <span className="tb-sep" />
+        <button className="tb-btn" onClick={p.onImage} title="Poser une image sur la page" aria-label="Ajouter une image">
+          {ICONS.image}
+        </button>
         <button className="tb-btn" onClick={p.onUndo} disabled={!p.canUndo} title="Annuler (ou tap à deux doigts)" aria-label="Annuler">
           {ICONS.undo}
         </button>
@@ -319,6 +331,47 @@ export function Toolbar(p: Props) {
               : shapes
                 ? 'Auto : formes et lignes sont noires sur papier clair, blanches sur papier sombre. Choisir une couleur la fixe pour les formes (le stylo garde la sienne).'
                 : 'L’épaisseur est enregistrée en millimètres : le trait garde sa taille au zoom comme à l’export PDF.'}
+          </p>
+        </div>
+      )}
+
+      {pop === 'lasso' && (
+        <div className="tb-pop tb-pop-eraser">
+          <div className="pop-head">
+            <strong>Lasso</strong>
+            <button className="icon-btn" onClick={() => setPop(null)} aria-label="Fermer">
+              {ICONS.close}
+            </button>
+          </div>
+          <div className="eraser-modes" role="group" aria-label="Forme du lasso">
+            <button
+              className={`eraser-mode ${p.lassoShape === 'free' ? 'active' : ''}`}
+              onClick={() => p.onLassoShape('free')}
+              aria-pressed={p.lassoShape === 'free'}
+            >
+              <svg viewBox="0 0 48 28" width="48" height="28" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">
+                <path d="M24 5c10 0 17 4 17 9s-8 9-17 9-17-4-17-9 5-9 12-9" strokeDasharray="3.5 3" />
+                <path d="M12 21c-2 3 0 5 3 5" />
+              </svg>
+              <strong>À main levée</strong>
+              <small>Entoure librement ce que tu veux, comme au crayon.</small>
+            </button>
+            <button
+              className={`eraser-mode ${p.lassoShape === 'rect' ? 'active' : ''}`}
+              onClick={() => p.onLassoShape('rect')}
+              aria-pressed={p.lassoShape === 'rect'}
+            >
+              <svg viewBox="0 0 48 28" width="48" height="28" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">
+                <rect x="7" y="5" width="34" height="18" rx="1.5" strokeDasharray="3.5 3" />
+                <path d="M7 5h0.01M41 23h0.01" strokeWidth="4.5" />
+              </svg>
+              <strong>Cadre rectangulaire</strong>
+              <small>Tire un rectangle d’un coin à l’autre : plus rapide et plus net sur un tableau ou une colonne.</small>
+            </button>
+          </div>
+          <p className="pop-hint">
+            Dans les deux cas : appuie à l’intérieur d’une sélection pour la déplacer, et sers-toi des poignées pour
+            l’agrandir ou la tourner.
           </p>
         </div>
       )}

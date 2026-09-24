@@ -88,6 +88,8 @@ interface Props {
   eraserMode: 'stroke' | 'precision';
   /** Rayon de la gomme (px d'écran) */
   eraserSize: number;
+  /** Lasso : tracé à main levée, ou cadre rectangulaire tiré d'un coin à l'autre */
+  lassoShape: 'free' | 'rect';
   /** Zone du Lasso de capture (mm), encore ajustable par ses poignées tant qu'elle n'est pas copiée */
   captureRegion: BBox | null;
   onAddStroke(s: Stroke, pageId?: string): void;
@@ -767,6 +769,15 @@ export function InkCanvas(props: Props) {
           growFor(raw[1], GROW_AHEAD_INK);
         }
         const pt = inking ? clampToSheet(raw, sheet) : raw;
+        // Lasso rectangulaire : on ne suit pas la main, on redessine le cadre entre le coin de départ
+        // (toujours points[0]) et le doigt. Le reste du code reçoit un polygone fermé, comme à main levée.
+        if (l.tool === 'lasso' && propsRef.current.lassoShape === 'rect') {
+          const a = l.points[0] ?? pt;
+          l.points.length = 0;
+          l.points.push(a, [pt[0], a[1], 0.5], pt, [a[0], pt[1], 0.5], a);
+          added.push(pt);
+          continue;
+        }
         const last = l.points[l.points.length - 1];
         if (last && Math.hypot(pt[0] - last[0], pt[1] - last[1]) < 0.03) continue;
         l.points.push(pt);

@@ -18,6 +18,8 @@ export interface Settings {
   dashed: boolean;
   /** Gomme : par trait (efface tout le trait touché) ou de précision (efface seulement la zone touchée) */
   eraserMode: 'stroke' | 'precision';
+  /** Lasso : tracé à main levée, ou cadre rectangulaire tiré d'un coin à l'autre */
+  lassoShape: 'free' | 'rect';
   /** Rayon de la gomme (px d'écran) */
   eraserSize: number;
   paper: PaperStyle;
@@ -77,6 +79,7 @@ const DEFAULTS: Settings = {
   shapeColor: null,
   dashed: false,
   eraserMode: 'stroke',
+  lassoShape: 'free',
   eraserSize: 12,
   paper: 'grid',
   // Mode 'active' strict : seul le stylet écrit/gomme, le tactile déplace et zoome (aucun trait fantôme de paume)
