@@ -4,14 +4,14 @@ import type { PaperColor, PaperStyle } from '../ink/types';
 import { pdfPageSizes } from '../pdf/pdfjs';
 import { db } from './db';
 import { NOTEBOOK_COLORS, PAPER_SIZES } from './schema';
-import type { Folder, Glyph, Notebook, Page } from './schema';
+import type { Folder, Glyph, Notebook, Page, Todo } from './schema';
 
 /** Opérations de la bibliothèque (dossiers, cahiers, pages, corbeille, recherche). */
 
 const now = () => Date.now();
 
 export interface Tombstone {
-  kind: 'folder' | 'notebook' | 'page' | 'file' | 'transcript' | 'glyph';
+  kind: 'folder' | 'notebook' | 'page' | 'file' | 'transcript' | 'glyph' | 'todo';
   deletedAt: number;
 }
 
@@ -372,6 +372,25 @@ export async function saveGlyph(glyph: Glyph) {
 export async function removeGlyph(char: string) {
   await db.deleteGlyph(char);
   await addTombstones({ [`glyph:${char}`]: { kind: 'glyph', deletedAt: now() } });
+}
+
+// ------------------------------------------------------------------ à faire
+
+export async function createTodo(text: string, dueAt: number | null): Promise<Todo> {
+  const t = now();
+  const todo: Todo = { id: newId(), text: text.trim(), dueAt, done: false, createdAt: t, updatedAt: t, deletedAt: null };
+  await db.putTodo(todo);
+  return todo;
+}
+
+export async function toggleTodo(todo: Todo) {
+  await db.putTodo({ ...todo, done: !todo.done, updatedAt: now() });
+}
+
+/** Suppression définitive (pas de corbeille pour les tâches) : un tombstone porte l'info aux autres appareils. */
+export async function removeTodo(id: string) {
+  await db.deleteTodo(id);
+  await addTombstones({ [id]: { kind: 'todo', deletedAt: now() } });
 }
 
 // ------------------------------------------------------------------ recherche

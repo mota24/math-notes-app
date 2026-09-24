@@ -15,7 +15,7 @@ import {
   updateFolder,
   updateNotebook,
 } from '../db/library';
-import type { Folder, Notebook } from '../db/schema';
+import type { Folder, Notebook, Todo } from '../db/schema';
 import type { PaperStyle } from '../ink/types';
 import { go } from '../router';
 import type { Route } from '../router';
@@ -27,6 +27,7 @@ import { buildFolderTree, countChildren, countLabel, folderPath, viewTitle } fro
 import { LibrarySidebar } from './LibrarySidebar';
 import { glassButton, glassButtonAccent, glassIconButton, glassPanel } from './libraryStyles';
 import { ConfirmDialog, FolderPicker, Modal, PromptDialog } from './Modal';
+import { TodoPanel } from './TodoPanel';
 
 type Dialog =
   | { kind: 'new-folder' }
@@ -127,6 +128,7 @@ const crumb =
 // Tableaux vides stables : `?? []` en créerait un nouveau à chaque rendu et les useMemo ci-dessous ne serviraient à rien
 const NO_FOLDERS: Folder[] = [];
 const NO_NOTEBOOKS: Notebook[] = [];
+const NO_TODOS: Todo[] = [];
 
 export function Library({ route, onOpenSettings }: { route: Extract<Route, { name: 'library' | 'trash' }>; onOpenSettings(): void }) {
   const folders = useQuery(() => db.folders(), [], ['folders']) ?? NO_FOLDERS;
@@ -138,8 +140,12 @@ export function Library({ route, onOpenSettings }: { route: Extract<Route, { nam
   const [error, setError] = useState<string | null>(null);
   /** Le tiroir de navigation (petits écrans) */
   const [menuOpen, setMenuOpen] = useState(false);
+  const [todosOpen, setTodosOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLElement>(null);
+
+  const todos = useQuery(() => db.todos(), [], ['todos']) ?? NO_TODOS;
+  const todosDue = todos.filter((t) => !t.deletedAt && !t.done && t.dueAt != null && t.dueAt < Date.now() + 24 * 60 * 60 * 1000).length;
 
   const inTrash = route.name === 'trash';
   const folderId = route.name === 'library' ? route.folderId : null;
@@ -428,6 +434,17 @@ export function Library({ route, onOpenSettings }: { route: Extract<Route, { nam
             </div>
             {!inTrash && (
               <div className="ml-auto flex items-center gap-2">
+                <button
+                  type="button"
+                  className={`${glassButton} relative`}
+                  onClick={() => setTodosOpen(true)}
+                  aria-label="À faire"
+                  title="À faire"
+                >
+                  <Icon name="checklist" className="size-[18px]" />
+                  <span className="hidden @xl:inline">À faire</span>
+                  {todosDue > 0 && <span className="absolute -right-0.5 -top-0.5 size-2.5 rounded-full bg-red-500" aria-hidden="true" />}
+                </button>
                 <button type="button" className={glassButtonAccent} onClick={() => setDialog({ kind: 'new-notebook' })} aria-label="Nouveau cahier" title="Nouveau cahier">
                   <Icon name="plus" className="size-[18px]" />
                   <span className="hidden @xl:inline">Cahier</span>
@@ -474,6 +491,8 @@ export function Library({ route, onOpenSettings }: { route: Extract<Route, { nam
           {content}
         </div>
       </main>
+
+      {todosOpen && <TodoPanel onClose={() => setTodosOpen(false)} />}
 
       {dialog?.kind === 'new-folder' && (
         <PromptDialog

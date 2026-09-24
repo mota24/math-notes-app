@@ -102,6 +102,14 @@ export interface Glyph {
   updatedAt: number;
 }
 
+/** Tâche à faire, avec échéance optionnelle. Même contrat updatedAt/deletedAt que le reste : la synchronisation garde la version la plus récente. */
+export interface Todo extends Versioned {
+  text: string;
+  /** Échéance (ms epoch), absente si pas de date */
+  dueAt: number | null;
+  done: boolean;
+}
+
 export interface PageVersion {
   notebookId: string;
   updatedAt: number;
