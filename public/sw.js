@@ -47,6 +47,9 @@ self.addEventListener('fetch', (event) => {
   if (request.method !== 'GET') return;
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
+  // Pages de connexion Firebase relayées par vercel.json (/__/auth/*) : jamais en cache, et surtout jamais
+  // enregistrées comme copie hors-ligne de l'appli.
+  if (url.pathname.startsWith('/__/')) return;
 
   if (request.mode === 'navigate') {
     event.respondWith(

@@ -1,87 +1,190 @@
 import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
-import { GoogleAuthProvider, getRedirectResult, signInWithEmailAndPassword, signInWithPopup, signInWithRedirect } from 'firebase/auth';
-import { auth } from '../firebase';
+import {
+  GoogleAuthProvider,
+  createUserWithEmailAndPassword,
+  getRedirectResult,
+  sendPasswordResetEmail,
+  signInWithEmailAndPassword,
+  signInWithPopup,
+  signInWithRedirect,
+} from 'firebase/auth';
+import { auth, authMemeOrigine } from '../firebase';
 
 /**
  * Écran de déverrouillage (Firebase Auth, SDK Web). L'appli est privée : cet écran s'affiche à la place de
- * TOUT le site tant que personne n'est connecté — ce n'est pas une option, il n'y a rien à activer.
+ * TOUT le site tant que personne n'est connecté.
+ *
+ * Trois façons d'entrer, qui aboutissent toutes au même contrôle d'accès (src/auth/access.ts) :
+ *  - Google, par fenêtre surgissante ;
+ *  - e-mail + mot de passe, pour un compte créé ainsi ;
+ *  - « Mot de passe oublié ? », qui sert aussi à AJOUTER un mot de passe à un compte créé avec Google.
  *
  * À savoir : les notes vivent dans le navigateur (IndexedDB). Ce panneau met l'appli à l'abri d'un regard ou
- * d'une main qui traîne sur la tablette — ce n'est pas un coffre-fort : qui a l'appareil et sait s'y prendre
- * peut toujours atteindre les données. Pour un vrai cloisonnement, il faut chiffrer les données elles-mêmes.
+ * d'une main qui traîne sur la tablette — ce n'est pas un coffre-fort.
  */
+
+type Mode = 'connexion' | 'inscription' | 'oubli';
+type Methode = 'google' | 'email' | 'inscription' | 'oubli';
 
 const champ =
   'h-12 w-full rounded-xl border border-white/10 bg-white/5 px-4 text-[15px] text-white outline-none transition-colors placeholder:text-zinc-600 focus:border-white/40 focus:bg-white/10';
 const etiquette = 'mb-1.5 block text-[11px] font-bold uppercase tracking-[0.14em] text-zinc-500';
+const lien =
+  'min-h-0 border-0 bg-transparent p-0 text-[13px] font-semibold text-zinc-400 underline-offset-4 transition-colors hover:text-white hover:underline';
 
-function messageClair(code: string, brut: string): string {
-  if (/invalid-credential|wrong-password|user-not-found|invalid-email/.test(code)) return 'Identifiant ou mot de passe incorrect.';
+const COMPTE_GOOGLE =
+  'Si ton compte a été créé avec Google, clique sur « Continuer avec Google », ou sur « Mot de passe oublié ? » pour lui ajouter un mot de passe.';
+
+function messageClair(code: string, brut: string, methode: Methode): string {
+  if (/invalid-credential|invalid-login-credentials|wrong-password|user-not-found/.test(code))
+    return `E-mail ou mot de passe incorrect. ${COMPTE_GOOGLE}`;
+  if (/invalid-email|missing-email/.test(code)) return 'Adresse e-mail invalide.';
+  if (/missing-password/.test(code)) return 'Saisis ton mot de passe.';
+  if (/email-already-in-use/.test(code))
+    return 'Un compte existe déjà avec cette adresse (peut-être créé avec Google). Connecte-toi avec « Continuer avec Google », ou utilise « Mot de passe oublié ? » pour lui ajouter un mot de passe.';
+  if (/weak-password/.test(code)) return 'Mot de passe trop court : 6 caractères minimum.';
+  if (/password-does-not-meet-requirements/.test(code))
+    return 'Ce mot de passe ne respecte pas les règles du projet (longueur, majuscules, chiffres…).';
+  if (/user-disabled/.test(code)) return 'Ce compte a été désactivé dans Firebase.';
   if (/too-many-requests/.test(code)) return 'Trop d’essais. Attends une minute avant de réessayer.';
   if (/network-request-failed/.test(code)) return 'Pas de réseau : impossible de vérifier la connexion.';
+  if (/admin-restricted-operation/.test(code))
+    return 'La création de compte est désactivée dans Firebase (Authentication → Settings → User actions → « Enable create (sign-up) »).';
   if (/operation-not-allowed/.test(code))
-    return 'La connexion par mot de passe n’est pas activée pour ce projet Firebase (Console → Authentication → Sign-in method).';
-  if (/popup-closed-by-user|cancelled-popup-request/.test(code)) return 'Fenêtre de connexion fermée.';
+    return methode === 'google'
+      ? 'La connexion Google n’est pas activée pour ce projet Firebase (Authentication → Sign-in method → Google).'
+      : 'La connexion par e-mail/mot de passe n’est pas activée pour ce projet Firebase (Authentication → Sign-in method → Email/Password).';
+  if (/popup-blocked/.test(code))
+    return 'Le navigateur a bloqué la fenêtre Google. Autorise les fenêtres pop-up pour ce site (icône dans la barre d’adresse), puis réessaie — ou connecte-toi par e-mail.';
+  if (/popup-closed-by-user|cancelled-popup-request|user-cancelled/.test(code))
+    return 'La fenêtre Google s’est fermée avant la fin. Réessaie, et va jusqu’au choix du compte.';
+  if (/web-storage-unsupported/.test(code))
+    return 'Ton navigateur bloque les cookies tiers dont la connexion Google a besoin. Autorise-les pour ce site (ou désactive la protection anti-pistage), ou connecte-toi par e-mail.';
+  if (/unauthorized-domain/.test(code))
+    return 'Ce site n’est pas dans les domaines autorisés de Firebase (Authentication → Settings → Authorized domains).';
+  if (/account-exists-with-different-credential/.test(code))
+    return 'Cette adresse est déjà liée à une autre méthode de connexion : connecte-toi par e-mail et mot de passe.';
   if (/internal-error/.test(code))
-    return 'Firebase n’a pas pu joindre le service de connexion. Vérifie que le domaine du site est autorisé (Firebase → Authentication → Settings → Domaines autorisés) et que le mode de connexion utilisé est activé.';
+    return 'Firebase n’a pas pu joindre le service de connexion. Vérifie ta connexion, puis réessaie.';
   return brut;
 }
 
+const TITRES: Record<Mode, [string, string]> = {
+  connexion: ['Accès Réservé', 'Connecte-toi pour ouvrir tes notes'],
+  inscription: ['Créer un compte', 'Un e-mail et un mot de passe suffisent'],
+  oubli: ['Mot de passe oublié', 'On t’envoie un lien pour en choisir un'],
+};
+
 export function AuthPanel({ refus = null }: { refus?: string | null }) {
-  const [identifiant, setIdentifiant] = useState('');
+  const [mode, setMode] = useState<Mode>('connexion');
+  const [email, setEmail] = useState('');
   const [motDePasse, setMotDePasse] = useState('');
+  const [confirmation, setConfirmation] = useState('');
+  const [voirMotDePasse, setVoirMotDePasse] = useState(false);
   // Un compte refusé (non autorisé, ou autre que le propriétaire de l'appareil) : on dit pourquoi
   const [erreur, setErreur] = useState<string | null>(refus);
+  const [info, setInfo] = useState<string | null>(null);
+  const [busy, setBusy] = useState<Methode | null>(null);
+
   useEffect(() => {
     if (refus) setErreur(refus);
   }, [refus]);
-  const [busy, setBusy] = useState(false);
 
-  // Retour d'une connexion par redirection : on ne récupère ici que l'erreur éventuelle (la session, elle,
-  // est reprise toute seule par onAuthStateChanged).
+  // Retour d'une éventuelle connexion par redirection : on n'en récupère que l'erreur (la session, elle, est
+  // reprise toute seule par onAuthStateChanged). L'appel prépare aussi l'iframe de Firebase, ce qui permet à
+  // la fenêtre Google de s'ouvrir aussitôt au clic, sans être prise pour une pop-up indésirable.
   useEffect(() => {
     getRedirectResult(auth).catch((e: { code?: string; message?: string }) => {
-      setErreur(messageClair(e.code ?? '', e.message ?? 'Connexion impossible.'));
+      setErreur(messageClair(e.code ?? '', e.message ?? 'Connexion impossible.', 'google'));
     });
   }, []);
 
-  const lancer = async (task: () => Promise<unknown>) => {
-    setBusy(true);
+  const changerMode = (m: Mode) => {
+    setMode(m);
     setErreur(null);
+    setInfo(null);
+    setMotDePasse('');
+    setConfirmation('');
+  };
+
+  const lancer = async (methode: Methode, task: () => Promise<unknown>) => {
+    setBusy(methode);
+    setErreur(null);
+    setInfo(null);
     try {
       await task();
     } catch (e) {
       const err = e as { code?: string; message?: string };
-      setErreur(messageClair(err.code ?? '', err.message ?? 'Connexion impossible.'));
+      setErreur(messageClair(err.code ?? '', err.message ?? 'Connexion impossible.', methode));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   };
 
-  const parMotDePasse = (e: FormEvent) => {
+  const adresse = email.trim();
+
+  const soumettre = (e: FormEvent) => {
     e.preventDefault();
-    if (!identifiant.trim() || !motDePasse) return;
-    void lancer(() => signInWithEmailAndPassword(auth, identifiant.trim(), motDePasse));
+    if (busy) return;
+    if (mode === 'connexion') {
+      if (!adresse || !motDePasse) return;
+      void lancer('email', () => signInWithEmailAndPassword(auth, adresse, motDePasse));
+    } else if (mode === 'inscription') {
+      if (!adresse || !motDePasse) return;
+      if (motDePasse.length < 6) return setErreur('Mot de passe trop court : 6 caractères minimum.');
+      if (motDePasse !== confirmation) return setErreur('Les deux mots de passe ne sont pas identiques.');
+      void lancer('inscription', () => createUserWithEmailAndPassword(auth, adresse, motDePasse));
+    } else {
+      if (!adresse) return;
+      void lancer('oubli', async () => {
+        await sendPasswordResetEmail(auth, adresse);
+        // Firebase ne dit pas si l'adresse existe (protection contre l'énumération des comptes) : on reste neutre
+        setInfo(
+          `Si un compte existe pour ${adresse}, un e-mail vient de partir (regarde aussi les indésirables). Choisis un mot de passe via le lien, puis reviens te connecter.`,
+        );
+      });
+    }
   };
 
   /**
-   * Google : fenêtre surgissante d'abord. Si le navigateur la bloque (fréquent sur tablette) ou si elle ne
-   * peut pas aboutir, on bascule sur la redirection, qui marche partout ; la session est alors récupérée au
-   * retour sur la page (voir le useEffect ci-dessous).
+   * Google : fenêtre surgissante (signInWithPopup). La redirection n'est tentée en secours que si les pages de
+   * connexion sont servies par ce site (voir authMemeOrigine) : autrement elle échoue sans bruit sur les
+   * navigateurs actuels, et c'est ce qui donnait l'impression que le bouton « ne faisait rien ».
    */
-  const parGoogle = () =>
-    void lancer(async () => {
+  const parGoogle = () => {
+    if (busy) return;
+    void lancer('google', async () => {
+      const fournisseur = new GoogleAuthProvider();
+      fournisseur.setCustomParameters({ prompt: 'select_account' });
       try {
-        await signInWithPopup(auth, new GoogleAuthProvider());
+        await signInWithPopup(auth, fournisseur);
       } catch (e) {
         const code = (e as { code?: string }).code ?? '';
-        // Fermer soi-même la fenêtre n'est pas un échec technique : on ne relance rien dans ce cas.
-        const aReessayerEnRedirection = /popup-blocked|operation-not-supported|internal-error/.test(code);
-        if (!aReessayerEnRedirection) throw e;
-        await signInWithRedirect(auth, new GoogleAuthProvider());
+        if (authMemeOrigine && /popup-blocked|operation-not-supported|web-storage-unsupported/.test(code)) {
+          await signInWithRedirect(auth, fournisseur);
+          return;
+        }
+        throw e;
       }
     });
+  };
+
+  const [titre, sousTitre] = TITRES[mode];
+  const formulaireIncomplet =
+    !adresse || (mode !== 'oubli' && !motDePasse) || (mode === 'inscription' && !confirmation);
+  const libelleEnvoi =
+    mode === 'connexion'
+      ? busy === 'email'
+        ? 'Vérification…'
+        : 'Déverrouiller'
+      : mode === 'inscription'
+        ? busy === 'inscription'
+          ? 'Création…'
+          : 'Créer mon compte'
+        : busy === 'oubli'
+          ? 'Envoi…'
+          : 'Envoyer le lien';
 
   return (
     <div className="fixed inset-0 z-[100] grid place-items-center overflow-auto bg-zinc-950 px-5 py-10">
@@ -95,79 +198,153 @@ export function AuthPanel({ refus = null }: { refus?: string | null }) {
           </svg>
         </div>
 
-        <h1 className="m-0 text-center text-[28px] font-bold tracking-tight text-white">Accès Réservé</h1>
-        <p className="m-0 mb-8 mt-1.5 text-center text-sm text-zinc-500">Saisis tes identifiants</p>
+        <h1 className="m-0 text-center text-[28px] font-bold tracking-tight text-white">{titre}</h1>
+        <p className="m-0 mb-8 mt-1.5 text-center text-sm text-zinc-500">{sousTitre}</p>
 
-        <form onSubmit={parMotDePasse} className="flex flex-col gap-4">
+        {mode !== 'oubli' && (
+          <>
+            <button
+              type="button"
+              onClick={parGoogle}
+              disabled={busy !== null}
+              className="flex h-12 w-full items-center justify-center gap-3 rounded-xl border border-white/15 bg-white/[0.04] p-0 text-sm font-semibold text-white transition-colors duration-200 hover:bg-white/10 disabled:opacity-40"
+            >
+              <svg viewBox="0 0 24 24" className="size-5" aria-hidden="true">
+                <path fill="#4285F4" d="M23 12.3c0-.8-.1-1.6-.2-2.3H12v4.4h6.2a5.3 5.3 0 0 1-2.3 3.5v2.9h3.7c2.2-2 3.4-5 3.4-8.5z" />
+                <path fill="#34A853" d="M12 23.5c3.1 0 5.7-1 7.6-2.8l-3.7-2.9c-1 .7-2.3 1.1-3.9 1.1-3 0-5.5-2-6.4-4.7H1.8v3A11.5 11.5 0 0 0 12 23.5z" />
+                <path fill="#FBBC05" d="M5.6 14.2a6.9 6.9 0 0 1 0-4.4v-3H1.8a11.5 11.5 0 0 0 0 10.4l3.8-3z" />
+                <path fill="#EA4335" d="M12 5.1c1.7 0 3.2.6 4.4 1.7l3.3-3.3A11.5 11.5 0 0 0 1.8 6.8l3.8 3c.9-2.7 3.4-4.7 6.4-4.7z" />
+              </svg>
+              {busy === 'google' ? 'Fenêtre Google ouverte…' : 'Continuer avec Google'}
+            </button>
+
+            <div className="my-6 flex items-center gap-3 text-[11px] uppercase tracking-widest text-zinc-600">
+              <span className="h-px flex-1 bg-white/10" />
+              ou avec ton e-mail
+              <span className="h-px flex-1 bg-white/10" />
+            </div>
+          </>
+        )}
+
+        <form onSubmit={soumettre} className="flex flex-col gap-4" noValidate>
           <div>
             <label className={etiquette} htmlFor="auth-id">
-              Identifiant
+              E-mail
             </label>
             <input
               id="auth-id"
               className={champ}
-              value={identifiant}
-              onChange={(e) => setIdentifiant(e.target.value)}
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
               type="email"
-              autoComplete="username"
+              inputMode="email"
+              autoComplete={mode === 'inscription' ? 'email' : 'username'}
+              autoCapitalize="none"
+              spellCheck={false}
               placeholder="toi@exemple.com"
-              autoFocus
-            />
-          </div>
-          <div>
-            <label className={etiquette} htmlFor="auth-pw">
-              Mot de passe
-            </label>
-            <input
-              id="auth-pw"
-              className={champ}
-              value={motDePasse}
-              onChange={(e) => setMotDePasse(e.target.value)}
-              type="password"
-              autoComplete="current-password"
-              placeholder="••••••••"
             />
           </div>
 
+          {mode !== 'oubli' && (
+            <div>
+              <div className="flex items-baseline justify-between">
+                <label className={etiquette} htmlFor="auth-pw">
+                  Mot de passe
+                </label>
+                {mode === 'connexion' && (
+                  <button type="button" className={`${lien} mb-1.5 text-[12px]`} onClick={() => changerMode('oubli')}>
+                    Mot de passe oublié ?
+                  </button>
+                )}
+              </div>
+              <div className="relative">
+                <input
+                  id="auth-pw"
+                  className={`${champ} pr-20`}
+                  value={motDePasse}
+                  onChange={(e) => setMotDePasse(e.target.value)}
+                  type={voirMotDePasse ? 'text' : 'password'}
+                  autoComplete={mode === 'inscription' ? 'new-password' : 'current-password'}
+                  placeholder={mode === 'inscription' ? '6 caractères minimum' : '••••••••'}
+                />
+                <button
+                  type="button"
+                  onClick={() => setVoirMotDePasse((v) => !v)}
+                  className="absolute inset-y-0 right-1 my-auto h-10 min-h-0 rounded-lg border-0 bg-transparent px-3 py-0 text-[12px] font-semibold text-zinc-500 hover:text-white"
+                  aria-label={voirMotDePasse ? 'Masquer le mot de passe' : 'Afficher le mot de passe'}
+                >
+                  {voirMotDePasse ? 'Masquer' : 'Afficher'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {mode === 'inscription' && (
+            <div>
+              <label className={etiquette} htmlFor="auth-pw2">
+                Confirme le mot de passe
+              </label>
+              <input
+                id="auth-pw2"
+                className={champ}
+                value={confirmation}
+                onChange={(e) => setConfirmation(e.target.value)}
+                type={voirMotDePasse ? 'text' : 'password'}
+                autoComplete="new-password"
+                placeholder="••••••••"
+              />
+            </div>
+          )}
+
+          {mode === 'oubli' && (
+            <p className="m-0 text-[13px] leading-relaxed text-zinc-500">
+              Compte créé avec Google ? Ce lien lui ajoute un mot de passe : tu pourras ensuite entrer avec l’un ou
+              l’autre.
+            </p>
+          )}
+
           {erreur && (
-            <p role="alert" className="m-0 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-[13px] text-red-300">
+            <p role="alert" className="m-0 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-[13px] leading-relaxed text-red-300">
               {erreur}
+            </p>
+          )}
+          {info && (
+            <p role="status" className="m-0 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-[13px] leading-relaxed text-emerald-300">
+              {info}
             </p>
           )}
 
           <button
             type="submit"
-            disabled={busy || !identifiant.trim() || !motDePasse}
+            disabled={busy !== null || formulaireIncomplet}
             className="mt-2 h-14 w-full rounded-xl border-0 bg-white p-0 text-[15px] font-bold uppercase tracking-[0.12em] text-zinc-900 transition-all duration-200 hover:bg-zinc-200 active:scale-[0.98] disabled:opacity-40"
           >
-            {busy ? 'Vérification…' : 'Déverrouiller'}
+            {libelleEnvoi}
           </button>
         </form>
 
-        <div className="my-6 flex items-center gap-3 text-[11px] uppercase tracking-widest text-zinc-600">
-          <span className="h-px flex-1 bg-white/10" />
-          ou
-          <span className="h-px flex-1 bg-white/10" />
+        <div className="mt-6 flex flex-col items-center gap-3">
+          {mode === 'connexion' ? (
+            <>
+              <span className="text-[13px] text-zinc-500">Pas encore de compte ?</span>
+              <button
+                type="button"
+                onClick={() => changerMode('inscription')}
+                className="h-11 w-full rounded-xl border border-white/15 bg-transparent p-0 text-sm font-semibold text-white transition-colors hover:bg-white/10"
+              >
+                Créer un compte
+              </button>
+            </>
+          ) : (
+            <button type="button" className={lien} onClick={() => changerMode('connexion')}>
+              ← Retour à la connexion
+            </button>
+          )}
         </div>
 
-        <button
-          type="button"
-          onClick={parGoogle}
-          disabled={busy}
-          className="flex h-12 w-full items-center justify-center gap-3 rounded-xl border border-white/15 bg-transparent p-0 text-sm font-semibold text-white transition-colors duration-200 hover:bg-white/10 disabled:opacity-40"
-        >
-          <svg viewBox="0 0 24 24" className="size-5" aria-hidden="true">
-            <path fill="#4285F4" d="M23 12.3c0-.8-.1-1.6-.2-2.3H12v4.4h6.2a5.3 5.3 0 0 1-2.3 3.5v2.9h3.7c2.2-2 3.4-5 3.4-8.5z" />
-            <path fill="#34A853" d="M12 23.5c3.1 0 5.7-1 7.6-2.8l-3.7-2.9c-1 .7-2.3 1.1-3.9 1.1-3 0-5.5-2-6.4-4.7H1.8v3A11.5 11.5 0 0 0 12 23.5z" />
-            <path fill="#FBBC05" d="M5.6 14.2a6.9 6.9 0 0 1 0-4.4v-3H1.8a11.5 11.5 0 0 0 0 10.4l3.8-3z" />
-            <path fill="#EA4335" d="M12 5.1c1.7 0 3.2.6 4.4 1.7l3.3-3.3A11.5 11.5 0 0 0 1.8 6.8l3.8 3c.9-2.7 3.4-4.7 6.4-4.7z" />
-          </svg>
-          Continuer avec Google
-        </button>
-
         <p className="mt-8 text-center text-[11px] leading-relaxed text-zinc-600">
-          Le compte se crée dans la console Firebase du projet. Ce verrou protège l’écran, pas le disque : tes
-          notes restent dans ce navigateur.
+          Ce verrou protège l’écran, pas le disque : tes notes restent dans ce navigateur. Le premier compte connecté
+          sur cet appareil en devient le propriétaire.
         </p>
       </div>
     </div>

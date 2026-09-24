@@ -57,6 +57,14 @@ console.log(
 const app: FirebaseApp = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 
+/**
+ * Vrai quand les pages de connexion de Firebase sont servies par le site lui-même (authDomain = ce domaine,
+ * relayé par vercel.json vers firebaseapp.com). C'est la seule configuration où la connexion par
+ * REDIRECTION marche encore : avec un authDomain tiers, les navigateurs actuels cloisonnent son stockage et
+ * la session se perd au retour de Google — l'utilisateur revient sur l'écran verrouillé sans aucune erreur.
+ */
+export const authMemeOrigine = typeof location !== 'undefined' && firebaseConfig.authDomain === location.host;
+
 
 // ------------------------------------------------------------------ Firestore (temps réel, opt-in)
 
