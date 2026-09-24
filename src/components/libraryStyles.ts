@@ -28,7 +28,12 @@ export const glassButtonAccent = `${glassBase} h-11 px-4 py-0 ${accentTone}`;
 export const glassPanel =
   'rounded-2xl border border-gray-700/50 bg-gray-800/50 shadow-xl shadow-black/25 backdrop-blur-xl text-zinc-100 dark:border-gray-700/60 dark:bg-gray-800/50';
 
-const roundBase = `grid size-9 min-h-0 place-items-center rounded-full border p-0 backdrop-blur-md transition-all duration-200 active:scale-90 ${focusRing}`;
+/**
+ * Les petits boutons ronds posés sur une carte gardent leur taille dessinée (36 px) mais reçoivent le doigt sur
+ * 48 px grâce au `before:` : juste en dessous se trouve le bouton « ouvrir », et un tap à 20 px du centre
+ * ouvrait le cahier au lieu du menu.
+ */
+const roundBase = `relative grid size-9 min-h-0 place-items-center rounded-full border p-0 backdrop-blur-md transition-all duration-200 before:absolute before:-inset-1.5 before:rounded-full before:content-[''] active:scale-90 ${focusRing}`;
 
 /** Petit bouton rond posé sur une carte (options, favori) */
 export const roundButton = `${roundBase} border-white/10 bg-gray-900/60 text-zinc-300 hover:bg-gray-900 hover:text-white`;

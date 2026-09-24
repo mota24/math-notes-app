@@ -17,18 +17,30 @@ export interface MenuItem {
 /** Ce qui rend une carte à peine visible au repos et plus nette au survol d'une souris (jamais sur une tablette tactile) */
 const revealOnHover = 'pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:group-focus-within:opacity-100';
 
+/** Taille du menu (w-60 et sa hauteur habituelle) : sert à choisir de quel côté l'ouvrir pour qu'il reste entier à l'écran. */
+const MENU_W = 240;
+const MENU_H = 280;
+
 /**
- * Options d'une carte : la couleur du cahier ou du dossier, puis les actions. Le menu s'ouvre vers le haut, sauf
- * si la carte est tout en haut de l'écran ; il se ferme d'un tap ailleurs ou sur Échap.
+ * Un contact plus gros qu'un doigt (la paume posée sur la tablette fait ~200 px) ne compte pas comme un
+ * « tap ailleurs » : sinon le menu se refermait dans la seconde où il s'ouvrait, stylet dans une main et
+ * paume sur l'écran — il semblait alors ne jamais s'ouvrir.
+ */
+const PALM_CONTACT = 60;
+
+/**
+ * Options d'une carte : la couleur du cahier ou du dossier, puis les actions. Le menu s'ouvre du côté où il y a
+ * la place (il est rogné par le défilement de la page sinon) ; il se ferme d'un tap ailleurs ou sur Échap.
  */
 function CardMenu({ items, color, onColor, className }: { items: MenuItem[]; color: string; onColor(c: string): void; className: string }) {
   const [open, setOpen] = useState(false);
-  const [up, setUp] = useState(true);
+  const [side, setSide] = useState({ up: true, shift: 0 });
   const root = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open) return;
     const onDown = (e: PointerEvent) => {
+      if (e.pointerType === 'touch' && Math.max(e.width, e.height) >= PALM_CONTACT) return;
       if (!root.current?.contains(e.target as Node)) setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
@@ -43,7 +55,21 @@ function CardMenu({ items, color, onColor, className }: { items: MenuItem[]; col
   }, [open]);
 
   const toggle = () => {
-    if (!open) setUp((root.current?.getBoundingClientRect().top ?? 0) > 320);
+    const r = root.current?.getBoundingClientRect();
+    // La zone visible est celle qui défile (<main>), pas la fenêtre : c'est elle qui rogne le menu.
+    const clip = root.current?.closest('main')?.getBoundingClientRect();
+    if (!open && r) {
+      const clipLeft = clip?.left ?? 0;
+      const clipRight = clip?.right ?? window.innerWidth;
+      const clipTop = clip?.top ?? 0;
+      const clipBottom = clip?.bottom ?? window.innerHeight;
+      // Le menu est calé à droite du bouton : on le repousse juste ce qu'il faut pour qu'aucun bord ne sorte.
+      const width = Math.min(MENU_W, clipRight - clipLeft - 16);
+      let shift = 0;
+      if (r.right - width < clipLeft + 8) shift = clipLeft + 8 - (r.right - width);
+      else if (r.right > clipRight - 8) shift = clipRight - 8 - r.right;
+      setSide({ up: clipBottom - r.bottom < MENU_H && r.top - clipTop > MENU_H, shift });
+    }
     setOpen((v) => !v);
   };
 
@@ -61,8 +87,9 @@ function CardMenu({ items, color, onColor, className }: { items: MenuItem[]; col
       {open && (
         <div
           role="menu"
-          className={`absolute right-0 z-40 w-60 animate-pop rounded-2xl border border-zinc-200 bg-white/95 p-1.5 shadow-2xl backdrop-blur-xl dark:border-zinc-700 dark:bg-zinc-900/95 ${
-            up ? 'bottom-full mb-2 origin-bottom-right' : 'top-full mt-2 origin-top-right'
+          style={{ marginRight: -side.shift }}
+          className={`absolute right-0 z-40 w-60 max-w-[calc(100vw-1rem)] animate-pop rounded-2xl border border-zinc-200 bg-white/95 p-1.5 shadow-2xl backdrop-blur-xl dark:border-zinc-700 dark:bg-zinc-900/95 ${
+            side.up ? 'bottom-full mb-2 origin-bottom-right' : 'top-full mt-2 origin-top-right'
           }`}
         >
           <div className="flex flex-wrap gap-2 p-2 pb-2.5">
