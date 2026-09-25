@@ -3,6 +3,9 @@ import type { CSSProperties } from 'react';
 import type { ShapeKind, Tool } from '../ink/types';
 import { ICONS } from './icons';
 import { ALL_STAMPS, STAMP_GROUPS } from './stamps';
+import { TEXT_SIZES } from '../ink/textLayout';
+
+const TEXT_SIZE_LABELS = ['Petit', 'Normal', 'Grand'];
 
 const PEN_COLORS = [
   { value: '#1d2433', name: 'Noir' },
@@ -72,6 +75,9 @@ interface Props {
   onUndo(): void;
   onRedo(): void;
   onPaste(): void;
+  /** Taille du texte des nouvelles zones de texte (mm) */
+  textSize: number;
+  onTextSize(size: number): void;
 }
 
 /** Continu ou pointillés : réglage commun au stylo et aux formes (arêtes cachées, lignes de projection). */
@@ -97,10 +103,14 @@ function DashStyle({ dashed, onDashed }: { dashed: boolean; onDashed(v: boolean)
   );
 }
 
-type Pop = 'pen' | 'eraser' | 'shapes' | 'lasso' | null;
+type Pop = 'pen' | 'eraser' | 'shapes' | 'lasso' | 'text' | null;
+
+/** Densités de la barre, de la plus aérée à la plus serrée */
+const DENSITIES = ['full', 'compact', 'tight', 'mini', 'micro', 'nano'] as const;
+type Density = (typeof DENSITIES)[number];
 
 /** Les outils dont un second tap (quand ils sont déjà choisis) ouvre les réglages : un premier tap se contente de les choisir. */
-const SETTINGS_POP: Partial<Record<Tool, Exclude<Pop, null>>> = { pen: 'pen', highlighter: 'pen', eraser: 'eraser', lasso: 'lasso' };
+const SETTINGS_POP: Partial<Record<Tool, Exclude<Pop, null>>> = { pen: 'pen', highlighter: 'pen', eraser: 'eraser', lasso: 'lasso', text: 'text' };
 
 /** Pilule d'outils flottante au-dessus de la page, façon tablette. */
 export function Toolbar(p: Props) {
@@ -138,18 +148,40 @@ export function Toolbar(p: Props) {
 
   // La barre garde toujours tout sur une seule ligne, sans défiler : sur une zone étroite (portrait, panneau
   // latéral ouvert), boutons et pastilles se resserrent
-  const [density, setDensity] = useState<'full' | 'compact' | 'tight'>('full');
+  const [density, setDensity] = useState<Density>('full');
   useEffect(() => {
-    const stage = popRef.current?.parentElement;
-    if (!stage) return;
-    const measure = () => setDensity(stage.clientWidth < 610 ? 'tight' : stage.clientWidth < 690 ? 'compact' : 'full');
+    const bar = popRef.current;
+    const stage = bar?.parentElement;
+    const pill = bar?.querySelector<HTMLElement>('.tb-pill');
+    if (!bar || !stage || !pill) return;
+    // La barre se mesure elle-même : elle essaie chaque densité, de la plus aérée à la plus serrée, et garde la
+    // première qui tient (plus de seuils codés en dur qui cassaient à chaque bouton ajouté, ou quand « Coller »
+    // apparaît). « mini » range les pastilles rapides, « micro » aussi la roue (les couleurs restent dans les
+    // réglages du stylo) : jamais annuler / rétablir rognés, même dans l'écran partagé.
+    const measure = () => {
+      const available = stage.clientWidth - 16; // max-width de la barre : 100 % - 16 px
+      const before = bar.className;
+      let chosen: Density = 'nano';
+      for (const d of DENSITIES) {
+        // « measuring » coupe les transitions : sans cela, la largeur lue serait celle du début de l'animation
+        bar.className = `toolbar density-${d} measuring`;
+        if (pill.scrollWidth <= available) {
+          chosen = d;
+          break;
+        }
+      }
+      bar.className = before;
+      setDensity(chosen);
+    };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(stage);
     return () => observer.disconnect();
-  }, []);
+    // Le bouton « Coller » change la largeur : on remesure quand il apparaît ou disparaît
+  }, [p.canPaste]);
 
   const writer = p.tool === 'pen' || p.tool === 'highlighter' || shapes;
+  const texting = p.tool === 'text';
   const toggle = (which: Exclude<Pop, null>) => setPop((v) => (v === which ? null : which));
   const toolButton = (t: Tool, label: string) => (
     <button
@@ -197,6 +229,7 @@ export function Toolbar(p: Props) {
           >
             {ICONS.shapes}
           </button>
+          {toolButton('text', 'Zone de texte : touche la page (ou glisse pour choisir la largeur), puis tape au clavier')}
           {toolButton('hand', 'Déplacer la page')}
         </div>
         <span className="tb-sep" />
@@ -216,6 +249,8 @@ export function Toolbar(p: Props) {
             className="tb-wheel"
             style={{ '--cur': current } as CSSProperties}
             onClick={() => {
+              // Avec l'outil Texte, la roue ouvre ses propres réglages (couleur et taille du texte)
+              if (texting) return toggle('text');
               if (!writer) p.onTool('pen');
               toggle('pen');
             }}
@@ -431,6 +466,43 @@ export function Toolbar(p: Props) {
               ? 'Certains tampons (repères, torseur, matrice, volumes) sont effacés en entier ; les autres formes sont découpées.'
               : 'Astuce : un appui long immobile avec le stylet active la gomme, quel que soit l’outil.'}{' '}
             Les images ne sont jamais effacées : pour en retirer une, sélectionne-la au lasso puis « Supprimer ».
+          </p>
+        </div>
+      )}
+
+      {pop === 'text' && (
+        <div className="tb-pop">
+          <div className="pop-head">
+            <strong>Zone de texte</strong>
+            <button className="icon-btn" onClick={() => setPop(null)} aria-label="Fermer">
+              {ICONS.close}
+            </button>
+          </div>
+          <div className="pop-label pop-colors-title">Taille du texte</div>
+          <div className="segmented" role="group" aria-label="Taille du texte">
+            {TEXT_SIZES.map((size, i) => (
+              <button key={size} onClick={() => p.onTextSize(size)} aria-pressed={Math.abs(p.textSize - size) < 0.01}>
+                <span style={{ fontSize: 11 + i * 4, fontWeight: 600, lineHeight: 1 }}>A</span> {TEXT_SIZE_LABELS[i]}
+              </button>
+            ))}
+          </div>
+          <div className="pop-label pop-colors-title">Couleur</div>
+          <div className="pop-colors">
+            {PEN_COLORS.map((c) => (
+              <button
+                key={c.value}
+                className={`swatch ${p.color === c.value ? 'active' : ''}`}
+                style={{ background: c.value }}
+                onClick={() => p.onColor(c.value)}
+                title={c.name}
+                aria-label={`Couleur ${c.name}`}
+                aria-pressed={p.color === c.value}
+              />
+            ))}
+          </div>
+          <p className="pop-hint">
+            Touche la page pour poser une zone (glisse pour choisir sa largeur), puis tape au clavier. Touche un texte déjà posé
+            pour le modifier. Au lasso : déplacer, agrandir (le texte grossit avec la zone), élargir par les bords, tourner.
           </p>
         </div>
       )}

@@ -17,8 +17,11 @@ export function registerShapeOutlines(fn: (s: Stroke) => InkPoint[][] | null) {
  * une flèche et un trait à main levée tournent en réécrivant leurs points.
  */
 export function rotates(s: Stroke): boolean {
-  return s.tool === 'image' || (s.tool === 'shape' && s.shape !== 'line' && s.shape !== 'arrow');
+  return s.tool === 'image' || s.tool === 'text' || (s.tool === 'shape' && s.shape !== 'line' && s.shape !== 'arrow');
 }
+
+/** Image ou zone de texte : un rectangle plein (on le touche partout dedans, pas seulement sur un trait) */
+const isBox = (s: Stroke) => s.tool === 'image' || s.tool === 'text';
 
 /** Boîte des points, épaisseur du trait comprise, sans tenir compte d'une éventuelle rotation. */
 function pointsBounds(s: Stroke): BBox {
@@ -32,7 +35,8 @@ function pointsBounds(s: Stroke): BBox {
     if (x > maxX) maxX = x;
     if (y > maxY) maxY = y;
   }
-  const r = s.size / 2;
+  // L'épaisseur du trait déborde des points ; pour une zone de texte, `size` est la taille du texte, pas un trait
+  const r = s.tool === 'text' ? 0 : s.size / 2;
   return { minX: minX - r, minY: minY - r, maxX: maxX + r, maxY: maxY + r };
 }
 
@@ -114,8 +118,8 @@ function distToSegmentSq(px: number, py: number, ax: number, ay: number, bx: num
 export function strokeHit(s: Stroke, x: number, y: number, r: number): boolean {
   const bb = strokeBBox(s);
   if (x < bb.minX - r || x > bb.maxX + r || y < bb.minY - r || y > bb.maxY + r) return false;
-  // Une image ou une forme occupe tout son rectangle, pas juste la diagonale entre ses deux coins mesurés
-  if (s.tool === 'image' || s.tool === 'shape') {
+  // Une image, un texte ou une forme occupe tout son rectangle, pas juste la diagonale entre ses deux coins mesurés
+  if (isBox(s) || s.tool === 'shape') {
     if (s.tool === 'shape' && (s.shape === 'line' || s.shape === 'arrow') && s.points.length >= 2) {
       // Sa seule diagonale (et la pointe d'une flèche), pas toute la boîte qui l'entoure
       const wing = s.shape === 'arrow' ? 0.44 * Math.max(Math.max(0.35, s.size) * 3.4, 3) : 0;
@@ -248,7 +252,7 @@ export function strokesInLasso(strokes: Stroke[], poly: [number, number][]): str
       continue;
     }
 
-    if (s.tool === 'image' || s.tool === 'shape') {
+    if (isBox(s) || s.tool === 'shape') {
       const corners = strokeCorners(s);
       // Un sommet du lasso dans le rectangle (tourné s'il l'est), un coin du rectangle dans le lasso, ou un bord qui se croisent
       const vertexInside = lasso.some(([x, y]) => pointInPolygon(x, y, corners));
@@ -476,7 +480,8 @@ export function resizedPoints(
 }
 
 /** La gomme n'efface jamais les images posées sur la page (on écrit souvent par-dessus) : seuls les traits et les formes. */
-export const isErasable = (s: Stroke): boolean => s.tool !== 'image';
+/** Images et zones de texte ne s'effacent pas à la gomme (on écrit par-dessus) : lasso → Supprimer */
+export const isErasable = (s: Stroke): boolean => !isBox(s);
 
 const TAU = Math.PI * 2;
 
@@ -504,6 +509,9 @@ export interface Similarity {
 /** Épaisseurs limites (mm) d'un trait qu'on agrandit ou réduit */
 const MIN_STROKE = 0.1;
 const MAX_STROKE = 40;
+/** Taille d'un texte (mm) : de ~4 points à ~170 points */
+const MIN_TEXT = 1.5;
+const MAX_TEXT = 60;
 
 /**
  * Le trait transformé. Un trait à main levée, une ligne ou une flèche : ses points sont réécrits (et
@@ -525,6 +533,8 @@ export function transformStroke(s: Stroke, m: Similarity): Stroke {
     const cy = (own.minY + own.maxY) / 2;
     const [nx, ny] = map(cx, cy);
     const out: Stroke = { ...s, points: s.points.map(([x, y, p]): InkPoint => [nx + (x - cx) * m.k, ny + (y - cy) * m.k, p]) };
+    // Un texte agrandi grossit avec sa boîte (comme une image), dans des limites lisibles
+    if (s.tool === 'text') out.size = Math.min(MAX_TEXT, Math.max(MIN_TEXT, s.size * m.k));
     const angle = normalizeAngle((s.angle ?? 0) + m.theta);
     if (angle) out.angle = angle;
     else delete out.angle;
@@ -534,7 +544,7 @@ export function transformStroke(s: Stroke, m: Similarity): Stroke {
     const [nx, ny] = map(x, y);
     return [nx, ny, p];
   });
-  const freehand = s.tool !== 'shape' && s.tool !== 'image';
+  const freehand = s.tool !== 'shape' && !isBox(s);
   return { ...s, points, size: freehand ? Math.min(MAX_STROKE, Math.max(MIN_STROKE, s.size * m.k)) : s.size };
 }
 

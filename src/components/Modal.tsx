@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 import type { Folder } from '../db/schema';
+import { buildFolderTree } from './libraryModel';
+import type { FolderNode } from './libraryModel';
 
 export function Modal({
   title,
@@ -126,30 +128,17 @@ export function FolderPicker({
   onPick(folderId: string | null): void;
   onClose(): void;
 }) {
-  const alive = folders.filter((f) => !f.deletedAt);
-  const excluded = new Set<string>();
-  if (exclude) {
-    excluded.add(exclude);
-    let grew = true;
-    while (grew) {
-      grew = false;
-      for (const f of alive) {
-        if (f.parentId && excluded.has(f.parentId) && !excluded.has(f.id)) {
-          excluded.add(f.id);
-          grew = true;
-        }
-      }
-    }
-  }
-  const rows: { folder: Folder; depth: number }[] = [];
-  const walk = (parentId: string | null, depth: number) => {
-    for (const f of alive.filter((x) => x.parentId === parentId).sort((a, b) => a.name.localeCompare(b.name, 'fr'))) {
-      if (excluded.has(f.id)) continue;
-      rows.push({ folder: f, depth });
-      walk(f.id, depth + 1);
+  // Même arbre que la barre latérale (orphelins et cycles rattachés à la racine). Le dossier qu'on déplace et
+  // tout son contenu sont retirés : on ne range pas un dossier dans lui-même.
+  const rows: FolderNode[] = [];
+  const walk = (nodes: readonly FolderNode[]) => {
+    for (const node of nodes) {
+      if (node.folder.id === exclude) continue;
+      rows.push(node);
+      walk(node.children);
     }
   };
-  walk(null, 0);
+  walk(buildFolderTree(folders));
 
   return (
     <Modal title={title} onClose={onClose}>
@@ -160,7 +149,7 @@ export function FolderPicker({
           </button>
         </li>
         {rows.map(({ folder, depth }) => (
-          <li key={folder.id} style={{ paddingLeft: 16 + depth * 20 }}>
+          <li key={folder.id} style={{ paddingLeft: 16 + Math.min(depth, 10) * 20 }}>
             <button className={current === folder.id ? 'current' : ''} onClick={() => onPick(folder.id)}>
               <span className="dot" style={{ background: folder.color }} /> {folder.name}
             </button>

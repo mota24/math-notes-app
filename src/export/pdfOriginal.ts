@@ -8,6 +8,7 @@ import { sheetRanges } from '../ink/pageExtent';
 import { volumeParts } from '../ink/volumes';
 import type { PaperColor, Stroke } from '../ink/types';
 import { printPngBytes } from './printImage';
+import { textStrokePng } from './textImage';
 import { printColor } from './printInk';
 
 const f3 = (v: number) => v.toFixed(3);
@@ -252,9 +253,17 @@ export async function exportInkPdf(
         rotated(target, box, scale, s, () => drawShapeOnPdf(target, box, scale, s));
         continue;
       }
-      if (s.tool === 'image') {
-        if (!s.image || s.points.length < 2) continue;
-        const img = await embedStrokeImage(s.image);
+      if (s.tool === 'text' || s.tool === 'image') {
+        let img: PDFImage;
+        if (s.tool === 'text') {
+          // Zone de texte : rendue en image nette (même police et mêmes lignes qu'à l'écran)
+          const png = await textStrokePng(s);
+          if (!png) continue;
+          img = await out.embedPng(png);
+        } else {
+          if (!s.image || s.points.length < 2) continue;
+          img = await embedStrokeImage(s.image);
+        }
         const x0 = Math.min(s.points[0][0], s.points[1][0]);
         const y0 = Math.min(s.points[0][1], s.points[1][1]);
         const x1 = Math.max(s.points[0][0], s.points[1][0]);

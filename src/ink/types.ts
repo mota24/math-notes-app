@@ -7,7 +7,7 @@ export type InkPoint = [number, number, number];
 
 export type InputKind = 'pen' | 'touch' | 'mouse';
 
-export type StrokeTool = 'pen' | 'highlighter' | 'image' | 'shape';
+export type StrokeTool = 'pen' | 'highlighter' | 'image' | 'shape' | 'text';
 
 /**
  * Cercle/rectangle/triangle : le rectangle points[0]–points[1]. Flèche : points[0] = départ,
@@ -49,6 +49,11 @@ export interface Stroke {
    * convertie sur la page (voir src/export/insertImage.ts).
    */
   image?: string;
+  /**
+   * tool === 'text' seulement : le texte tapé au clavier, mis en page dans la boîte points[0]–points[1]
+   * (retour à la ligne automatique, voir textLayout.ts) ; `size` est alors la taille du texte en mm.
+   */
+  text?: string;
   /** tool === 'shape' seulement : quelle forme dessiner (voir ShapeKind). */
   shape?: ShapeKind;
   /** Trait en pointillés (arêtes cachées, lignes de projection) : trait au stylo et formes. */
@@ -61,7 +66,7 @@ export interface Stroke {
   angle?: number;
 }
 
-export type Tool = 'pen' | 'highlighter' | 'eraser' | 'lasso' | 'hand' | 'shapes' | 'capture';
+export type Tool = 'pen' | 'highlighter' | 'eraser' | 'lasso' | 'hand' | 'shapes' | 'capture' | 'text';
 
 export type PaperStyle = 'grid' | 'seyes' | 'lined' | 'blank';
 

@@ -100,6 +100,37 @@ export function recognizeShape(points: InkPoint[]): RecognizedShape | null {
   return null;
 }
 
+/** Écart relatif largeur / hauteur en dessous duquel une ellipse devient un cercle, un rectangle un carré */
+const SQUARE_TOLERANCE = 0.18;
+/** Écart (degrés) sous lequel une ligne s'aligne sur l'horizontale, la verticale ou une diagonale à 45° */
+const ANGLE_TOLERANCE = 7;
+
+/**
+ * « Géométriquement parfait » : la main tremble, la forme reconnue ne doit pas. Une ellipse presque ronde
+ * devient un cercle, un rectangle presque carré un carré (le coin fixe `anchor` ne bouge pas, `far` est
+ * recalé) ; une ligne ou une flèche presque horizontale, verticale ou à 45° s'aligne exactement, en gardant
+ * sa longueur. Une forme franchement allongée ou penchée reste telle qu'elle a été dessinée.
+ */
+export function regularizeShape(kind: RecognizedShape, anchor: InkPoint, far: InkPoint): InkPoint {
+  const dx = far[0] - anchor[0];
+  const dy = far[1] - anchor[1];
+  if (kind === 'line' || kind === 'arrow') {
+    const length = Math.hypot(dx, dy);
+    if (length < 1e-6) return far;
+    const angle = (Math.atan2(dy, dx) * 180) / Math.PI;
+    const snapped = Math.round(angle / 45) * 45;
+    if (Math.abs(angle - snapped) > ANGLE_TOLERANCE) return far;
+    const rad = (snapped * Math.PI) / 180;
+    return [anchor[0] + length * Math.cos(rad), anchor[1] + length * Math.sin(rad), far[2]];
+  }
+  if (kind === 'triangle') return far;
+  const w = Math.abs(dx);
+  const h = Math.abs(dy);
+  if (Math.max(w, h) < 1e-6 || Math.abs(w - h) / Math.max(w, h) > SQUARE_TOLERANCE) return far;
+  const side = (w + h) / 2;
+  return [anchor[0] + Math.sign(dx || 1) * side, anchor[1] + Math.sign(dy || 1) * side, far[2]];
+}
+
 /**
  * Le point du tracé le plus loin (distance euclidienne) d'un point donné. Sert à retrouver la
  * vraie pointe d'une flèche reconnue même si le geste s'est replié en dessinant sa tête.

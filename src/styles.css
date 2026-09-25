@@ -201,9 +201,43 @@ button:disabled {
   --tb-wheel: 32px;
 }
 
-.toolbar.density-tight {
+.toolbar.density-tight,
+.toolbar.density-mini,
+.toolbar.density-micro,
+.toolbar.density-nano {
   --tb-qc: 28px;
   --tb-wheel: 30px;
+}
+
+/* Très étroit (écran partagé) : les pastilles rapides s'effacent, la roue garde toutes les couleurs ; encore
+   plus étroit, la roue aussi (un second tap sur le stylo ouvre ses couleurs) */
+.toolbar.density-mini .tb-pill .tb-qc,
+.toolbar.density-micro .tb-pill .tb-quick,
+.toolbar.density-micro .tb-pill .tb-quick + .tb-sep,
+.toolbar.density-nano .tb-pill .tb-quick,
+.toolbar.density-nano .tb-pill .tb-quick + .tb-sep {
+  display: none;
+}
+
+/* Le plus serré : boutons de 32 px, pictogrammes réduits d'autant */
+.toolbar.density-nano .tb-pill .tb-btn {
+  width: 32px;
+  height: 32px;
+}
+
+.toolbar.density-nano .tb-pill .tb-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.toolbar.density-nano .tb-pill .tb-sep {
+  margin: 0 1px;
+}
+
+/* Pendant que la barre se mesure (Toolbar.tsx) : aucune animation, les tailles sont celles de la densité essayée */
+.toolbar.measuring,
+.toolbar.measuring * {
+  transition: none !important;
 }
 
 .toolbar.density-compact .tb-pill .tb-btn {
@@ -211,13 +245,17 @@ button:disabled {
   height: 40px;
 }
 
-.toolbar.density-tight .tb-pill .tb-btn {
+.toolbar.density-tight .tb-pill .tb-btn,
+.toolbar.density-mini .tb-pill .tb-btn,
+.toolbar.density-micro .tb-pill .tb-btn {
   width: 36px;
   height: 36px;
 }
 
 .toolbar.density-compact .tb-pill .tb-sep,
-.toolbar.density-tight .tb-pill .tb-sep {
+.toolbar.density-tight .tb-pill .tb-sep,
+.toolbar.density-mini .tb-pill .tb-sep,
+.toolbar.density-micro .tb-pill .tb-sep {
   margin: 0 3px;
 }
 
@@ -2870,7 +2908,8 @@ code {
 /* ================================================================ */
 
 .split-pane {
-  flex: 0 0 auto;
+  /* Peut rétrécir : c'est l'éditeur qui garde sa largeur minimale (sa barre d'outils doit tenir) */
+  flex: 0 1 auto;
   min-width: 220px;
   max-width: 75%;
   min-height: 0;
@@ -2974,4 +3013,57 @@ code {
   .editor-header {
     display: none;
   }
+}
+
+/* ================================================================ */
+/* ZONE DE TEXTE en cours de frappe : un vrai champ posé sur la page  */
+/* ================================================================ */
+
+.ink-area .text-edit {
+  position: absolute;
+  z-index: 13;
+  margin: 0;
+  box-sizing: border-box;
+  resize: none;
+  overflow: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border: 1.5px dashed var(--accent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+  font-weight: 400;
+  letter-spacing: normal;
+  /* Le reste de l'appli bloque la sélection et les gestes : ici on tape, on sélectionne, on fait défiler */
+  user-select: text;
+  -webkit-user-select: text;
+  touch-action: auto;
+  caret-color: var(--accent);
+}
+
+.ink-area .text-edit::placeholder {
+  color: currentColor;
+  opacity: 0.4;
+}
+
+/* Au repos : invisible mais toujours là, pour recevoir le focus dans le geste (clavier virtuel d'iOS) */
+.ink-area .text-edit.text-edit-idle {
+  left: 0;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+  opacity: 0;
+  pointer-events: none;
+  font-size: 16px;
+}
+
+/* Écran partagé : l'éditeur garde au moins 480 px (ou 55 % sur un très petit écran), même avec une largeur
+   de volet enregistrée sur un plus grand écran */
+.workspace:has(.split-pane) > .canvas-wrap {
+  min-width: min(480px, 55%);
 }

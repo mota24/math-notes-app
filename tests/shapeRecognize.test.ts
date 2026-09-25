@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { recognizeShape } from '../src/ink/shapeRecognize.ts';
+import { recognizeShape, regularizeShape } from '../src/ink/shapeRecognize.ts';
 import type { InkPoint } from '../src/ink/types.ts';
 
 function rng(seed: number) {
@@ -201,6 +201,32 @@ test('un carré presque parfait reste un rectangle, pas un cercle', () => {
     const s = 18 + (seed % 10);
     assert.equal(recognizeShape(drawRect(10, 10, s, s, seed)), 'rect', `essai ${i}, côté ${s}`);
   }
+});
+
+test('régularisation : une ellipse presque ronde devient un cercle, un rectangle presque carré un carré', () => {
+  const far = regularizeShape('circle', [10, 10, 0.5], [50, 46, 0.5]);
+  assert.equal(far[0] - 10, far[1] - 10, 'largeur = hauteur');
+  assert.equal(far[0] - 10, 38);
+  // Tiré vers le haut à gauche : le coin fixe reste fixe, le sens est gardé
+  const up = regularizeShape('rect', [100, 100, 0.5], [62, 64, 0.5]);
+  assert.deepEqual([up[0], up[1]], [63, 63]);
+});
+
+test('régularisation : une forme franchement allongée reste telle quelle', () => {
+  assert.deepEqual(regularizeShape('rect', [0, 0, 0.5], [60, 30, 0.5]), [60, 30, 0.5]);
+  assert.deepEqual(regularizeShape('circle', [0, 0, 0.5], [40, 25, 0.5]), [40, 25, 0.5]);
+  assert.deepEqual(regularizeShape('triangle', [0, 0, 0.5], [40, 38, 0.5]), [40, 38, 0.5]);
+});
+
+test('régularisation : ligne presque horizontale, verticale ou à 45° alignée, longueur gardée', () => {
+  const h = regularizeShape('line', [0, 0, 0.5], [80, 5, 0.5]); // ~3,6°
+  assert.ok(Math.abs(h[1]) < 1e-9, 'horizontale');
+  assert.ok(Math.abs(h[0] - Math.hypot(80, 5)) < 1e-9, 'même longueur');
+  const v = regularizeShape('arrow', [0, 0, 0.5], [-4, -60, 0.5]);
+  assert.ok(Math.abs(v[0]) < 1e-9 && v[1] < 0, 'verticale vers le haut');
+  const d = regularizeShape('line', [0, 0, 0.5], [50, 54, 0.5]);
+  assert.ok(Math.abs(d[0] - d[1]) < 1e-9, 'diagonale à 45°');
+  assert.deepEqual(regularizeShape('line', [0, 0, 0.5], [50, 20, 0.5]), [50, 20, 0.5], 'une pente de 22° reste une pente');
 });
 
 let failed = 0;
