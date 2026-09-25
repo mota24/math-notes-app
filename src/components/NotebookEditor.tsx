@@ -223,6 +223,23 @@ export function NotebookEditor({
     setSelection(ids);
     setSelectionRegion(region);
   };
+  /**
+   * Zone de texte sélectionnée d'un tap : le lasso est pris le temps de la sélection (glisser la zone, ses
+   * poignées, sa barre d'actions), puis l'outil d'avant revient dès qu'elle se referme. Vérifié après le rendu :
+   * un changement de page du défilement continu vide la sélection juste avant que le tap la remplisse.
+   */
+  const toolBeforeTap = useRef<Tool | null>(null);
+  const onTapText = (id: string) => {
+    if (tool !== 'lasso') toolBeforeTap.current = tool;
+    setTool('lasso');
+    select([id]);
+  };
+  useEffect(() => {
+    const before = toolBeforeTap.current;
+    if (selection.length > 0 || !before) return;
+    toolBeforeTap.current = null;
+    if (tool === 'lasso') setTool(before);
+  }, [selection, tool]);
   /** Zone du Lasso de capture, encore ajustable par ses poignées tant qu'elle n'est pas copiée */
   const [captureRegion, setCaptureRegion] = useState<BBox | null>(null);
   const [canPaste, setCanPaste] = useState(clipboard !== null);
@@ -440,6 +457,8 @@ export function NotebookEditor({
   };
   const onTextTarget = (target: TextTarget) => {
     if ('stroke' in target) {
+      // Le cadre et la barre de la sélection laissent la place au champ de saisie
+      select([]);
       const st = target.stroke;
       const [a, b] = st.points;
       setTextEdit({
@@ -1045,6 +1064,7 @@ export function NotebookEditor({
             onLassoShape={(lassoShape) => update({ lassoShape })}
             onImage={() => imageInput.current?.click()}
             onTool={(t) => {
+              toolBeforeTap.current = null;
               setTool(t);
               if (t !== 'lasso') select([]);
               if (t !== 'capture') setCaptureRegion(null);
@@ -1117,6 +1137,7 @@ export function NotebookEditor({
                 setSelectionRegion(null);
               }}
               onSwitchTool={setTool}
+              onTapText={onTapText}
               onSelect={(ids, region) => {
                 const current = pageRef.current;
                 select(ids, region && current && hasBackground(current) ? region : null);

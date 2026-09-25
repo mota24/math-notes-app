@@ -95,6 +95,11 @@ interface Props {
   /** Un tampon posé rend la main au stylo : le parent change d'outil, sans toucher à la sélection */
   onSwitchTool(tool: Tool): void;
   onSelect(ids: string[], region?: BBox | null): void;
+  /**
+   * Un tap sur une zone de texte (stylo, surligneur, outil Texte, lasso, souris, ou le doigt quand il ne dessine
+   * pas) : la sélectionner tout de suite, poignées et barre d'actions comprises, sans passer par le lasso.
+   */
+  onTapText(id: string): void;
   onUndo(): void;
   onPenDetected(): void;
   /** Taille du stylet apprise (px) : retenue pour les prochaines sessions */
@@ -156,7 +161,13 @@ interface Live {
   follow?: { from: InkPoint; far: InkPoint };
   pageId?: string;
   pageTop?: number;
+  /** performance.now() au début du geste : distingue un tap d'un appui prolongé */
+  startedAt?: number;
 }
+
+/** Un tap : le geste reste dans un carré de TAP_MM de côté (mm) et dure moins de TAP_MS (ms) */
+const TAP_MM = 2;
+const TAP_MS = 450;
 
 /** Identifiant de l'aperçu d'une poignée (aucun vrai contact n'a cet id). */
 const EDIT_LIVE_ID = -1;
@@ -787,6 +798,32 @@ export function InkCanvas(props: Props) {
 
     panByRef.current = (dx, dy) => panZoom(dx, dy, rect.left + size.w / 2, rect.top + size.h / 2, 1);
 
+    /** Le geste n'a été qu'un tap : à peine glissé, à peine appuyé */
+    const wasTap = (l: Live) => {
+      if (!l.points.length || performance.now() - (l.startedAt ?? 0) > TAP_MS) return false;
+      const xs = l.points.map((pt) => pt[0]);
+      const ys = l.points.map((pt) => pt[1]);
+      return Math.max(...xs) - Math.min(...xs) < TAP_MM && Math.max(...ys) - Math.min(...ys) < TAP_MM;
+    };
+    /** La zone de texte sous (x, y) sur cette feuille (la plus haute de l'empilement), s'il y en a une */
+    const textAt = (sheet: Sheet, x: number, y: number) =>
+      [...sheet.page.strokes].reverse().find((st) => st.tool === 'text' && !hiddenRef.current.has(st.id) && strokeHit(st, x, y, 1));
+    /**
+     * Défilement continu : la page d'une sélection devient la page courante (c'est sur elle que le parent applique
+     * couleurs, déplacement et suppression). Le repère est posé avant de prévenir le parent : la vue ne saute pas.
+     */
+    const activateSheet = (sheet: Sheet) => {
+      const p = propsRef.current;
+      if (getSheets(p, minHeightRef.current).length > 1 && sheet.index !== activePageIndexRef.current) {
+        activePageIndexRef.current = sheet.index;
+        p.onPageIndexChange?.(sheet.index);
+      }
+    };
+    const selectText = (sheet: Sheet, stroke: Stroke) => {
+      activateSheet(sheet);
+      propsRef.current.onTapText(stroke.id);
+    };
+
     const listener: ClassifierListener = {
       drawStart(id, kind, samples) {
         const p = propsRef.current;
@@ -800,6 +837,7 @@ export function InkCanvas(props: Props) {
           points: [], predicted: [], erased: new Set(), cursor: null, dx: 0, dy: 0, moving: [],
           pageId: targetSheet.id,
           pageTop: targetSheet.top,
+          startedAt: performance.now(),
         };
         if (tool === 'lasso' && p.selection.length && samples.length) {
           // Appui dans la sélection : on la déplace au lieu de tracer un nouveau lasso
@@ -865,7 +903,12 @@ export function InkCanvas(props: Props) {
         const sheets = getSheets(p, minHeightRef.current);
         const sheet = sheets.find((s) => s.id === l.pageId) ?? sheets[0];
         const pageTop = l.pageTop ?? sheet.top;
-        if ((l.tool === 'pen' || l.tool === 'highlighter') && l.points.length) {
+        // Un tap du stylo ou du surligneur sur une zone de texte la sélectionne, au lieu d'y laisser un point
+        const end = l.points[l.points.length - 1];
+        const tappedText = (l.tool === 'pen' || l.tool === 'highlighter') && wasTap(l) ? textAt(sheet, end[0], end[1]) : undefined;
+        if (tappedText) {
+          selectText(sheet, tappedText);
+        } else if ((l.tool === 'pen' || l.tool === 'highlighter') && l.points.length) {
           const stroke: Stroke = { id: newId(), points: l.points, color: l.color, size: l.size, input: l.kind };
           if (l.tool === 'highlighter') stroke.tool = 'highlighter';
           else if (l.dashed) stroke.dashed = true;
@@ -898,18 +941,18 @@ export function InkCanvas(props: Props) {
           // Un tampon posé rend la main au stylo : la prochaine écriture ne dessine pas une forme par mégarde
           if (l.tool === 'shapes') p.onSwitchTool('pen');
         } else if (l.tool === 'text' && l.points.length && l.pageId) {
-          // Focus tout de suite, dans le geste : le clavier virtuel s'ouvre (voir textArea)
-          textArea.current?.focus({ preventScroll: true });
           const a = l.points[0];
           const b = l.points[l.points.length - 1];
-          if (Math.hypot(b[0] - a[0], b[1] - a[1]) < 3) {
-            // Un tap sur une zone de texte : on la reprend ; ailleurs : une nouvelle zone, là où l'on a touché
-            const hit = [...sheet.page.strokes].reverse().find((st) => st.tool === 'text' && !hiddenRef.current.has(st.id) && strokeHit(st, b[0], b[1], 1));
-            if (hit) p.onTextTarget({ pageId: l.pageId, stroke: hit });
-            else {
-              const x = clamp(b[0], 0, Math.max(0, sheet.width - MIN_TEXT_WIDTH));
-              p.onTextTarget({ pageId: l.pageId, x, y: b[1], width: Math.max(MIN_TEXT_WIDTH, Math.min(DEFAULT_TEXT_WIDTH, sheet.width - x - 5)), tap: true });
-            }
+          const tap = Math.hypot(b[0] - a[0], b[1] - a[1]) < 3;
+          // Un tap sur une zone de texte : on la sélectionne (un second tap, ou « Modifier », pour y écrire)
+          const hit = tap ? textAt(sheet, b[0], b[1]) : undefined;
+          // Sinon, focus tout de suite, dans le geste : le clavier virtuel s'ouvre (voir textArea)
+          if (!hit) textArea.current?.focus({ preventScroll: true });
+          if (hit) selectText(sheet, hit);
+          else if (tap) {
+            // Un tap ailleurs : une nouvelle zone, là où l'on a touché
+            const x = clamp(b[0], 0, Math.max(0, sheet.width - MIN_TEXT_WIDTH));
+            p.onTextTarget({ pageId: l.pageId, x, y: b[1], width: Math.max(MIN_TEXT_WIDTH, Math.min(DEFAULT_TEXT_WIDTH, sheet.width - x - 5)), tap: true });
           } else {
             const x = Math.min(a[0], b[0]);
             p.onTextTarget({ pageId: l.pageId, x, y: Math.min(a[1], b[1]), width: Math.max(MIN_TEXT_WIDTH, Math.abs(b[0] - a[0])), tap: false });
@@ -935,6 +978,13 @@ export function InkCanvas(props: Props) {
             p.onMoveSelection(l.dx, l.dy);
           } else {
             scheduleBase();
+            // Un tap sur la zone de texte déjà sélectionnée : on écrit dedans (focus dans le geste : le clavier s'ouvre)
+            const only = l.moving.length === 1 && l.moving[0].tool === 'text' ? l.moving[0] : null;
+            const home = only && sheets.find((sh) => sh.page.strokes.some((st) => st.id === only.id));
+            if (only && home && performance.now() - (l.startedAt ?? 0) < TAP_MS) {
+              textArea.current?.focus({ preventScroll: true });
+              p.onTextTarget({ pageId: home.id, stroke: only });
+            }
           }
         } else if (l.tool === 'eraser' && l.edits?.size) {
           setTransform(base);
@@ -945,6 +995,9 @@ export function InkCanvas(props: Props) {
           p.onReplaceStrokes(new Map(l.edits));
         } else if (l.tool === 'eraser' && l.erased.size) {
           p.onErase([...l.erased]);
+        } else if (l.tool === 'lasso' && wasTap(l) && textAt(sheet, l.points[0][0], l.points[0][1])) {
+          // Un tap du lasso sur une zone de texte : elle seule est sélectionnée
+          selectText(sheet, textAt(sheet, l.points[0][0], l.points[0][1])!);
         } else if (l.tool === 'lasso') {
           // La zone du lasso compte aussi : sur un PDF ou une photo, on peut convertir sans avoir écrit
           const region =
@@ -956,7 +1009,9 @@ export function InkCanvas(props: Props) {
                   maxY: Math.max(...l.points.map((pt) => pt[1])),
                 }
               : null;
-          p.onSelect(strokesInLasso(sheet.page.strokes, l.points.map(([x, y]) => [x, y])), region);
+          const ids = strokesInLasso(sheet.page.strokes, l.points.map(([x, y]) => [x, y]));
+          if (ids.length) activateSheet(sheet);
+          p.onSelect(ids, region);
         }
         present();
       },
@@ -976,6 +1031,16 @@ export function InkCanvas(props: Props) {
       },
       panZoom,
       twoFingerTap: () => propsRef.current.onUndo(),
+      // Le doigt qui ne dessine pas (mode stylet, outil Main) : un tap sélectionne la zone de texte touchée, un
+      // tap ailleurs referme la sélection
+      tap: (x, y) => {
+        const p = propsRef.current;
+        const [docX, docY] = toDoc({ x, y, p: 0.5, t: 0, size: 0 });
+        const sheet = findSheet(getSheets(p, minHeightRef.current), docY);
+        const hit = docX >= 0 && docX <= sheet.width ? textAt(sheet, docX, docY - sheet.top) : undefined;
+        if (hit) selectText(sheet, hit);
+        else if (p.selection.length) p.onSelect([]);
+      },
       penDetected: () => propsRef.current.onPenDetected(),
       /**
        * Appui long immobile : ce contact devient une gomme jusqu'à ce qu'il se lève (comme JNotes).
@@ -1060,11 +1125,11 @@ export function InkCanvas(props: Props) {
     const onDown = (e: PointerEvent) => {
       e.preventDefault();
       // Une zone de texte est ouverte : ce tap la valide (preventDefault empêche le champ de perdre le
-      // focus tout seul). Avec l'outil Texte, ce même tap n'ouvre pas aussitôt une nouvelle zone.
+      // focus tout seul), et rien d'autre : ni nouvelle zone avec l'outil Texte, ni point de stylo sur la page.
       if (propsRef.current.textEdit) {
         propsRef.current.onTextDone();
         textArea.current?.blur(); // referme aussi le clavier virtuel
-        if (propsRef.current.tool === 'text') return;
+        return;
       }
       try {
         displayCanvas.setPointerCapture(e.pointerId);
@@ -1255,6 +1320,14 @@ export function InkCanvas(props: Props) {
   // Il s'aligne à gauche du cadre, mais recule pour tenir dans la zone : il ne passe pas sur deux lignes, par-dessus la sélection.
   const barRaise = rotate?.above ? ROTATE_GAP + ROTATE_SIZE : editable ? 24 : 0;
   const barLeft = selBox ? Math.max(8, Math.min(selBox.left, stage.w - (regionOnly ? BAR_WIDTH_REGION : BAR_WIDTH) - 8)) : 8;
+
+  /** « Modifier » : écrire dans la zone de texte sélectionnée (focus dans le geste : le clavier virtuel s'ouvre) */
+  const editText = (stroke: Stroke) => {
+    const home = getSheets(props, minHeightRef.current).find((sh) => sh.page.strokes.some((st) => st.id === stroke.id));
+    if (!home) return;
+    textArea.current?.focus({ preventScroll: true });
+    props.onTextTarget({ pageId: home.id, stroke });
+  };
 
   /** Échelle (poignées d'angle) ou rotation (poignée du dessous) de toute la sélection : aperçu en direct, puis une seule entrée d'historique. */
   const dragTransform = (e: ReactPointerEvent<HTMLElement>, kind: ScaleCorner | 'rotate') => {
@@ -1504,6 +1577,7 @@ export function InkCanvas(props: Props) {
                     <button key={c} className="swatch small" style={{ background: c }} aria-label="Changer la couleur" onClick={() => props.onRecolorSelection(c)} />
                   ))}
                   <MultiColorSwatch initial={props.selectionColors[0]} onCommit={props.onPickSelectionColor} />
+                  {only?.tool === 'text' && <button onClick={() => editText(only)}>Modifier</button>}
                   <button onClick={props.onDuplicateSelection}>Dupliquer</button>
                   <button onClick={props.onCopySelection}>Copier</button>
                   <button onClick={props.onDeleteSelection}>Supprimer</button>

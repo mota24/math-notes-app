@@ -61,6 +61,7 @@ function setup(overrides: Partial<ClassifierConfig> = {}) {
       drawCancel: (id) => events.push(`cancel:${id}`),
       panZoom: (dx, dy, _cx, _cy, f) => events.push(`pan:${dx.toFixed(0)},${dy.toFixed(0)},${f.toFixed(2)}`),
       twoFingerTap: () => events.push('tap2'),
+      tap: (x, y) => events.push(`tap1:${x.toFixed(0)},${y.toFixed(0)}`),
       penDetected: () => events.push('pen!'),
       holdErase: (id) => events.push(`gomme:${id}`),
       shapeHold: (id) => events.push(`forme:${id}`),
@@ -193,6 +194,25 @@ test('4c. mode strict, stylet déjà vu sur cet appareil (réglage retenu) : le 
   t.at(0).down(1, 100, 100, 20).drag(1, [100, 100], [100, 160], 20).up(1, 100, 160, 20);
   assert.equal(t.count('start:1'), 0, 'aucun trait au doigt');
   assert.ok(t.count('pan') > 5, 'le doigt déplace la page');
+});
+
+test('4c2. mode strict, stylet déjà vu : un tap du doigt est un « clic » (sélection d’une zone de texte), pas un défilement', () => {
+  const t = setup({ mode: 'active' });
+  t.c.penSeen = true;
+  t.at(0).down(1, 100, 100, 20).at(40).move(1, 103, 101, 20).at(120).up(1, 103, 101, 20);
+  assert.equal(t.count('tap1:100,100'), 1, 'tap au point touché');
+  assert.equal(t.count('pan'), 0);
+  assert.equal(t.count('start:1'), 0);
+});
+
+test('4c3. mode strict : glisser, appui trop long ou deux doigts ne font pas de tap à un doigt', () => {
+  const t = setup({ mode: 'active' });
+  t.c.penSeen = true;
+  t.at(0).down(1, 100, 100, 20).drag(1, [100, 100], [100, 160], 20).up(1, 100, 160, 20);
+  t.at(2000).down(2, 300, 300, 20).at(2700).up(2, 300, 300, 20);
+  t.at(4000).down(3, 200, 300, 20).at(4010).down(4, 400, 300, 20).at(4080).up(3, 200, 300, 20).up(4, 400, 300, 20);
+  assert.equal(t.count('tap1'), 0);
+  assert.equal(t.count('tap2'), 1, 'le tap à deux doigts reste « annuler »');
 });
 
 test('4d. mode strict sans stylet : deux doigts zooment ou défilent, sans laisser de trait', () => {
