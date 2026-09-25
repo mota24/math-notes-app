@@ -47,6 +47,11 @@ export interface ClassifierListener {
   /** Déplacement (dx, dy) et zoom (factor) autour du centre (cx, cy), en px CSS. */
   panZoom(dx: number, dy: number, cx: number, cy: number, factor: number): void;
   twoFingerTap(): void;
+  /**
+   * Un seul doigt posé puis levé aussitôt, sans bouger, là où le doigt ne dessine pas (mode stylet, outil
+   * Main) : un « clic » en (x, y), px CSS. Sert à sélectionner d'un tap une zone de texte.
+   */
+  tap?(x: number, y: number): void;
   penDetected(): void;
   /** Appui long immobile pendant un trait : bascule ce contact en gomme jusqu'à ce qu'il se lève. */
   holdErase?(id: number): void;
@@ -140,6 +145,8 @@ const GESTURE_STALE = 300; // ms : geste immobile = doigts (ou paume) posés, il
 const DOT_MAX_MS = 250;
 const TAP_MS = 300;
 const TAP_MOVE = 14;
+/** Durée maximale d'un tap à un doigt (ms) : un peu plus qu'à deux doigts, un doigt seul se pose plus posément */
+const SINGLE_TAP_MS = 450;
 /**
  * Un seul contact qui fait défiler (mode stylet strict, outil main, marge) ne déplace la page qu'après avoir
  * parcouru cette distance (px) : la paume posée avant le stylet (iPad, Galaxy Tab) tremble de quelques pixels,
@@ -1107,6 +1114,10 @@ export class InputClassifier {
       info.tapDone = true;
       this.listener.twoFingerTap();
     }
+    // Un doigt seul, levé sans avoir franchi le seuil de défilement : un tap, pas un défilement
+    const single =
+      allowTap && !!info && info.ids.size === 1 && remaining.length === 0 && !info.slopPassed && t.moved < TAP_MOVE && now - info.start < SINGLE_TAP_MS;
+    if (single) this.listener.tap?.(t.down.x, t.down.y);
     const keepPanning = !isTap && (this.effectiveMode === 'active' || this.config.handTool);
     if (remaining.length === 0 || !keepPanning) {
       // Après un zoom ou un tap, le doigt restant ne doit pas se mettre à écrire

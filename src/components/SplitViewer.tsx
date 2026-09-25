@@ -5,6 +5,8 @@ import { hasBackground, pageBackground } from '../ink/background';
 import { LazyPage } from '../ink/LazyPage';
 import type { LoadedPage } from '../ink/LazyPage';
 import { ICONS } from './icons';
+import { Icon } from './LibraryIcons';
+import { NotebookPicker } from './NotebookPicker';
 
 const NO_NOTEBOOKS: Notebook[] = [];
 const NO_PAGES: Page[] = [];
@@ -14,6 +16,8 @@ const ZOOMS = [0.6, 0.8, 1, 1.25, 1.5, 2, 2.5];
  * Le volet gauche de l'écran partagé : un autre cahier (typiquement le PDF du cours) en lecture, à côté
  * du cahier où l'on écrit. Défilement continu, zoom, et « ⇄ » pour échanger les deux côtés quand on veut
  * annoter le cours lui-même. Les pages ne se dessinent qu'à l'approche de l'écran (voir LazyPage).
+ * Le titre ouvre le mini-explorateur (récents, dossiers, recherche) pour changer de cahier ; sans cahier
+ * choisi (`notebookId` null, écran partagé qu'on vient d'ouvrir), c'est lui qui s'affiche.
  */
 export function SplitViewer({
   notebookId,
@@ -22,7 +26,7 @@ export function SplitViewer({
   onSwap,
   onClose,
 }: {
-  notebookId: string;
+  notebookId: string | null;
   /** Le cahier ouvert dans l'éditeur (exclu de la liste) */
   currentId: string;
   onPick(id: string): void;
@@ -31,17 +35,14 @@ export function SplitViewer({
 }) {
   const notebooks = useQuery(() => db.notebooks(), [], ['notebooks']) ?? NO_NOTEBOOKS;
   const notebook = notebooks.find((n) => n.id === notebookId);
-  const pages = useQuery(() => db.pagesOf(notebookId), [notebookId], ['pages']) ?? NO_PAGES;
+  const pages = useQuery(() => (notebookId ? db.pagesOf(notebookId) : Promise.resolve(NO_PAGES)), [notebookId], ['pages']) ?? NO_PAGES;
+  const [picking, setPicking] = useState(notebookId === null);
   // Un PDF qui arrive par la synchronisation : les pages restées « indisponibles » se rechargent
   const fileCount = useQuery(() => db.fileIds().then((ids) => ids.length), [], ['files']) ?? 0;
   const ordered = useMemo(() => {
     const byId = new Map(pages.map((p) => [p.id, p]));
     return (notebook?.pageIds ?? []).map((id) => byId.get(id)).filter((p): p is Page => !!p);
   }, [pages, notebook]);
-  const choices = useMemo(
-    () => notebooks.filter((n) => !n.deletedAt && n.id !== currentId).sort((a, b) => b.openedAt - a.openedAt),
-    [notebooks, currentId],
-  );
 
   const [zoom, setZoom] = useState(1);
   const scroller = useRef<HTMLDivElement>(null);
@@ -74,24 +75,19 @@ export function SplitViewer({
     'inline-grid size-7 min-h-0 shrink-0 place-items-center rounded-md border-0 bg-transparent p-0 text-zinc-400 transition-colors hover:bg-white/[0.08] hover:text-white disabled:opacity-30 [&_svg]:size-4';
 
   return (
-    <section className="split-viewer flex h-full min-w-0 flex-col bg-[#18191c]" aria-label="Cahier ouvert à côté">
+    <section className="split-viewer flex h-full min-w-0 flex-col bg-[#18191c] text-zinc-100 [color-scheme:dark]" aria-label="Cahier ouvert à côté">
       <header className="flex h-10 shrink-0 items-center gap-1 border-b border-white/[0.06] px-1.5">
-        <select
-          value={notebookId}
-          onChange={(e) => onPick(e.target.value)}
-          aria-label="Cahier affiché à côté"
-          className="h-7 min-h-0 min-w-0 flex-1 truncate rounded-md border border-white/[0.08] bg-white/[0.04] px-2 py-0 text-[12px] font-medium text-zinc-200 outline-none"
+        <button
+          type="button"
+          onClick={() => setPicking((v) => !v || !notebookId)}
+          aria-expanded={picking}
+          title="Choisir le cahier affiché à côté"
+          className="flex h-7 min-h-0 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-white/[0.08] bg-white/[0.04] px-2 py-0 text-left text-[12px] font-medium text-zinc-100 transition-colors hover:bg-white/[0.08]"
         >
-          {!notebook && <option value={notebookId}>Cahier introuvable</option>}
-          {notebook && <option value={notebook.id}>{notebook.title}</option>}
-          {choices
-            .filter((n) => n.id !== notebookId)
-            .map((n) => (
-              <option key={n.id} value={n.id}>
-                {n.title}
-              </option>
-            ))}
-        </select>
+          {notebook && <span className="size-2 shrink-0 rounded-full" style={{ background: notebook.color }} />}
+          <span className="min-w-0 flex-1 truncate">{notebook ? notebook.title : notebookId ? 'Cahier introuvable' : 'Choisir un cahier…'}</span>
+          <Icon name="chevron" className={`size-3.5 shrink-0 text-zinc-400 transition-transform ${picking ? '-rotate-90' : 'rotate-90'}`} />
+        </button>
         <button type="button" className={btn} onClick={() => step(-1)} disabled={zoom <= ZOOMS[0]} aria-label="Dézoomer">
           {ICONS.minus}
         </button>
@@ -108,9 +104,22 @@ export function SplitViewer({
           {ICONS.close}
         </button>
       </header>
-      <div ref={scroller} className="min-h-0 flex-1 overflow-auto overscroll-contain">
+      {picking && (
+        <div className="min-h-0 flex-1">
+          <NotebookPicker
+            currentId={currentId}
+            shownId={notebookId}
+            onPick={(id) => {
+              setPicking(false);
+              onPick(id);
+            }}
+            onCancel={notebookId ? () => setPicking(false) : onClose}
+          />
+        </div>
+      )}
+      <div ref={scroller} className={`min-h-0 flex-1 overflow-auto overscroll-contain ${picking ? 'hidden' : ''}`}>
         {ordered.length === 0 ? (
-          <p className="m-0 p-6 text-center text-[13px] text-zinc-500">{notebook ? 'Ce cahier est vide.' : 'Chargement…'}</p>
+          <p className="m-0 p-6 text-center text-[13px] text-zinc-500">{notebook ? 'Ce cahier est vide.' : notebookId ? 'Chargement…' : ''}</p>
         ) : (
           <div className="flex w-max min-w-full flex-col items-center gap-3 px-3 py-3">
             {ordered.map((p, i) => (

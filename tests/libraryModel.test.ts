@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { buildFolderTree, countChildren, countLabel, folderParents, folderPath, notebookFolder, paperPreview, viewTitle, visibleNodes } from '../src/components/libraryModel.ts';
+import { browseNotebooks, buildFolderTree, countChildren, countLabel, coverGradient, coverKey, coverSource, folderParents, folderPath, notebookFolder, paperPreview, viewTitle, visibleNodes } from '../src/components/libraryModel.ts';
 import type { Folder, Notebook } from '../src/db/schema.ts';
 
 let n = 0;
@@ -163,6 +163,53 @@ test('papier en miniature : clair ou sombre, avec les réglures du vrai papier',
   assert.equal(paperPreview('blank', 'dark').backgroundColor, '#111214');
   assert.ok(paperPreview('seyes').backgroundImage?.includes('#e8a3a3'), 'marge rouge du Seyès');
   assert.ok(paperPreview('lined', 'dark').backgroundImage?.includes('#7a3d3d'), 'marge de lignes sur papier sombre');
+});
+
+test('couverture : la page du PDF, sinon la photo, sinon rien (visuel dégradé)', () => {
+  const pdf = coverSource({ pdf: { fileId: 'f1', pageIndex: 0 }, image: null });
+  assert.deepEqual(pdf, { kind: 'pdf', fileId: 'f1', pageIndex: 0 });
+  assert.deepEqual(coverSource({ pdf: null, image: { fileId: 'p1' } }), { kind: 'image', fileId: 'p1' });
+  assert.equal(coverSource({ pdf: null }), null, 'page de papier');
+  assert.equal(coverSource(undefined), null, 'première page pas encore arrivée');
+  assert.equal(coverKey(pdf!), 'pdf-f1-0');
+  assert.notEqual(coverKey({ kind: 'pdf', fileId: 'f1', pageIndex: 3 }), coverKey(pdf!), 'une autre page, une autre miniature');
+  assert.equal(coverKey({ kind: 'image', fileId: 'p1' }), 'image-p1');
+});
+
+test('couverture sans rien à montrer : dégradé tiré de la couleur du cahier', () => {
+  const g = coverGradient('#c0392b');
+  assert.ok(g.includes('#c0392b'));
+  assert.ok(g.startsWith('radial-gradient('));
+});
+
+test('écran partagé : parcourir un dossier (sous-dossiers, cahiers), sans corbeille ni le cahier ouvert', () => {
+  const s1 = folder('Semestre 1');
+  const ana = folder('Analyse', s1.id);
+  const old = folder('Ancien', s1.id, { deletedAt: 5 });
+  const cours = notebook(ana.id, { title: 'Cours intégrales' });
+  const td = notebook(ana.id, { title: 'TD 2' });
+  const td10 = notebook(ana.id, { title: 'TD 10' });
+  const ouvert = notebook(ana.id, { title: 'Mes notes' });
+  const jete = notebook(ana.id, { title: 'Jeté', deletedAt: 3 });
+  const perdu = notebook(old.id, { title: 'Dans la corbeille' });
+  const racine = notebook(null, { title: 'Brouillon' });
+  const all = [cours, td, td10, ouvert, jete, perdu, racine];
+  const root = browseNotebooks([s1, ana, old], all, null, '', ouvert.id);
+  assert.deepEqual(root.folders.map((f) => f.name), ['Semestre 1']);
+  assert.deepEqual(root.notebooks.map((x) => x.title), ['Brouillon']);
+  assert.deepEqual(browseNotebooks([s1, ana, old], all, s1.id, '', ouvert.id).folders.map((f) => f.name), ['Analyse'], 'dossier à la corbeille caché');
+  assert.deepEqual(browseNotebooks([s1, ana, old], all, ana.id, '', ouvert.id).notebooks.map((x) => x.title), ['Cours intégrales', 'TD 2', 'TD 10'], 'tri naturel, sans le cahier ouvert ni la corbeille');
+});
+
+test('écran partagé : recherche dans toute la bibliothèque, sans accents ni majuscules, par mots', () => {
+  const ana = folder('Analyse réelle');
+  const cours = notebook(ana.id, { title: 'Cours Intégrales', subject: 'Maths' });
+  const phys = notebook(null, { title: 'Ondes', subject: 'Physique' });
+  const r = browseNotebooks([ana], [cours, phys], null, 'integrales', null);
+  assert.deepEqual(r.notebooks.map((x) => x.title), ['Cours Intégrales'], 'trouvé dans un sous-dossier');
+  assert.deepEqual(browseNotebooks([ana], [cours, phys], null, 'physique', null).notebooks.map((x) => x.title), ['Ondes'], 'par la matière');
+  assert.deepEqual(browseNotebooks([ana], [cours, phys], null, 'REELLE', null).folders.map((f) => f.name), ['Analyse réelle']);
+  assert.equal(browseNotebooks([ana], [cours, phys], null, 'cours ondes', null).notebooks.length, 0, 'tous les mots doivent y être');
 });
 
 let failed = 0;

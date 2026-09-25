@@ -25,7 +25,8 @@ import { Icon } from './LibraryIcons';
 import type { IconName } from './LibraryIcons';
 import { buildFolderTree, countChildren, countLabel, folderParents, folderPath, notebookFolder, viewTitle } from './libraryModel';
 import { LibrarySidebar } from './LibrarySidebar';
-import { glassButton, glassButtonAccent, glassIconButton, glassPanel } from './libraryStyles';
+import { setSplit } from './splitStore';
+import { dangerButton, glassButton, glassButtonAccent, glassIconButton, glassPanel } from './libraryStyles';
 import { ConfirmDialog, FolderPicker, PromptDialog } from './Modal';
 import { NewNotebookDialog } from './NewNotebookDialog';
 import { CalendarPanel } from './CalendarPanel';
@@ -74,9 +75,6 @@ function Empty({ icon, title, children }: { icon: IconName; title: string; child
     </div>
   );
 }
-
-const dangerButton =
-  'inline-flex min-h-11 items-center justify-center rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-0 text-sm font-medium text-red-600 transition-all duration-200 hover:bg-red-500/20 active:scale-[0.97] dark:text-red-400';
 
 const crumb =
   'min-h-0 rounded-md border-0 bg-transparent px-1.5 py-0.5 font-medium transition-colors duration-150 hover:bg-black/5 hover:text-zinc-900 dark:hover:bg-white/10 dark:hover:text-white';
@@ -156,7 +154,27 @@ export function Library({ route, onOpenSettings }: { route: Extract<Route, { nam
     { label: 'Déplacer…', onClick: () => setDialog({ kind: 'move-folder', folder: f }) },
     { label: 'Mettre à la corbeille', danger: true, onClick: () => void trashFolder(f.id) },
   ];
+  /**
+   * « Ouvrir à côté » : le cahier choisi s'affiche en écran partagé à côté du dernier cahier ouvert (celui où
+   * l'on écrivait), qui s'ouvre. Sans autre cahier ouvert avant, l'entrée n'apparaît pas.
+   */
+  const lastOpened = (except: string) =>
+    notebooks.filter((o) => !o.deletedAt && o.id !== except && o.openedAt > 0).reduce<Notebook | null>((a, o) => (!a || o.openedAt > a.openedAt ? o : a), null);
+  const sideBySide = (n: Notebook): MenuItem[] => {
+    const main = lastOpened(n.id);
+    if (!main) return [];
+    return [
+      {
+        label: `Ouvrir à côté de « ${main.title.length > 28 ? `${main.title.slice(0, 27)}…` : main.title} »`,
+        onClick: () => {
+          setSplit(main.id, n.id);
+          openNotebook(main);
+        },
+      },
+    ];
+  };
   const notebookMenu = (n: Notebook): MenuItem[] => [
+    ...sideBySide(n),
     {
       label: n.favorite ? 'Retirer des favoris' : 'Ajouter aux favoris',
       onClick: () => void updateNotebook(n.id, { favorite: !n.favorite }),

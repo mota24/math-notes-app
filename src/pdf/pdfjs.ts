@@ -90,3 +90,37 @@ export async function renderPdfPage(fileId: string, pageIndex: number, pxPerMm: 
   }
   return canvas;
 }
+
+/**
+ * Miniature d'une page, `widthPx` de large (couverture d'un cahier dans la bibliothèque). Un document déjà ouvert
+ * pour l'éditeur sert tel quel ; sinon il n'est ouvert que le temps du rendu, puis refermé : parcourir la
+ * bibliothèque ne garde pas des dizaines de PDF en mémoire.
+ */
+export async function renderPdfThumbnail(fileId: string, pageIndex: number, widthPx: number): Promise<HTMLCanvasElement> {
+  const open = docs.get(fileId);
+  let doc: PDFDocumentProxy;
+  let own = false;
+  if (open) doc = await open;
+  else {
+    const file = await db.getFile(fileId);
+    if (!file) throw new Error('PDF introuvable sur cet appareil (pas encore synchronisé ?)');
+    doc = await openBytes(await file.blob.arrayBuffer());
+    own = true;
+  }
+  try {
+    const page = await doc.getPage(Math.min(pageIndex + 1, doc.numPages));
+    const unit = page.getViewport({ scale: 1 });
+    const viewport = page.getViewport({ scale: widthPx / unit.width });
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.ceil(viewport.width);
+    canvas.height = Math.ceil(viewport.height);
+    try {
+      await page.render({ canvas, viewport }).promise;
+    } finally {
+      page.cleanup();
+    }
+    return canvas;
+  } finally {
+    if (own) await doc.loadingTask.destroy();
+  }
+}

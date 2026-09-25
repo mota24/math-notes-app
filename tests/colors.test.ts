@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { DEFAULT_SELECTION_COLORS, SELECTION_SLOTS, autoShapeColor, normalizeSelectionColors, normalizeShapeColor, pushRecentColor } from '../src/colors.ts';
+import { DEFAULT_SELECTION_COLORS, SELECTION_SLOTS, autoShapeColor, normalizeSelectionColors, normalizeShapeColor, parseHexColor, pushRecentColor } from '../src/colors.ts';
 
 const NOIR = '#1d2433';
 const BLEU = '#1f4fbf';
@@ -75,6 +75,17 @@ test('couleur des formes enregistrée : une couleur valide (en minuscules), sino
   assert.equal(normalizeShapeColor('rouge'), null);
   assert.equal(normalizeShapeColor('#12'), null);
   assert.equal(normalizeShapeColor(42), null);
+});
+
+test('code hexadécimal tapé à la main : forme courte, sans #, majuscules, espaces', () => {
+  assert.equal(parseHexColor('#2456C9'), '#2456c9');
+  assert.equal(parseHexColor('  2456c9 '), '#2456c9');
+  assert.equal(parseHexColor('#AbC'), '#aabbcc');
+  assert.equal(parseHexColor('f0a'), '#ff00aa');
+});
+
+test('code hexadécimal invalide : refusé', () => {
+  for (const bad of ['', '#', '#12345', '#1234567', 'bleu', '#ggg000', '#12 34 56', 'rgb(0,0,0)']) assert.equal(parseHexColor(bad), null, bad);
 });
 
 let failed = 0;
