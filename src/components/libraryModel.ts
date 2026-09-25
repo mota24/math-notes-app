@@ -1,4 +1,4 @@
-import type { Folder, Notebook } from '../db/schema';
+import type { Folder, Notebook, Page } from '../db/schema';
 import type { PaperColor, PaperStyle } from '../ink/types';
 
 /**
@@ -174,3 +174,22 @@ export function paperPreview(paper: PaperStyle, color: PaperColor = 'light'): Pa
       return { backgroundColor };
   }
 }
+
+/** Ce que montre la couverture d'un cahier : la page du PDF, ou la photo, qui sert de fond à sa première page. */
+export type CoverSource = { kind: 'pdf'; fileId: string; pageIndex: number } | { kind: 'image'; fileId: string };
+
+export function coverSource(page: Pick<Page, 'pdf' | 'image'> | undefined): CoverSource | null {
+  if (page?.pdf) return { kind: 'pdf', fileId: page.pdf.fileId, pageIndex: page.pdf.pageIndex };
+  if (page?.image) return { kind: 'image', fileId: page.image.fileId };
+  return null;
+}
+
+/** Clé de la miniature enregistrée : un fichier ne change jamais de contenu, la même page donne toujours la même image. */
+export const coverKey = (s: CoverSource): string => (s.kind === 'pdf' ? `pdf-${s.fileId}-${s.pageIndex}` : `image-${s.fileId}`);
+
+/**
+ * Le visuel d'un cahier sans rien à montrer (papier blanc, PDF pas encore rendu ou absent de l'appareil) : un
+ * dégradé discret tiré de la couleur du cahier, sur le gris des cartes.
+ */
+export const coverGradient = (color: string): string =>
+  `radial-gradient(120% 140% at 50% 0%, color-mix(in srgb, ${color} 30%, transparent) 0%, transparent 70%), linear-gradient(160deg, color-mix(in srgb, ${color} 14%, #1c1d22) 0%, #141518 100%)`;

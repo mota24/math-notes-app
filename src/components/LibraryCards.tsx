@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
+import { parseHexColor } from '../colors';
 import { NOTEBOOK_COLORS } from '../db/schema';
 import type { Folder, Notebook } from '../db/schema';
 import { Icon } from './LibraryIcons';
-import { paperPreview } from './libraryModel';
 import { focusRing, glassPanel, roundButton } from './libraryStyles';
+import { NotebookCover } from './NotebookCover';
 
 const date = (t: number) => new Date(t).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
 
@@ -19,7 +20,7 @@ const revealOnHover = 'pointer-fine:opacity-0 pointer-fine:group-hover:opacity-1
 
 /** Taille du menu (w-60 et sa hauteur habituelle) : sert à choisir de quel côté l'ouvrir pour qu'il reste entier à l'écran. */
 const MENU_W = 240;
-const MENU_H = 280;
+const MENU_H = 330;
 
 /**
  * Un contact plus gros qu'un doigt (la paume posée sur la tablette fait ~200 px) ne compte pas comme un
@@ -27,6 +28,108 @@ const MENU_H = 280;
  * paume sur l'écran — il semblait alors ne jamais s'ouvrir.
  */
 const PALM_CONTACT = 60;
+
+/** La roue chromatique : un cercle des teintes, comme le sélecteur qu'elle ouvre */
+const WHEEL = 'conic-gradient(from 0deg, #ef4444, #f59e0b, #eab308, #22c55e, #06b6d4, #3b82f6, #8b5cf6, #ec4899, #ef4444)';
+
+/**
+ * Les 8 couleurs de l'appli, puis la roue chromatique (le sélecteur du système : n'importe quelle teinte) et le
+ * code hexadécimal exact, pour donner à chaque matière sa couleur précise. Le sélecteur ne valide qu'à sa
+ * fermeture (événement natif `change`, voir MultiColorSwatch) : chaque teinte traversée n'est pas enregistrée.
+ * Le code tapé est validé par Entrée ou « OK ».
+ */
+function ColorChooser({ color, onPick }: { color: string; onPick(c: string): void }) {
+  const current = parseHexColor(color) ?? color;
+  const custom = !NOTEBOOK_COLORS.includes(current);
+  const [draft, setDraft] = useState(current);
+  const wheel = useRef<HTMLInputElement>(null);
+  const pick = useRef(onPick);
+  pick.current = onPick;
+
+  useEffect(() => {
+    const el = wheel.current;
+    if (!el) return;
+    const onChange = () => {
+      const c = parseHexColor(el.value);
+      if (c) pick.current(c);
+    };
+    el.addEventListener('change', onChange);
+    return () => el.removeEventListener('change', onChange);
+  }, []);
+
+  const parsed = parseHexColor(draft);
+  const ring = 'ring-2 ring-accent ring-offset-2 ring-offset-white dark:ring-offset-zinc-900';
+
+  return (
+    <div className="flex flex-col gap-2.5 p-2 pb-2.5">
+      <div className="flex flex-wrap gap-2">
+        {NOTEBOOK_COLORS.map((c) => (
+          <button
+            key={c}
+            type="button"
+            aria-label={`Couleur ${c}`}
+            aria-pressed={c === current}
+            className={`size-7 min-h-0 rounded-full border-2 border-white/40 p-0 transition-all duration-200 hover:scale-110 ${c === current ? ring : ''}`}
+            style={{ background: c }}
+            onClick={() => onPick(c)}
+          />
+        ))}
+        <label
+          title="Sélecteur de couleur : n’importe quelle teinte"
+          className={`relative grid size-7 shrink-0 cursor-pointer place-items-center rounded-full transition-transform duration-200 hover:scale-110 focus-within:ring-2 focus-within:ring-accent/60 ${custom ? ring : ''}`}
+          style={{ background: WHEEL }}
+        >
+          {custom && <span aria-hidden="true" className="size-3.5 rounded-full border-2 border-white/80" style={{ background: current }} />}
+          <input
+            ref={wheel}
+            type="color"
+            defaultValue={current}
+            onInput={(e) => setDraft(e.currentTarget.value)}
+            aria-label="Sélecteur de couleur"
+            className="absolute inset-0 size-full cursor-pointer rounded-full opacity-0"
+          />
+        </label>
+      </div>
+      <form
+        className="flex items-center gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (parsed) onPick(parsed);
+        }}
+      >
+        <span
+          aria-hidden="true"
+          className="size-6 shrink-0 rounded-md border border-black/10 dark:border-white/15"
+          style={{ background: parsed ?? 'transparent' }}
+        />
+        <input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          maxLength={7}
+          spellCheck={false}
+          autoComplete="off"
+          autoCapitalize="off"
+          data-1p-ignore
+          data-lpignore="true"
+          data-bwignore
+          aria-label="Code hexadécimal"
+          aria-invalid={!parsed}
+          placeholder="#2456c9"
+          className={`h-9 min-w-0 flex-1 rounded-lg border bg-black/[0.03] px-2.5 font-mono text-[13px] uppercase text-zinc-900 outline-none transition-colors focus:ring-2 dark:bg-white/[0.05] dark:text-zinc-100 ${
+            parsed ? 'border-black/10 focus:border-accent/60 focus:ring-accent/30 dark:border-white/10' : 'border-red-500/60 focus:ring-red-500/30'
+          }`}
+        />
+        <button
+          type="submit"
+          disabled={!parsed || parsed === current}
+          className="h-9 min-h-0 shrink-0 rounded-lg border border-accent/25 bg-accent/10 px-3 py-0 text-[13px] font-medium text-accent-ink hover:bg-accent/15 dark:text-accent"
+        >
+          OK
+        </button>
+      </form>
+    </div>
+  );
+}
 
 /**
  * Options d'une carte : la couleur du cahier ou du dossier, puis les actions. Le menu s'ouvre du côté où il y a
@@ -106,24 +209,13 @@ function CardMenu({ items, color, onColor, className }: { items: MenuItem[]; col
             side.up ? 'bottom-full mb-2 origin-bottom-right' : 'top-full mt-2 origin-top-right'
           }`}
         >
-          <div className="flex flex-wrap gap-2 p-2 pb-2.5">
-            {NOTEBOOK_COLORS.map((c) => (
-              <button
-                key={c}
-                type="button"
-                aria-label="Couleur"
-                aria-pressed={c === color}
-                className={`size-7 min-h-0 rounded-full border-2 border-white/40 p-0 transition-all duration-200 hover:scale-110 ${
-                  c === color ? 'ring-2 ring-accent ring-offset-2 ring-offset-white dark:ring-offset-zinc-900' : ''
-                }`}
-                style={{ background: c }}
-                onClick={() => {
-                  onColor(c);
-                  setOpen(false);
-                }}
-              />
-            ))}
-          </div>
+          <ColorChooser
+            color={color}
+            onPick={(c) => {
+              onColor(c);
+              setOpen(false);
+            }}
+          />
           <div className="mx-1 mb-1 h-px bg-black/5 dark:bg-white/10" />
           {items.map((item) => (
             <button
@@ -252,12 +344,7 @@ export function NotebookCard({
       // Un cahier favori se reconnaît à une petite étoile devant son titre (l'action est dans le menu « ⋯ »)
     >
       <div className="flex h-full min-h-[196px] flex-col">
-        {/* Le papier du cahier, en miniature : il s'efface vers le bas, comme une page qui dépasse de la carte */}
-        <div
-          aria-hidden="true"
-          className="mx-2.5 mt-2.5 h-24 shrink-0 rounded-[10px] border border-white/[0.06] [-webkit-mask-image:linear-gradient(to_bottom,#000_60%,transparent)] [mask-image:linear-gradient(to_bottom,#000_60%,transparent)] brightness-[0.88]"
-          style={paperPreview(notebook.paper, notebook.paperColor)}
-        />
+        <NotebookCover notebook={notebook} />
         <div className="flex flex-1 flex-col gap-1 px-3.5 pb-3.5 pt-2.5">
           <h3 className="m-0 line-clamp-2 flex items-start gap-1.5 text-base font-semibold leading-snug text-zinc-100">
             {notebook.favorite && (

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { buildFolderTree, countChildren, countLabel, folderParents, folderPath, notebookFolder, paperPreview, viewTitle, visibleNodes } from '../src/components/libraryModel.ts';
+import { buildFolderTree, countChildren, countLabel, coverGradient, coverKey, coverSource, folderParents, folderPath, notebookFolder, paperPreview, viewTitle, visibleNodes } from '../src/components/libraryModel.ts';
 import type { Folder, Notebook } from '../src/db/schema.ts';
 
 let n = 0;
@@ -163,6 +163,23 @@ test('papier en miniature : clair ou sombre, avec les réglures du vrai papier',
   assert.equal(paperPreview('blank', 'dark').backgroundColor, '#111214');
   assert.ok(paperPreview('seyes').backgroundImage?.includes('#e8a3a3'), 'marge rouge du Seyès');
   assert.ok(paperPreview('lined', 'dark').backgroundImage?.includes('#7a3d3d'), 'marge de lignes sur papier sombre');
+});
+
+test('couverture : la page du PDF, sinon la photo, sinon rien (visuel dégradé)', () => {
+  const pdf = coverSource({ pdf: { fileId: 'f1', pageIndex: 0 }, image: null });
+  assert.deepEqual(pdf, { kind: 'pdf', fileId: 'f1', pageIndex: 0 });
+  assert.deepEqual(coverSource({ pdf: null, image: { fileId: 'p1' } }), { kind: 'image', fileId: 'p1' });
+  assert.equal(coverSource({ pdf: null }), null, 'page de papier');
+  assert.equal(coverSource(undefined), null, 'première page pas encore arrivée');
+  assert.equal(coverKey(pdf!), 'pdf-f1-0');
+  assert.notEqual(coverKey({ kind: 'pdf', fileId: 'f1', pageIndex: 3 }), coverKey(pdf!), 'une autre page, une autre miniature');
+  assert.equal(coverKey({ kind: 'image', fileId: 'p1' }), 'image-p1');
+});
+
+test('couverture sans rien à montrer : dégradé tiré de la couleur du cahier', () => {
+  const g = coverGradient('#c0392b');
+  assert.ok(g.includes('#c0392b'));
+  assert.ok(g.startsWith('radial-gradient('));
 });
 
 let failed = 0;

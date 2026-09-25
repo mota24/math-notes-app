@@ -47,3 +47,14 @@ export const autoShapeColor = (paper: PaperColor): string => (paper === 'dark' ?
 
 /** La couleur des formes lue dans les réglages enregistrés : une couleur valide, ou `null` (automatique). */
 export const normalizeShapeColor = (raw: unknown): string | null => (isHex(raw) ? raw.toLowerCase() : null);
+
+/**
+ * Un code couleur tapé à la main (« #2456C9 », « 2456c9 », « #abc »…) mis sous la forme enregistrée
+ * partout dans l'appli, « #rrggbb » en minuscules ; `null` s'il ne désigne pas une couleur.
+ */
+export function parseHexColor(input: string): string | null {
+  const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(input.trim());
+  if (!m) return null;
+  const hex = m[1].length === 3 ? [...m[1]].map((c) => c + c).join('') : m[1];
+  return `#${hex.toLowerCase()}`;
+}
