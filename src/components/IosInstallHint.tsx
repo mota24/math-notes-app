@@ -40,7 +40,7 @@ export function IosInstallHint() {
   return (
     <div
       role="note"
-      className="fixed inset-x-3 top-3 z-[60] mx-auto flex max-w-xl items-start gap-3 rounded-2xl border border-sky-500/40 bg-sky-950/95 px-4 py-3 text-[13.5px] leading-snug text-sky-100 shadow-2xl"
+      className="pointer-events-auto flex items-start gap-3 rounded-2xl border border-sky-500/40 bg-sky-950/95 px-4 py-3 text-[13.5px] leading-snug text-sky-100 shadow-2xl"
     >
       <p className="m-0 flex-1">
         <strong>Installe l’appli sur ton écran d’accueil</strong> (bouton Partager de Safari → « Sur l’écran d’accueil »). Sans cela,

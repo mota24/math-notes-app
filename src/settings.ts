@@ -108,6 +108,28 @@ const DEFAULTS: Settings = {
   textSize: DEFAULT_TEXT_SIZE,
 };
 
+/**
+ * Réglages d'apparence sauvegardés avec les notes (export manuel, sauvegarde hebdomadaire sur Drive) et
+ * copiés dans Firestore pour que la sauvegarde automatique les trouve. Les réglages propres à un appareil
+ * (stylet, anti-paume, main d'écriture…) n'en font pas partie.
+ */
+export const BACKUP_PREF_KEYS = [
+  'color', 'size', 'highlightColor', 'highlightSize', 'selectionColors', 'shapeColor', 'dashed', 'textSize',
+  'paper', 'eraserMode', 'eraserSize', 'lassoShape', 'handStyle', 'handInk', 'handPaper', 'handSize', 'handVariation', 'printMode',
+] as const satisfies readonly (keyof Settings)[];
+
+export function backupPrefs(settings: Settings): Record<string, unknown> {
+  return Object.fromEntries(BACKUP_PREF_KEYS.map((k) => [k, settings[k]]));
+}
+
+/** Les réglages tels qu'enregistrés sur cet appareil (hors React : sauvegarde, synchronisation) */
+export function currentSettings(): Settings {
+  return load();
+}
+
+/** Prévient la synchronisation qu'un réglage a changé (les couleurs partent dans la sauvegarde) */
+export const PREFS_EVENT = 'notes-maths:prefs';
+
 function load(): Settings {
   try {
     const raw = localStorage.getItem(KEY);
@@ -151,6 +173,7 @@ export function useSettings(): [Settings, (patch: Partial<Settings>) => void] {
       } catch {
         /* stockage indisponible (navigation privée) */
       }
+      window.dispatchEvent(new Event(PREFS_EVENT));
       return next;
     });
   }, []);

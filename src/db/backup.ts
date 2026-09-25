@@ -1,4 +1,5 @@
 import { byKey, mergeRecords, mergeTombstones } from '../sync/merge';
+import { backupPrefs, currentSettings } from '../settings';
 import { db } from './db';
 import type { Tombstone } from './library';
 import { validateBackup } from './backupFormat';
@@ -41,6 +42,7 @@ export async function createBackup(): Promise<Blob> {
     files,
     todos: await db.todos(),
     tombstones: (await db.getMeta<Record<string, Tombstone>>('tombstones')) ?? {},
+    settings: backupPrefs(currentSettings()),
   };
   return new Blob([JSON.stringify(backup)], { type: 'application/json' });
 }

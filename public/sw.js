@@ -50,6 +50,9 @@ self.addEventListener('fetch', (event) => {
   // Pages de connexion Firebase relayées par vercel.json (/__/auth/*) : jamais en cache, et surtout jamais
   // enregistrées comme copie hors-ligne de l'appli.
   if (url.pathname.startsWith('/__/')) return;
+  // Fonctions serveur (sauvegarde Drive, retour de l'autorisation Google) : toujours le réseau, jamais le
+  // cache — et surtout pas la copie de l'appli à la place d'une redirection
+  if (url.pathname.startsWith('/api/')) return;
 
   if (request.mode === 'navigate') {
     event.respondWith(

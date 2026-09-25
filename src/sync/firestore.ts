@@ -3,6 +3,7 @@ import type { Tombstone } from '../db/library';
 import { isFolder, isGlyph, isNotebook, isPage, isRecord, isTodo, isTranscript } from '../db/backupFormat';
 import type { Folder, Glyph, Notebook, Page, StoredFile, Todo, Transcript } from '../db/schema';
 import { getFirestoreDb } from '../firebase';
+import { backupPrefs, currentSettings } from '../settings';
 import { FILE_CHUNK_BYTES, MAX_SYNC_FILE_BYTES, MAX_SYNC_PAGE_CHARS, PAGE_PART_CHARS, joinBytes, splitBytes, splitText, toHex } from './chunks';
 import { byKey, mergeRecords, mergeTombstones } from './merge';
 
@@ -116,6 +117,8 @@ interface Session {
   remoteTranscripts: Map<string, DocMeta>;
   remoteFiles: Map<string, RemoteFile>;
   ready: { index: boolean; pages: boolean; transcripts: boolean; files: boolean };
+  /** Réglages d'apparence déjà envoyés pendant cette session (users/<uid>/state/prefs) */
+  prefsJson: string | null;
 }
 let session: Session | null = null;
 let applyingRemote = false; // vrai pendant qu'on écrit une donnée venue du distant (ne pas la renvoyer)
@@ -473,6 +476,14 @@ async function flushNow() {
       todoPlan.push.length > 0 ||
       glyphPlan.push.length > 0 ||
       JSON.stringify(tombstones) !== JSON.stringify(s.remoteIndex.tombstones);
+    // Réglages d'apparence (couleurs…) : lus par la sauvegarde hebdomadaire sur Drive ; réécrits seulement
+    // s'ils ont changé depuis le dernier envoi de la session
+    const prefsJson = JSON.stringify(backupPrefs(currentSettings()));
+    if (prefsJson !== s.prefsJson) {
+      const prefsRef = fs.doc(store, 'users', s.uid, 'state', 'prefs');
+      batchOps.push((b) => b.set(prefsRef, { v: 1, updatedAt: now, json: prefsJson }));
+    }
+
     if (indexChanged) {
       const indexRef = fs.doc(store, 'users', s.uid, 'state', 'index');
       const payload = {
@@ -556,6 +567,7 @@ async function flushNow() {
       }
       // on tient notre vue distante à jour pour ne pas réécrire les mêmes documents au prochain vidage
       s.remoteIndex = nextIndex;
+      s.prefsJson = prefsJson;
     }
     // Pages lourdes : les morceaux d'abord (10 par lot, sous la limite de 10 Mio d'une écriture groupée), le
     // document de la page en dernier — un autre appareil ne la lit qu'une fois tous ses morceaux en place.
@@ -683,7 +695,7 @@ async function subscribe() {
 
 // ------------------------------------------------------------------ contrôleur public
 
-const SYNCED = new Set(['folders', 'notebooks', 'pages', 'files', 'transcripts', 'glyphs', 'todos']);
+const SYNCED = new Set(['folders', 'notebooks', 'pages', 'files', 'transcripts', 'glyphs', 'todos', 'prefs']);
 let enabled = false;
 
 export const firestoreController = {
@@ -709,6 +721,7 @@ export const firestoreController = {
       remoteTranscripts: new Map(),
       remoteFiles: new Map(),
       ready: { index: false, pages: false, transcripts: false, files: false },
+      prefsJson: null,
     };
     set({ status: 'connecting', error: '', email });
     try {

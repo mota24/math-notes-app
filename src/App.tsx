@@ -8,6 +8,7 @@ import { SettingsDialog } from './components/SettingsDialog';
 import { TabBar } from './components/TabBar';
 import { WelcomeDialog } from './components/WelcomeDialog';
 import { AuthPanel } from './components/AuthPanel';
+import { BackupAlert } from './components/BackupAlert';
 import { IosInstallHint } from './components/IosInstallHint';
 import { StorageBanner } from './components/StorageBanner';
 import { useAccess } from './auth/useAccess';
@@ -129,7 +130,11 @@ export default function App() {
         {screen}
       </div>
       <StorageBanner />
-      <IosInstallHint />
+      {/* Bandeaux du haut, empilés : sauvegarde Drive en échec, conseil d'installation sur iPhone / iPad */}
+      <div className="pointer-events-none fixed inset-x-3 top-3 z-[60] mx-auto flex max-w-xl flex-col gap-2">
+        <BackupAlert />
+        <IosInstallHint />
+      </div>
       {settingsOpen && (
         <SettingsDialog
           settings={settings}

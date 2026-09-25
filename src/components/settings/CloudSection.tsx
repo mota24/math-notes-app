@@ -8,6 +8,7 @@ import { canUseDrive, currentToken, ensureFolder, signIn, uploadFile } from '../
 import { useFirestoreState } from '../../sync/useFirestore';
 import { syncController, useSyncState } from '../../sync/useSync';
 import { Carte, Etat, Interrupteur, Ligne, bouton, boutonDanger, boutonPrincipal, champ, discret, texte } from './ui';
+import { WeeklyBackup } from './WeeklyBackup';
 
 const heure = (t: number) => new Date(t).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 
@@ -123,6 +124,9 @@ export function CloudSection({ settings, update }: { settings: Settings; update(
       </Ligne>
       {occupe && <Etat message="En cours…" />}
       {etat && <Etat message={etat.message} erreur={etat.erreur} />}
+
+      {/* Sauvegarde hebdomadaire automatique sur Google Drive (serveur, chaque dimanche) */}
+      <WeeklyBackup syncOn={settings.firestoreSync} />
 
       {/* Google Drive : copie de secours facultative, repliée */}
       <details className="group mt-1 border-t border-[color:var(--line)] pt-2.5">
