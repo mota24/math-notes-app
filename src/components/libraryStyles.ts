@@ -24,6 +24,10 @@ export const glassIconButton = `${glassBase} size-10 min-h-0 p-0 ${glassTone}`;
 /** Bouton sobre teinté d'accent */
 export const glassButtonAccent = `${glassBase} h-10 px-3.5 py-0 ${accentTone}`;
 
+/** Action destructrice (supprimer, vider) : rouge en texte, sur un fond à peine teinté */
+export const dangerButton =
+  'inline-flex min-h-11 items-center justify-center rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-0 text-sm font-medium text-red-600 transition-all duration-200 hover:bg-red-500/20 active:scale-[0.97] dark:text-red-400';
+
 /**
  * Surface des cartes et des panneaux : gris foncé UNI, coins arrondis, contour d'un pixel à peine visible et
  * ombre douce. Aucun verre dépoli, aucune lueur colorée : la couleur d'un cahier n'est plus qu'une pastille.
