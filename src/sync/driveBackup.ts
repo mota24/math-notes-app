@@ -52,7 +52,8 @@ export function useBackupStatus(): BackupStatusView {
 async function authorizedPost(path: string): Promise<Response> {
   const user = auth.currentUser;
   if (!user) throw new Error('Connecte-toi d’abord.');
-  const token = await user.getIdToken();
+  // Jeton rafraîchi à chaque appel : un jeton en cache presque expiré était refusé (« Session expirée »)
+  const token = await user.getIdToken(true);
   return fetch(path, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
 }
 

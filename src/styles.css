@@ -2958,3 +2958,11 @@ code {
 .workspace:has(.split-pane) > .canvas-wrap {
   min-width: min(480px, 55%);
 }
+
+/* Écran de connexion : texte et champs sélectionnables (copier l'adresse, un message d'erreur) */
+.auth-panel,
+.auth-panel * {
+  user-select: text;
+  -webkit-user-select: text;
+  -webkit-touch-callout: default;
+}
