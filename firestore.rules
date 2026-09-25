@@ -50,6 +50,23 @@ service cloud.firestore {
         && request.resource.data.tombstonesJson is string;
     }
 
+    // Réglages d'apparence (couleurs, épaisseurs…), en JSON : lus par la sauvegarde hebdomadaire sur Drive
+    match /users/{uid}/state/prefs {
+      allow read, delete: if isOwner(uid);
+      allow create, update: if isOwner(uid)
+        && request.resource.data.keys().hasOnly(['v', 'updatedAt', 'json'])
+        && request.resource.data.v is int
+        && request.resource.data.updatedAt is number
+        && request.resource.data.json is string && request.resource.data.json.size() <= 20000;
+    }
+
+    // État de la sauvegarde hebdomadaire sur Google Drive : écrit par le serveur seul (SDK Admin, qui ne
+    // passe pas par ces règles), lu par l'appli pour afficher la dernière sauvegarde ou un échec
+    match /users/{uid}/state/backup {
+      allow read: if isOwner(uid);
+      allow write: if false;
+    }
+
     // Page ou transcription : identifiant cohérent avec le chemin, contenu en JSON texte ; une page trop lourde
     // pour un document laisse `json` vide et range son contenu en `parts` morceaux (sous-collection parts/)
     function validSyncDoc(idField, id) {
@@ -162,6 +179,9 @@ service cloud.firestore {
         allow delete: if ownsShare();
       }
     }
+
+    // backupConfig/… (autorisation Google Drive de la sauvegarde) : réservé au serveur, jamais lisible par
+    // l'appli ni par personne d'autre ; il tombe dans la règle ci-dessous.
 
     // ---------------------------------------------------------------- tout le reste : fermé
     match /{document=**} {

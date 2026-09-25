@@ -2,6 +2,7 @@ import { useSyncExternalStore } from 'react';
 import type { User } from 'firebase/auth';
 import { onSyncUser } from '../firebase';
 import { onDbChange } from '../db/db';
+import { PREFS_EVENT } from '../settings';
 import { firestoreController, getFirestoreState, subscribeFirestoreState } from './firestore';
 import type { FirestoreState } from './firestore';
 
@@ -33,6 +34,8 @@ export function startFirestoreTriggers() {
   if (started) return;
   started = true;
   onDbChange((stores) => firestoreController.onLocalChange(stores));
+  // Une couleur ou une épaisseur changée : elle part avec le prochain envoi groupé (pour la sauvegarde Drive)
+  window.addEventListener(PREFS_EVENT, () => firestoreController.onLocalChange(['prefs']));
   onSyncUser((u) => {
     user = u;
     reconcile();

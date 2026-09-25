@@ -20,6 +20,12 @@ export interface BackupFile {
   files: FileEntry[];
   todos: Todo[];
   tombstones: Record<string, Tombstone>;
+  /**
+   * Réglages d'apparence (couleurs, épaisseurs, taille du texte…) au moment de la sauvegarde : absents des
+   * anciennes sauvegardes. Ils sont gardés pour mémoire ; la restauration ne touche pas aux réglages de
+   * l'appareil.
+   */
+  settings?: Record<string, unknown>;
 }
 
 const TOMBSTONE_KINDS = new Set<Tombstone['kind']>(['folder', 'notebook', 'page', 'file', 'transcript', 'glyph', 'todo']);
@@ -79,5 +85,6 @@ export function validateBackup(raw: unknown): BackupFile {
     files: cleanList(raw.files, isFileEntry),
     todos: cleanList(raw.todos, isTodo),
     tombstones: cleanTombstones(raw.tombstones),
+    ...(isRecord(raw.settings) ? { settings: raw.settings } : {}),
   };
 }

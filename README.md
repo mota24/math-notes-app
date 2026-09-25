@@ -129,7 +129,62 @@ est fermé. **Elles ne s'appliquent qu'une fois publiées** :
 console Firebase → Firestore Database → Règles → coller le fichier → Publier (ou
 `npx firebase-tools deploy --only firestore:rules --project math-notes-pwa`).
 
-## Sauvegarde Google Drive (gratuite)
+## Sauvegarde hebdomadaire automatique sur Google Drive
+
+Chaque dimanche vers 3 h (heure de Tunis ; 02:00–02:59 UTC), un serveur relit **tout Firestore** (dossiers,
+cahiers, pages et traits, zones de texte, transcriptions, PDF et photos, tâches, écriture perso, réglages de
+couleurs) et envoie dans le dossier **« Sauvegardes Math-Notes »** de ton Drive un fichier
+`notes-maths-sauvegarde-AAAA-MM-JJ.json`, **au format exact de l'export manuel** (il se restaure avec
+« Restaurer… » comme n'importe quelle sauvegarde).
+
+Fiabilité :
+- **Envoi reprenable** par morceaux de 8 Mo : une coupure ou une erreur de Google reprend là où Drive s'est
+  arrêté, sans octet perdu ni envoyé deux fois ; une sauvegarde relancée le même jour remplace celle du jour.
+- **Vérification** : la taille et l'empreinte MD5 calculées par Drive doivent être celles du fichier, sinon la
+  sauvegarde est déclarée en échec. Chaque PDF est aussi vérifié (SHA-256) avant d'entrer dans la sauvegarde.
+- **Firestore vide = échec**, jamais une sauvegarde vide présentée comme réussie.
+- **Alerte dans l'appli** (bandeau rouge en haut, bouton « Relancer maintenant ») si la dernière sauvegarde a
+  échoué, **ou si aucune n'a réussi depuis 8 jours** (planification arrêtée, variable manquante…). Le détail des
+  erreurs est aussi dans le journal Vercel (Logs, préfixe `[sauvegarde]`).
+
+Pourquoi Vercel Cron et pas Cloud Functions : les fonctions et la planification de Firebase exigent le forfait
+payant Blaze ; Vercel Cron est gratuit. Et pourquoi une autorisation Google plutôt qu'un compte de service :
+un compte de service ne peut pas écrire dans le Drive d'un compte Gmail personnel.
+
+### Mise en service (une fois, ~15 minutes)
+
+1. **Clé de lecture de Firestore** : console Firebase → ⚙ Paramètres du projet → *Comptes de service* →
+   « Générer une nouvelle clé privée ». Garde le fichier JSON pour l'étape 3 — **ne le mets jamais dans le dépôt**.
+2. **Client OAuth pour Drive** : [console.cloud.google.com](https://console.cloud.google.com) (projet `math-notes-pwa`)
+   - *API et services* → *Bibliothèque* → activer **Google Drive API** ;
+   - *Écran de consentement OAuth* : type Externe, portée `.../auth/drive.file`, puis **« Publier l'application »**
+     (état *En production*). **Indispensable** : en mode *Test*, Google retire l'autorisation au bout de 7 jours
+     et la sauvegarde échouerait dès le deuxième dimanche. La portée drive.file (l'appli ne voit que ses propres
+     fichiers) ne demande aucune validation de Google ;
+   - *Identifiants* → *Créer* → *ID client OAuth* → *Application Web*, URI de redirection autorisé :
+     `https://math-notes-app-indol.vercel.app/api/drive-auth`.
+3. **Variables Vercel** (Settings → Environment Variables, environnement *Production*) :
+
+   | Variable | Valeur |
+   |---|---|
+   | `FIREBASE_SERVICE_ACCOUNT` | le contenu du fichier JSON de l'étape 1 (tel quel) |
+   | `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET` | l'ID et le secret du client de l'étape 2 |
+   | `BACKUP_OWNER_EMAIL` | ton adresse (le seul compte sauvegardé et autorisé à gérer la sauvegarde) |
+   | `CRON_SECRET` | une longue chaîne aléatoire (Vercel la joint à chaque déclenchement du dimanche) |
+   | `BACKUP_KEEP` | facultatif : nombre de sauvegardes gardées (ex. `12`) ; sans elle, tout est gardé |
+   | `BACKUP_TIMEZONE` | facultatif : fuseau du nom de fichier (défaut `Africa/Tunis`) |
+
+   Puis **redéploie** (les variables ne s'appliquent qu'aux nouveaux déploiements).
+4. **Règles Firestore** : publie `firestore.rules` (il autorise la lecture du compte rendu de sauvegarde et la
+   copie des réglages de couleurs).
+5. **Dans l'appli** : Réglages → Cloud & Sauvegarde → synchronisation en temps réel **activée**, puis
+   « Connecter Google Drive » (autorisation Google), puis « Sauvegarder maintenant » pour vérifier : le fichier
+   apparaît dans « Sauvegardes Math-Notes ».
+
+La sauvegarde copie **ce qui est dans Firestore** : un appareil sans synchronisation n'y figure pas, et un PDF de
+plus de 50 Mo (non synchronisé) non plus.
+
+## Sauvegarde Google Drive depuis l'appli (facultative, manuelle)
 
 1. [console.cloud.google.com](https://console.cloud.google.com/) → crée un projet.
 2. API et services → Bibliothèque → active **Google Drive API**.
@@ -153,6 +208,7 @@ récente gagne.
 | `src/export/` | PDF vectoriel, PDF manuscrit |
 | `src/pdf/` | Lecture des PDF importés (pdf.js) |
 | `src/sync/` | Synchronisation : temps réel Firestore (`firestore.ts` : envois groupés, reprises après coupure, PDF et pages lourdes découpés en morceaux vérifiés par SHA-256 via `chunks.ts`) et Google Drive ; même fusion « le plus récent gagne » (`merge.ts`) |
+| `api/` | Serveur (fonctions Vercel) : sauvegarde hebdomadaire sur Drive (`backup.ts`, planifiée dans `vercel.json`), connexion de Drive (`drive-auth.ts`) ; `_lib/backupCollect.ts` refait l'export manuel à partir de Firestore, `_lib/drive.ts` l'envoi reprenable vérifié (tous deux testés sans réseau) |
 | `src/share/` | Partage en lecture seule par lien secret `/share/<id>` (publication incrémentale, lecteur public) |
 | `src/auth/` | Accès réservé : qui a le droit d'entrer (`access.ts`, testé), la porte d'entrée (`useAccess.ts`), la déconnexion complète |
 | `src/db/backupFormat.ts` | Format du fichier de sauvegarde et sa validation (rien n'est écrit dans la base avant vérification) |
