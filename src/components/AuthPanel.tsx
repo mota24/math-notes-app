@@ -188,7 +188,7 @@ export function AuthPanel({ refus = null }: { refus?: string | null }) {
           : 'Envoyer le lien';
 
   return (
-    <div className="fixed inset-0 z-[100] grid place-items-center overflow-auto bg-zinc-950 px-5 py-10">
+    <div className="auth-panel fixed inset-0 z-[100] grid place-items-center overflow-auto bg-zinc-950 px-5 py-10">
       <div className="w-full max-w-[380px]">
         {/* Cadenas */}
         <div className="mx-auto mb-6 grid size-16 place-items-center rounded-2xl border border-white/10 bg-white/[0.06]">
