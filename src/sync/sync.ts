@@ -151,7 +151,9 @@ export async function syncWithDrive(token: string, progress: (step: string) => v
   for (const id of filePlan.pull) {
     const blob = await download(`file-${id}`);
     const meta = filePlan.merged[id];
-    if (blob) {
+    // Un téléchargement interrompu donnerait un PDF tronqué, illisible : on ne l'enregistre pas (nouvel essai
+    // à la prochaine synchronisation)
+    if (blob && blob.size === meta.size) {
       const stored: StoredFile = { id, ...meta, blob: new Blob([blob], { type: meta.type }), createdAt: meta.updatedAt };
       await db.putFile(stored);
     }

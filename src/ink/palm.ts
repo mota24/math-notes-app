@@ -140,6 +140,12 @@ const GESTURE_STALE = 300; // ms : geste immobile = doigts (ou paume) posés, il
 const DOT_MAX_MS = 250;
 const TAP_MS = 300;
 const TAP_MOVE = 14;
+/**
+ * Un seul contact qui fait défiler (mode stylet strict, outil main, marge) ne déplace la page qu'après avoir
+ * parcouru cette distance (px) : la paume posée avant le stylet (iPad, Galaxy Tab) tremble de quelques pixels,
+ * et la page tremblait avec elle au moment d'écrire.
+ */
+const PAN_SLOP = 10;
 const LIMBO_MS = 160;
 const SWITCH_MOVED = 25; // px : un trait plus court peut être effacé quand un autre contact écrit
 const SWITCH_PATH = 80;
@@ -181,7 +187,7 @@ export class InputClassifier {
   private schedule: Schedule;
   private tracks = new Map<number, Track>();
   private gestureLast = new Map<number, { x: number; y: number }>();
-  private gestureInfo: { start: number; lastMove: number; ids: Set<number>; maxMoved: number; tapDone: boolean } | null =
+  private gestureInfo: { start: number; lastMove: number; ids: Set<number>; maxMoved: number; tapDone: boolean; slopPassed?: boolean } | null =
     null;
   private limbo: { track: Track; peerId: number; upTime: number } | null = null;
   private palmSpots: { x: number; y: number; t: number }[] = [];
@@ -1129,6 +1135,18 @@ export class InputClassifier {
 
     const g = [...this.tracks.values()].filter((o) => o.state === 'gesture').slice(0, 2);
     if (this.gestureInfo) this.gestureInfo.maxMoved = Math.max(this.gestureInfo.maxMoved, t.moved);
+    // Un seul contact : rien ne bouge tant qu'il n'a pas franchement quitté son point de départ ; le repère
+    // suit le contact, pour que la page parte ensuite sans à-coup
+    if (g.length === 1 && this.gestureInfo && !this.gestureInfo.slopPassed) {
+      const o = g[0];
+      if (Math.hypot(o.last.x - o.down.x, o.last.y - o.down.y) < PAN_SLOP) {
+        this.gestureLast.set(o.id, { x: o.last.x, y: o.last.y });
+        return;
+      }
+      this.gestureInfo.slopPassed = true;
+    }
+    // Deux contacts : le pincement est volontaire, le seuil ne s'applique plus
+    if (g.length >= 2 && this.gestureInfo) this.gestureInfo.slopPassed = true;
     // Des doigts (ou une paume) qui ne bougent plus : le geste s'arrête, l'écriture redevient possible
     if (
       this.effectiveMode === 'capacitive' && g.length >= 2 &&

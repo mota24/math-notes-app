@@ -203,6 +203,19 @@ test('4d. mode strict sans stylet : deux doigts zooment ou défilent, sans laiss
   assert.ok(t.count('pan') > 3, 'geste de zoom');
 });
 
+test('4e. iPad / stylet actif : la paume posée AVANT le stylet tremble sans faire bouger la page, puis le stylet écrit', () => {
+  const t = setup({ mode: 'active' });
+  t.c.penSeen = true;
+  t.at(0).down(1, 500, 600, 150);
+  // Tremblement de la paume : ±6 px pendant 400 ms
+  for (let i = 1; i <= 50; i++) t.at(i * 8).move(1, 500 + ((i * 37) % 13) - 6, 600 + ((i * 53) % 11) - 5, 150);
+  assert.equal(t.count('pan'), 0, 'la page ne tremble pas avec la paume');
+  t.at(420).down(2, 300, 300, 1, 'pen').drag(2, [300, 300], [360, 320], 1).up(2, 360, 320, 1);
+  assert.equal(t.count('start:2:pen'), 1, 'le stylet écrit');
+  assert.equal(t.count('end:2'), 1);
+  assert.equal(t.count('start:1'), 0, 'la paume n’écrit jamais');
+});
+
 test('5. annulation Android : un vrai trait est gardé, un début de trait est retiré', () => {
   const t = setup().at(0).down(1, 200, 300, 20).drag(1, [200, 300], [240, 300], 20);
   t.c.cancel(1);
