@@ -80,6 +80,14 @@ const cases: [string, () => void][] = [
       assert.ok(nb.includes('\\section*{Page 1}'));
     },
   ],
+  [
+    'notebookLatex : un titre piégé ne peut injecter aucune commande TeX',
+    () => {
+      const nb = notebookLatex('\\input{/etc/passwd} \\write18{rm} ^~', []);
+      const title = nb.split('\n').find((l) => l.startsWith('\\title{'))!;
+      assert.equal(title, '\\title{\\textbackslash{}input\\{/etc/passwd\\} \\textbackslash{}write18\\{rm\\} \\textasciicircum{}\\textasciitilde{}}');
+    },
+  ],
 ];
 
 let failed = 0;

@@ -287,6 +287,7 @@ export function CalendarPanel({ onClose }: { onClose(): void }) {
             value={texte}
             onChange={(e) => setTexte(e.target.value)}
             placeholder={`Ajouter au ${jourCourt(jour)}…`}
+            autoComplete="off" data-1p-ignore data-lpignore="true" data-bwignore
             aria-label="Nouvelle tâche"
             className="h-8 min-h-0 min-w-0 flex-1 rounded-md border border-white/[0.06] bg-white/[0.04] px-2.5 py-0 text-[13px] text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-accent/50"
           />

@@ -2,9 +2,9 @@ import { plainText } from '../ai/notesText';
 import { newId } from '../ink/types';
 import type { PaperColor, PaperStyle } from '../ink/types';
 import { pdfPageSizes } from '../pdf/pdfjs';
-import { db, notify } from './db';
+import { db } from './db';
 import { NOTEBOOK_COLORS, PAPER_SIZES } from './schema';
-import type { Folder, Glyph, Notebook, Page, Todo } from './schema';
+import type { Folder, Glyph, Notebook, Page, StoredFile, Todo } from './schema';
 
 /** Opérations de la bibliothèque (dossiers, cahiers, pages, corbeille, recherche). */
 
@@ -168,56 +168,72 @@ export async function createNotebook(options: {
   return notebook;
 }
 
-/** Stocke le PDF et crée une page annotable par page du PDF. */
-async function pdfPages(file: File, notebookId: string, paper: PaperStyle) {
-  const t = now();
+/** Taille maximale d'un PDF importé : au-delà, la tablette peine à l'afficher et il ne tiendrait pas dans le cloud gratuit */
+const MAX_PDF_BYTES = 80 * 1024 * 1024;
+
+/**
+ * Lit le PDF et prépare le fichier et ses pages, SANS rien écrire : un PDF illisible, protégé ou vide est
+ * refusé avant toute écriture (plus de cahier vide ni de fichier orphelin laissés par un import raté).
+ */
+async function preparePdf(file: File, notebookId: string): Promise<{ stored: StoredFile; pages: Page[] }> {
+  if (file.size > MAX_PDF_BYTES) throw new Error(`Ce PDF pèse ${Math.round(file.size / 1048576)} Mo : 80 Mo au maximum.`);
   const bytes = await file.arrayBuffer();
-  const sizes = await pdfPageSizes(bytes);
+  let sizes: { width: number; height: number }[];
+  try {
+    sizes = await pdfPageSizes(bytes);
+  } catch (e) {
+    const name = (e as { name?: string })?.name ?? '';
+    if (name === 'PasswordException') throw new Error('Ce PDF est protégé par un mot de passe : enlève la protection puis réimporte-le.', { cause: e });
+    throw new Error('Ce fichier n’est pas un PDF lisible (fichier abîmé ou incomplet ?).', { cause: e });
+  }
+  if (sizes.length === 0) throw new Error('Ce PDF ne contient aucune page.');
+  const t = now();
   const fileId = newId();
-  await db.putFile({
-    id: fileId,
-    name: file.name,
-    type: file.type || 'application/pdf',
-    size: file.size,
-    blob: new Blob([bytes], { type: 'application/pdf' }),
-    createdAt: t,
-    updatedAt: t,
-    deletedAt: null,
-  });
-  return sizes.map(
+  const blob = new Blob([bytes], { type: 'application/pdf' });
+  // Contrôle : le fichier stocké a bien la taille du fichier lu (pdf.js travaille sur une copie)
+  if (blob.size !== file.size) throw new Error('Lecture du PDF incomplète : réessaie l’import.');
+  const stored: StoredFile = { id: fileId, name: file.name, type: 'application/pdf', size: blob.size, blob, createdAt: t, updatedAt: t, deletedAt: null };
+  const pages = sizes.map(
     (size, pageIndex): Page => ({
-      ...blankPage(notebookId, paper),
+      ...blankPage(notebookId, 'blank'),
       width: size.width,
       height: size.height,
       pdf: { fileId, pageIndex },
     }),
   );
+  return { stored, pages };
 }
 
+/** Un PDF devient un cahier : le fichier, ses pages et le cahier sont écrits d'un seul coup (tout ou rien). */
 export async function importPdfNotebook(file: File, folderId: string | null): Promise<Notebook> {
-  const notebook = await createNotebook({ title: file.name.replace(/\.pdf$/i, ''), folderId, paper: 'blank' });
-  const pages = await pdfPages(file, notebook.id, 'blank');
-  if (pages.length === 0) throw new Error('Ce PDF ne contient aucune page.');
-  await db.deletePage(notebook.pageIds[0]);
-  for (const page of pages) await db.putPage(page, true);
-  const updated = { ...notebook, pageIds: pages.map((p) => p.id), updatedAt: now() };
-  await db.putNotebook(updated);
-  // Les pages ont été écrites en silence (une notification par page ferait autant de rendus) : on prévient
-  // une seule fois à la fin, sinon l'éditeur garde son ancienne liste et le PDF ne s'affiche pas.
-  notify('pages');
-  return updated;
+  const id = newId();
+  const { stored, pages } = await preparePdf(file, id);
+  const t = now();
+  const count = (await db.notebooks()).length;
+  const notebook: Notebook = {
+    id,
+    folderId,
+    title: file.name.replace(/\.pdf$/i, '').trim() || 'PDF importé',
+    color: NOTEBOOK_COLORS[count % NOTEBOOK_COLORS.length],
+    paper: 'blank',
+    paperColor: 'dark',
+    pageIds: pages.map((p) => p.id),
+    favorite: false,
+    subject: '',
+    createdAt: t,
+    updatedAt: t,
+    openedAt: t,
+    deletedAt: null,
+  };
+  await db.putBundle({ file: stored, pages, notebook });
+  return notebook;
 }
 
-/** Ajoute les pages d'un PDF à la fin d'un cahier existant. */
+/** Ajoute les pages d'un PDF à la fin d'un cahier existant (fichier, pages et cahier : tout ou rien). */
 export async function appendPdf(notebookId: string, file: File) {
-  const notebook = await db.getNotebook(notebookId);
-  if (!notebook) return;
-  const pages = await pdfPages(file, notebookId, 'blank');
-  for (const page of pages) await db.putPage(page, true);
-  await db.mutateNotebook(notebookId, (n) => ({ ...n, pageIds: [...n.pageIds, ...pages.map((p) => p.id)], updatedAt: now() }));
-  // Même raison qu'à l'import : sans cette notification, les pages ajoutées n'apparaissaient qu'après avoir
-  // créé une page vide à la main.
-  notify('pages');
+  if (!(await db.getNotebook(notebookId))) return;
+  const { stored, pages } = await preparePdf(file, notebookId);
+  await db.putBundle({ file: stored, pages, appendTo: notebookId });
 }
 
 export async function updateNotebook(
@@ -332,16 +348,19 @@ export async function insertPhotoPage(notebookId: string, afterIndex: number, fi
   const blob = await new Promise<Blob>((resolve, reject) =>
     canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Photo illisible.'))), 'image/jpeg', 0.9),
   );
+  const { width: photoW, height: photoH } = canvas;
+  canvas.width = 0;
   const t = now();
   const fileId = newId();
-  await db.putFile({ id: fileId, name: file.name || 'photo.jpg', type: 'image/jpeg', size: blob.size, blob, createdAt: t, updatedAt: t, deletedAt: null });
+  const stored: StoredFile = { id: fileId, name: file.name || 'photo.jpg', type: 'image/jpeg', size: blob.size, blob, createdAt: t, updatedAt: t, deletedAt: null };
   const page: Page = {
     ...blankPage(notebookId, 'blank'),
     width: 210,
-    height: Math.round(((210 * canvas.height) / canvas.width) * 10) / 10,
+    height: Math.round(((210 * photoH) / photoW) * 10) / 10,
     image: { fileId },
   };
-  await db.putPage(page);
+  // Fichier et page d'abord, en une transaction ; la page n'apparaît dans le cahier qu'une fois tout écrit
+  await db.putBundle({ file: stored, pages: [page] });
   let index = 0;
   await db.mutateNotebook(notebookId, (n) => {
     const pageIds = [...n.pageIds];

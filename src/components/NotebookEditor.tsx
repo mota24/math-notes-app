@@ -1,19 +1,14 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import type { Block } from '../ai/blocks';
-import { DEMO_BLOCKS } from '../ai/demo';
-import { ConversionError, FREE_MODELS, convertWithGemini } from '../ai/gemini';
 import { db, onDbChange, useQuery } from '../db/db';
 import { addPage, appendPdf, insertPhotoPage, movePage, removePage, removePages, touchNotebook, updateNotebook } from '../db/library';
-import type { ConversionResult, Page, ResultSource } from '../db/schema';
+import type { Page } from '../db/schema';
 import { hasBackground, pageBackground } from '../ink/background';
 import { strokeBBox, unionBBox } from '../ink/geometry';
 import { InkCanvas } from '../ink/InkCanvas';
 import type { CanvasPage } from '../ink/InkCanvas';
-import { imageFileToEncoded, imageFromDataUrl, rasterizeForAi, rasterizeRegion } from '../ink/rasterize';
-import type { EncodedImage } from '../ink/rasterize';
+import { rasterizeRegion } from '../ink/rasterize';
 import { newId } from '../ink/types';
 import type { BBox, PaperColor, PaperStyle, ShapeKind, Stroke, Tool } from '../ink/types';
-import { renderBlocksImage } from '../export/insertImage';
 import { go, replaceRoute } from '../router';
 import type { Settings } from '../settings';
 import { NotebookMenu } from './NotebookMenu';
@@ -23,7 +18,6 @@ import { SplitViewer } from './SplitViewer';
 import { flushShareUpdate, scheduleShareUpdate } from '../share/share';
 import { ConfirmDialog, PromptDialog } from './Modal';
 import { PageStrip } from './PageStrip';
-import { ResultsPanel } from './ResultsPanel';
 import { EditorTabs } from './TabBar';
 import { reportStorageError } from '../db/storageAlert';
 import { CloudIndicator } from './CloudIndicator';
@@ -34,10 +28,6 @@ import { autoShapeColor, pushRecentColor } from '../colors';
 import { fitHeight, imageTop, isExtendable } from '../ink/pageExtent';
 import { applyAction, invertAction, splitStrokes } from '../ink/history';
 import type { Action } from '../ink/history';
-
-type Job = { progress: string } | { error: { message: string; kind: string } };
-
-const sleep = (ms: number) => new Promise((r) => window.setTimeout(r, ms));
 
 /** Écran partagé : le cahier affiché à côté de chaque cahier, et la largeur du volet (préférences locales) */
 const SPLIT_KEY = 'notes-maths:split';
@@ -84,9 +74,6 @@ interface Props {
   onNewNotebook?(): void;
 }
 
-// Tableau vide stable : `?? []` en créerait un nouveau à chaque rendu et le useMemo des résultats ne servirait à rien
-const NO_RESULTS: ConversionResult[] = [];
-
 export function NotebookEditor({
   notebookId,
   pageIndex,
@@ -97,7 +84,6 @@ export function NotebookEditor({
   onCloseTab,
   onNewNotebook,
 }: Props) {
-  const demo = useMemo(() => new URLSearchParams(window.location.search).has('demo'), []);
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
 
@@ -249,39 +235,6 @@ export function NotebookEditor({
     setPageStrokes([...strokesRef.current, ...added]);
     record({ type: 'add', strokes: added });
   };
-  /** Glisse un résultat converti sur la page, sous forme d'image nette (voir export/insertImage.ts). */
-  const insertBlocksAsImage = async (blocks: Block[]) => {
-    const p = pageRef.current;
-    if (!p) return;
-    const rendered = await renderBlocksImage(blocks, settingsRef.current.color);
-    if (!rendered) {
-      flash('Rien à poser sur la page : cette conversion est vide.');
-      return;
-    }
-    // Une taille raisonnable à l'écran (~28 px/mm de « poids visuel » d'origine), sous la dernière encre
-    const maxW = Math.min(rendered.widthMm, p.width - 30);
-    const scale = maxW / rendered.widthMm;
-    const w = rendered.widthMm * scale;
-    const h = rendered.heightMm * scale;
-    const below = unionBBox(strokesRef.current.map(strokeBBox))?.maxY ?? 12;
-    const x = 15;
-    const y = imageTop(p, below, h);
-    addStrokes([
-      {
-        id: newId(),
-        tool: 'image',
-        image: rendered.dataUrl,
-        points: [
-          [x, y, 1],
-          [x + w, y + h, 1],
-        ],
-        color: settingsRef.current.color,
-        size: 0,
-        input: 'mouse',
-      },
-    ]);
-    flash('Posée sur la page : glisse-la (lasso) pour la placer où tu veux.');
-  };
   /**
    * Une image de la galerie posée sur la page comme objet libre : elle se déplace, se redimensionne et se
    * tourne au lasso comme n'importe quel objet, ne remplace pas le fond et ne crée pas de page.
@@ -407,6 +360,8 @@ export function NotebookEditor({
   undoRef.current = undo;
   const redoRef = useRef(redo);
   redoRef.current = redo;
+  /** Raccourcis clavier qui dépendent de la sélection du moment (lus par un écouteur installé une fois) */
+  const keysRef = useRef<{ remove(): void; clear(): void; copy(): boolean; paste(): boolean }>({ remove: () => {}, clear: () => {}, copy: () => false, paste: () => false });
 
   const selectedStrokes = () => {
     const chosen = new Set(selection);
@@ -423,7 +378,7 @@ export function NotebookEditor({
     }
     const p = pageRef.current;
     if (!p) return;
-    // Même logique de taille/placement que « Poser sur la page » (glisser-déposer LaTeX)
+    // Posée sous la dernière encre, à la largeur de la page au plus
     const maxW = Math.min(clipboard.widthMm, p.width - 30);
     const scale = maxW / clipboard.widthMm;
     const w = clipboard.widthMm * scale;
@@ -449,6 +404,29 @@ export function NotebookEditor({
     flash('Capture posée sur la page : glisse-la (lasso) pour la placer où tu veux.');
   };
 
+  keysRef.current = {
+    remove: () => {
+      if (selection.length) removeStrokes(selection);
+    },
+    clear: () => {
+      select([]);
+      setCaptureRegion(null);
+    },
+    copy: () => {
+      const chosen = selectedStrokes();
+      if (!chosen.length) return false;
+      clipboard = { type: 'strokes', strokes: chosen };
+      setCanPaste(true);
+      flash('Sélection copiée : Ctrl+V pour la coller, sur n’importe quelle page.');
+      return true;
+    },
+    paste: () => {
+      if (!clipboard) return false;
+      paste();
+      return true;
+    },
+  };
+
   // ------------------------------------------------------------ navigation
   const goToPage = useCallback(
     (i: number) => {
@@ -469,7 +447,13 @@ export function NotebookEditor({
       } else if ((e.ctrlKey || e.metaKey) && (key === 'y' || (key === 'z' && e.shiftKey))) {
         e.preventDefault();
         redoRef.current();
-      } else if (e.key === 'PageDown' && index < pageCount - 1) goToPage(index + 1);
+      } else if ((e.ctrlKey || e.metaKey) && key === 'c') {
+        if (keysRef.current.copy()) e.preventDefault();
+      } else if (e.key === 'Delete' || e.key === 'Backspace') {
+        e.preventDefault();
+        keysRef.current.remove();
+      } else if (e.key === 'Escape') keysRef.current.clear();
+      else if (e.key === 'PageDown' && index < pageCount - 1) goToPage(index + 1);
       else if (e.key === 'PageUp' && index > 0) goToPage(index - 1);
     };
     window.addEventListener('keydown', onKey);
@@ -483,6 +467,9 @@ export function NotebookEditor({
     window.setTimeout(() => setNotice((m) => (m === message ? null : m)), 3500);
   }, []);
   const [background, setBackground] = useState<HTMLCanvasElement | null>(null);
+  // Un fichier de fond vient d'arriver (synchronisation) : les fonds qui manquaient sont redemandés
+  const [filesTick, setFilesTick] = useState(0);
+  useEffect(() => onDbChange((stores) => stores.includes('files') && setFilesTick((t) => t + 1)), []);
   const [bgScale, setBgScale] = useState(0);
   const bgKey = page?.pdf ? `pdf:${page.pdf.fileId}:${page.pdf.pageIndex}` : page?.image ? `photo:${page.image.fileId}` : null;
   useEffect(() => {
@@ -505,7 +492,7 @@ export function NotebookEditor({
     return () => {
       alive = false;
     };
-  }, [bgKey, bgScale, flash]);
+  }, [bgKey, bgScale, flash, filesTick]);
 
   /**
    * Fonds (PDF, photo) des pages voisines, pour le défilement continu. Seule une fenêtre autour de la page
@@ -546,156 +533,9 @@ export function NotebookEditor({
         .catch(() => {})
         .finally(() => bgPending.current.delete(p.id));
     }
-  }, [orderedPages, index, bgScale]);
-
-  // ------------------------------------------------------------ Gemini
-  const callGemini = async (image: EncodedImage, onStatus: (s: string) => void) => {
-    if (demo) {
-      await sleep(900);
-      return { blocks: DEMO_BLOCKS, model: 'démo' };
-    }
-    const s = settingsRef.current;
-    if (!s.apiKey) throw new ConversionError('key', 'Ajoute ta clé API Gemini gratuite dans les réglages.');
-    return convertWithGemini({
-      apiKey: s.apiKey,
-      model: s.model || FREE_MODELS[0],
-      autoFallback: s.autoFallback,
-      base64: image.base64,
-      mimeType: image.mimeType,
-      subject: notebookRef.current?.subject || s.subject,
-      onStatus,
-    });
-  };
-
-  /** Image d'une page (ou d'une zone) pour Gemini, avec le PDF ou la photo de fond si activé. */
-  const imageOfPage = async (p: Page, pageStrokes: Stroke[], region: ReturnType<typeof unionBBox> = null) => {
-    const withBackground = settingsRef.current.convertBackground && hasBackground(p);
-    const bg = withBackground ? await pageBackground(p, region ? 12 : 6) : null;
-    return rasterizeForAi({ strokes: pageStrokes, page: p, background: bg, region });
-  };
-
-  // Transcriptions de pages
-  const transcript = useQuery(() => (pageId ? db.getTranscript(pageId) : Promise.resolve(undefined)), [pageId], ['transcripts']);
-  const [jobs, setJobs] = useState<Record<string, Job>>({});
-  const setJob = (id: string, job: Job | null) =>
-    setJobs((all) => {
-      const next = { ...all };
-      if (job) next[id] = job;
-      else delete next[id];
-      return next;
-    });
-
-  const convertPageById = async (id: string) => {
-    const p = id === pageRef.current?.id ? { ...pageRef.current, strokes: strokesRef.current } : await db.getPage(id);
-    if (!p) return;
-    setJob(id, { progress: 'Préparation de la page…' });
-    let image: EncodedImage | null;
-    try {
-      image = await imageOfPage(p, p.strokes);
-    } catch (e) {
-      setJob(id, { error: { message: (e as Error).message, kind: 'background' } });
-      return;
-    }
-    if (!image) {
-      setJob(id, { error: { message: 'Page vide : écris d’abord quelque chose.', kind: 'empty' } });
-      return;
-    }
-    setJob(id, { progress: 'Gemini lit la page…' });
-    try {
-      const { blocks, model } = await callGemini(image, (progress) => setJob(id, { progress }));
-      const t = Date.now();
-      await db.putTranscript({ pageId: id, notebookId, blocks, model, strokeCount: p.strokes.length, edited: false, createdAt: t, updatedAt: t, deletedAt: null });
-      setJob(id, null);
-    } catch (e) {
-      setJob(id, { error: { message: (e as Error).message, kind: e instanceof ConversionError ? e.kind : 'server' } });
-      throw e;
-    }
-  };
-
-  const [queue, setQueue] = useState<{ done: number; total: number } | null>(null);
-  const cancelQueue = useRef(false);
-  const convertNotebook = async () => {
-    const nb = notebookRef.current;
-    if (!nb) return;
-    flushSave();
-    const todo: string[] = [];
-    for (const id of nb.pageIds) {
-      const p = id === pageRef.current?.id ? { ...pageRef.current, strokes: strokesRef.current } : await db.getPage(id);
-      if (!p) continue;
-      const withBackground = settingsRef.current.convertBackground && hasBackground(p);
-      if (p.strokes.length === 0 && !withBackground) continue;
-      const t = await db.getTranscript(id);
-      if (t && (t.edited || t.strokeCount === p.strokes.length)) continue;
-      todo.push(id);
-    }
-    if (todo.length === 0) return flash('Toutes les pages sont déjà converties.');
-    cancelQueue.current = false;
-    setPanelOpen(true);
-    for (const [i, id] of todo.entries()) {
-      if (cancelQueue.current) break;
-      setQueue({ done: i, total: todo.length });
-      try {
-        await convertPageById(id);
-      } catch (e) {
-        if (e instanceof ConversionError && ['key', 'quota', 'overloaded', 'network'].includes(e.kind)) {
-          flash(`Conversion du cahier arrêtée : ${e.message}`);
-          break;
-        }
-      }
-      // Le niveau gratuit limite le nombre de requêtes par minute
-      if (i < todo.length - 1 && !cancelQueue.current) await sleep(demo ? 300 : 4000);
-    }
-    setQueue(null);
-  };
-
-  /** Correction d'une transcription, ou transcription écrite / collée à la main. */
-  const saveTranscript = (blocks: Block[]) => {
-    if (!pageId) return;
-    const t = Date.now();
-    if (transcript) void db.putTranscript({ ...transcript, blocks, edited: true, updatedAt: t });
-    else
-      void db.putTranscript({
-        pageId, notebookId, blocks, model: 'manuel', strokeCount: strokesRef.current.length, edited: true, createdAt: t, updatedAt: t, deletedAt: null,
-      });
-  };
-
-  // Conversions ponctuelles (lasso, photo)
-  const storedResults = useQuery(() => (pageId ? db.resultsOf(pageId) : Promise.resolve(NO_RESULTS)), [pageId], ['results']) ?? NO_RESULTS;
-  const [liveResults, setLiveResults] = useState<Record<string, ConversionResult>>({});
-  const results = useMemo(() => {
-    const live = Object.values(liveResults).filter((r) => r.pageId === pageId);
-    return [...live, ...storedResults.filter((r) => !liveResults[r.id])].sort((a, b) => b.createdAt - a.createdAt);
-  }, [liveResults, storedResults, pageId]);
-
-  const runResult = async (result: ConversionResult, image: EncodedImage) => {
-    const started = performance.now();
-    const patch = (p: Partial<ConversionResult>) => setLiveResults((all) => ({ ...all, [result.id]: { ...(all[result.id] ?? result), ...p } }));
-    patch({ status: 'loading', error: undefined, errorKind: undefined });
-    let final: ConversionResult;
-    try {
-      const { blocks, model } = await callGemini(image, (progress) => patch({ progress }));
-      final = { ...result, status: 'done', blocks, model, durationMs: performance.now() - started };
-    } catch (e) {
-      final = { ...result, status: 'error', error: (e as Error).message, errorKind: e instanceof ConversionError ? e.kind : 'server' };
-    }
-    await db.putResult(final);
-    setLiveResults((all) => {
-      const next = { ...all };
-      delete next[result.id];
-      return next;
-    });
-  };
-
-  const startResult = (source: ResultSource, image: EncodedImage | null) => {
-    if (!image || !pageId) return flash('Rien à convertir : écris d’abord quelque chose.');
-    const model = demo ? 'démo' : settingsRef.current.model || FREE_MODELS[0];
-    const result: ConversionResult = { id: newId(), notebookId, pageId, source, createdAt: Date.now(), model, imageDataUrl: image.dataUrl, status: 'loading' };
-    setPanelOpen(true);
-    void runResult(result, image);
-  };
+  }, [orderedPages, index, bgScale, filesTick]);
 
   // ------------------------------------------------------------ interface
-  const [panelOpen, setPanelOpen] = useState(false);
   const [stripOpen, setStripOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
@@ -707,7 +547,6 @@ export function NotebookEditor({
   const [shareOpen, setShareOpen] = useState(false);
   const [pdfBusy, setPdfBusy] = useState<string | null>(null);
   const [dropping, setDropping] = useState(false);
-  const photoConvertInput = useRef<HTMLInputElement>(null);
 
   // ---- Écran partagé : un autre cahier (le PDF du cours) à gauche, retenu pour chaque cahier
   const [splitMap, setSplitMap] = useState<Record<string, string>>(() => readStored(SPLIT_KEY, {}));
@@ -794,7 +633,11 @@ export function NotebookEditor({
     const onPaste = (e: ClipboardEvent) => {
       if ((e.target as HTMLElement | null)?.closest?.('input, textarea, [contenteditable]')) return;
       const images = [...(e.clipboardData?.files ?? [])].filter((f) => f.type.startsWith('image/'));
-      if (!images.length) return;
+      if (!images.length) {
+        // Ctrl+V sans image dans le presse-papiers du système : les traits (ou la capture) copiés dans l'appli
+        if (keysRef.current.paste()) e.preventDefault();
+        return;
+      }
       e.preventDefault();
       dropRef.current(images);
     };
@@ -868,11 +711,12 @@ export function NotebookEditor({
     if (!targetPageId || targetPageId === pageRef.current?.id) {
       addStrokes([s]);
     } else {
-      void db.getPage(targetPageId).then((targetP) => {
-        if (!targetP) return;
-        const nextStrokes = [...targetP.strokes, s];
-        void db.putPage({ ...targetP, strokes: nextStrokes, updatedAt: Date.now() });
-      });
+      // Lecture et écriture dans UNE transaction (voir db.mutatePage) : deux traits rapides sur la page d'à
+      // côté, ou son ouverture au même moment, ne peuvent plus s'écraser l'un l'autre
+      void db
+        .mutatePage(targetPageId, (target) => ({ ...target, strokes: [...target.strokes, s], updatedAt: Date.now() }))
+        .then(() => touchNotebook(notebookId))
+        .catch(reportStorageError);
     }
   };
 
@@ -902,25 +746,9 @@ export function NotebookEditor({
     );
   }
 
-  const job = pageId ? jobs[pageId] : undefined;
-  const pageBusy = job && 'progress' in job ? job.progress : null;
-  const pageError = job && 'error' in job ? job.error : null;
   const paperColor = pagePaperColor;
   // Formes et lignes : la couleur choisie, sinon celle qui tranche sur le papier (noir sur clair, blanc sur sombre)
   const shapeColor = settings.shapeColor ?? autoShapeColor(paperColor);
-
-  const handleConvertClick = () => {
-    if (!settings.apiKey && !demo) {
-      onOpenSettings();
-      flash('Ajoute ta clé API Gemini gratuite dans les réglages pour activer la conversion IA.');
-      return;
-    }
-    if (!pageId) return;
-    setPanelOpen(true);
-    void convertPageById(pageId).catch((err: Error) => {
-      flash(err.message || 'Erreur lors de la conversion de la page.');
-    });
-  };
 
   return (
     <div className="app">
@@ -976,9 +804,6 @@ export function NotebookEditor({
           <button className="tb-icon" onClick={() => void exportPdf()} disabled={pdfBusy !== null} title="Exporter en PDF (papier, fonds et encre)" aria-label="Exporter en PDF">
             {pdfBusy !== null ? <span className="tb-progress">{pdfBusy}%</span> : ICONS.download}
           </button>
-          <button className="tb-icon tb-convert" onClick={handleConvertClick} disabled={!!pageBusy} title="Convertir la page (Gemini)" aria-label="Convertir la page">
-            {pageBusy ? <span className="spinner" /> : ICONS.sigma}
-          </button>
           <button
             className={`tb-btn ${menuOpen ? 'active' : ''}`}
             onClick={() => setMenuOpen((v) => !v)}
@@ -994,7 +819,6 @@ export function NotebookEditor({
             paperColor={paperColor}
             paperDisabled={!page || hasBackground(page)}
             pageCount={pageCount}
-            queue={queue}
             onPaper={(paper: PaperStyle) => {
               if (!page) return;
               setPage({ ...page, paper });
@@ -1010,12 +834,7 @@ export function NotebookEditor({
             onExport={() => (flushSave(), setExportOpen(true))}
             onShare={() => setShareOpen(true)}
             shared={!!shareId}
-            onConvertNotebook={() => {
-              if (queue) cancelQueue.current = true;
-              else void convertNotebook();
-            }}
             onPages={() => setStripOpen(true)}
-            onConvertPhoto={() => photoConvertInput.current?.click()}
             onInsertPdf={() => pdfInput.current?.click()}
             onRename={() => setRenaming(true)}
             onSettings={onOpenSettings}
@@ -1237,30 +1056,8 @@ export function NotebookEditor({
             <p className="center-message">Chargement de la page…</p>
           )}
           {notice && <div className="notice">{notice}</div>}
-          {demo && <div className="demo-badge">Mode démo : réponses fictives</div>}
           </div>
         </section>
-        {panelOpen && (
-          <aside className="panel">
-            <ResultsPanel
-              transcript={transcript}
-              strokeCount={strokes.length}
-              hasBackground={!!page && hasBackground(page)}
-              transcriptBusy={pageBusy}
-              transcriptError={pageError}
-              onConvertPage={() => pageId && void convertPageById(pageId).catch(() => undefined)}
-              onSaveTranscript={saveTranscript}
-              results={results}
-              onRetry={(id) => {
-                const r = results.find((x) => x.id === id);
-                if (r) void runResult(r, imageFromDataUrl(r.imageDataUrl));
-              }}
-              onDelete={(id) => void db.deleteResult(id)}
-              onOpenSettings={onOpenSettings}
-              onInsert={insertBlocksAsImage}
-            />
-          </aside>
-        )}
       </main>
 
       <input
@@ -1302,20 +1099,6 @@ export function NotebookEditor({
           if (file) void insertImageFile(file);
         }}
       />
-      <input
-        ref={photoConvertInput}
-        type="file"
-        accept="image/*"
-        hidden
-        onChange={(e) => {
-          const file = e.target.files?.[0];
-          e.target.value = '';
-          if (file)
-            void imageFileToEncoded(file)
-              .then((img) => startResult('image', img))
-              .catch(() => flash('Impossible de lire cette image.'));
-        }}
-      />
       {renaming && (
         <PromptDialog
           title="Renommer le cahier"
@@ -1331,7 +1114,7 @@ export function NotebookEditor({
       {deleting && pageId && (
         <ConfirmDialog
           title={`Supprimer la page ${index + 1} ?`}
-          message="Ses traits et sa transcription seront supprimés."
+          message="Ses traits seront supprimés."
           confirmLabel="Supprimer la page"
           danger
           onClose={() => setDeleting(false)}

@@ -158,6 +158,9 @@ export function ExportDialog({
           </button>
         </article>
 
+        {/* Transcriptions faites avant le retrait de la conversion IA : leurs exports restent disponibles */}
+        {!noTranscript && (
+          <>
         <article className="export-card">
           <h3>PDF propre (LaTeX)</h3>
           <p>
@@ -257,11 +260,10 @@ export function ExportDialog({
             Créer le PDF manuscrit
           </button>
         </article>
+          </>
+        )}
       </div>
 
-      {noTranscript && (
-        <p className="hint">Les exports LaTeX et manuscrit utilisent les transcriptions : convertis d’abord la page ou le cahier.</p>
-      )}
       {busy && (
         <p className="loading">
           <span className="spinner" /> {busy}

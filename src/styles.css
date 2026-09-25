@@ -2854,11 +2854,6 @@ code {
   cursor: default;
 }
 
-/* Convertir : la seule action « IA », à peine teintée d'accent au survol */
-.editor-zone-right .tb-convert:hover:not(:disabled) {
-  color: var(--accent);
-}
-
 .editor-zone-right .tb-icon .spinner {
   width: 14px;
   height: 14px;

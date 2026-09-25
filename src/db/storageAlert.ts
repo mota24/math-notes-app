@@ -19,9 +19,9 @@ const emit = () => {
 };
 
 /**
- * Le navigateur refuse d'écrire faute de place. Attention : « quota » tout seul ne suffit pas, les erreurs de
- * Gemini parlent aussi de quota (celui de l'API gratuite) — il faut le nom DOM exact, ou un message qui parle
- * bien du stockage.
+ * Le navigateur refuse d'écrire faute de place. Attention : « quota » tout seul ne suffit pas, les erreurs des
+ * services en ligne parlent aussi de quota (Firestore : « Quota exceeded ») — il faut le nom DOM exact, ou un
+ * message qui parle bien du stockage.
  */
 export function isStorageFull(e: unknown): boolean {
   const err = e as { name?: string; message?: string } | null;

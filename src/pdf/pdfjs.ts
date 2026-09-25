@@ -26,10 +26,18 @@ async function openBytes(bytes: ArrayBuffer): Promise<PDFDocumentProxy> {
   return getDocument({ data: new Uint8Array(bytes.slice(0)) }).promise;
 }
 
-/** Document PDF d'un fichier stocké (les 3 derniers restent ouverts). */
+/**
+ * Document PDF d'un fichier stocké. Les 4 derniers UTILISÉS restent ouverts (écran partagé : le cours et le
+ * cahier en même temps). Avant, c'était le plus anciennement ouvert qui était fermé, même s'il venait de
+ * servir : une page du cours en plein rendu pouvait voir son document détruit sous elle.
+ */
 export function pdfForFile(fileId: string): Promise<PDFDocumentProxy> {
   let doc = docs.get(fileId);
-  if (!doc) {
+  if (doc) {
+    // Remis en fin de file : c'est le plus récemment utilisé
+    docs.delete(fileId);
+    docs.set(fileId, doc);
+  } else {
     doc = (async () => {
       const file = await db.getFile(fileId);
       if (!file) throw new Error('PDF introuvable sur cet appareil (pas encore synchronisé ?)');
@@ -37,7 +45,7 @@ export function pdfForFile(fileId: string): Promise<PDFDocumentProxy> {
     })();
     docs.set(fileId, doc);
     doc.catch(() => docs.delete(fileId));
-    if (docs.size > 3) {
+    if (docs.size > 4) {
       const oldest = docs.keys().next().value as string;
       void docs.get(oldest)?.then((d) => d.loadingTask.destroy());
       docs.delete(oldest);

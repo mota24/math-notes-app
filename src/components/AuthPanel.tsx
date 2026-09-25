@@ -9,6 +9,7 @@ import {
   signInWithPopup,
   signInWithRedirect,
 } from 'firebase/auth';
+import { SIGNUP_OPEN } from '../auth/useAccess';
 import { auth, authMemeOrigine } from '../firebase';
 
 /**
@@ -325,16 +326,18 @@ export function AuthPanel({ refus = null }: { refus?: string | null }) {
 
         <div className="mt-6 flex flex-col items-center gap-3">
           {mode === 'connexion' ? (
-            <>
-              <span className="text-[13px] text-zinc-500">Pas encore de compte ?</span>
-              <button
-                type="button"
-                onClick={() => changerMode('inscription')}
-                className="h-11 w-full rounded-xl border border-white/15 bg-transparent p-0 text-sm font-semibold text-white transition-colors hover:bg-white/10"
-              >
-                Créer un compte
-              </button>
-            </>
+            SIGNUP_OPEN && (
+              <>
+                <span className="text-[13px] text-zinc-500">Pas encore de compte ?</span>
+                <button
+                  type="button"
+                  onClick={() => changerMode('inscription')}
+                  className="h-11 w-full rounded-xl border border-white/15 bg-transparent p-0 text-sm font-semibold text-white transition-colors hover:bg-white/10"
+                >
+                  Créer un compte
+                </button>
+              </>
+            )
           ) : (
             <button type="button" className={lien} onClick={() => changerMode('connexion')}>
               ← Retour à la connexion

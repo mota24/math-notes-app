@@ -282,7 +282,7 @@ export function HandwritingSetup({ settings }: { settings: Settings }) {
           <div className="hand-preview">
             <label className="field">
               <span>Aperçu avec ton écriture (les caractères manquants sont en police Caveat)</span>
-              <input value={sample} onChange={(e) => setSample(e.target.value)} />
+              <input autoComplete="off" data-1p-ignore data-lpignore="true" data-bwignore value={sample} onChange={(e) => setSample(e.target.value)} />
             </label>
             <Preview text={sample} glyphs={glyphs} />
           </div>

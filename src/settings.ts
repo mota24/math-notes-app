@@ -1,15 +1,9 @@
 import { useCallback, useState } from 'react';
-import { FREE_MODELS } from './ai/gemini';
 import type { SizeMode } from './ink/palm';
 import type { Handedness, PaperStyle, StylusMode } from './ink/types';
 import { DEFAULT_SELECTION_COLORS, normalizeSelectionColors, normalizeShapeColor } from './colors';
 
 export interface Settings {
-  apiKey: string;
-  model: string;
-  /** Si Gemini est surchargé ou le quota atteint, essayer un autre modèle gratuit */
-  autoFallback: boolean;
-  subject: string;
   color: string;
   size: number;
   /** Couleur des formes et des lignes ; `null` : automatique (noire sur papier clair, blanche sur papier sombre) */
@@ -65,8 +59,6 @@ export interface Settings {
   highlightSize: number;
   /** Palette de la barre d'une sélection : les 3 dernières couleurs choisies, la plus récente en premier */
   selectionColors: string[];
-  /** Envoyer aussi le PDF ou la photo de fond à Gemini (texte imprimé compris) */
-  convertBackground: boolean;
   /** Export « PDF de mes notes » en mode impression : fond blanc, encre claire convertie en foncé */
   printMode: boolean;
 }
@@ -74,10 +66,6 @@ export interface Settings {
 const KEY = 'notes-maths.settings';
 
 const DEFAULTS: Settings = {
-  apiKey: '',
-  model: FREE_MODELS[0],
-  autoFallback: true,
-  subject: '',
   color: '#1d2433',
   size: 0.6,
   shapeColor: null,
@@ -112,7 +100,6 @@ const DEFAULTS: Settings = {
   highlightColor: '#facc15',
   highlightSize: 5,
   selectionColors: [...DEFAULT_SELECTION_COLORS],
-  convertBackground: true,
   printMode: false,
 };
 
@@ -128,8 +115,14 @@ function load(): Settings {
     // `showContacts` (diagnostic dessiné sur la page) et `restZone` (bande réservée à la main) ont quitté les
     // Réglages : on les remet à leur valeur par défaut, sinon ils resteraient actifs sans aucun moyen de les
     // couper. Le calibrage anti-paume déjà enregistré, lui, est conservé tel quel.
-    for (const legacy of ['pencilCase', 'tapeColor', 'tapeSize', 'tapeHintSeen', 'lockEnabled', 'showContacts', 'restZone'])
-      delete (saved as Record<string, unknown>)[legacy];
+    // La conversion par IA (Gemini) est abandonnée : sa clé API ne doit plus traîner dans le stockage du
+    // navigateur, pas plus que ses réglages.
+    const legacyKeys = ['pencilCase', 'tapeColor', 'tapeSize', 'tapeHintSeen', 'lockEnabled', 'showContacts', 'restZone', 'apiKey', 'model', 'autoFallback', 'subject', 'convertBackground'];
+    const hadLegacy = legacyKeys.some((k) => k in saved);
+    for (const legacy of legacyKeys) delete (saved as Record<string, unknown>)[legacy];
+    // Réécrit tout de suite, sans attendre le prochain réglage modifié : la clé API disparaît du disque dès
+    // l'ouverture de l'appli
+    if (hadLegacy) localStorage.setItem(KEY, JSON.stringify(saved));
     // Migration vers le mode actif strict par défaut
     if (saved.stylusMode === 'auto' || saved.stylusMode === 'capacitive' || !saved.stylusMode) {
       saved.stylusMode = 'active';

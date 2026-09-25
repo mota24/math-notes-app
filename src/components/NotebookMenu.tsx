@@ -18,16 +18,13 @@ interface Props {
   paperColor: PaperColor;
   paperDisabled: boolean;
   pageCount: number;
-  queue: { done: number; total: number } | null;
   onPaper(p: PaperStyle): void;
   onPaperColor(c: PaperColor): void;
   onExport(): void;
   onShare(): void;
   /** Le cahier a déjà un lien de partage */
   shared: boolean;
-  onConvertNotebook(): void;
   onPages(): void;
-  onConvertPhoto(): void;
   onInsertPdf(): void;
   onRename(): void;
   onSettings(): void;
@@ -55,15 +52,9 @@ export function NotebookMenu(p: Props) {
     <>
       <button className="menu-backdrop" onClick={p.onClose} aria-label="Fermer le menu" />
       <div className="menu-card" role="menu">
-        {item('Exporter…', ICONS.export, p.onExport, 'PDF · LaTeX')}
+        {item('Exporter…', ICONS.export, p.onExport, 'PDF')}
         {item(p.shared ? 'Lien de partage…' : 'Partager (lecture seule)…', ICONS.share, p.onShare, p.shared ? 'actif' : undefined)}
-        {item(
-          p.queue ? `Arrêter (${p.queue.done}/${p.queue.total})` : 'Convertir tout le cahier',
-          ICONS.sigma,
-          p.onConvertNotebook,
-          p.queue ? undefined : `${p.pageCount} page${p.pageCount > 1 ? 's' : ''}`,
-        )}
-        {item('Toutes les pages', ICONS.pages, p.onPages)}
+        {item('Toutes les pages', ICONS.pages, p.onPages, `${p.pageCount} page${p.pageCount > 1 ? 's' : ''}`)}
         <div className="menu-sep" />
         <div className="menu-section">
           <span className="field-label">Papier</span>
@@ -95,7 +86,6 @@ export function NotebookMenu(p: Props) {
           </div>
         </div>
         <div className="menu-sep" />
-        {item('Convertir une photo', ICONS.image, p.onConvertPhoto)}
         {item('Insérer un PDF', ICONS.file, p.onInsertPdf)}
         {item('Renommer le cahier', ICONS.pen, p.onRename)}
         {item('Réglages', ICONS.settings, p.onSettings)}

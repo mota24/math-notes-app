@@ -51,6 +51,17 @@ const cases: [string, () => void][] = [
     },
   ],
   [
+    'adresse non validée : refusée, même listée ou propriétaire ; validée ou inconnue (Google) : acceptée',
+    () => {
+      const liste = parseAllowlist('moi@exemple.fr');
+      assert.equal(decideAccess({ ...owner, emailVerified: false }, liste, null).ok, false);
+      assert.equal(decideAccess({ ...owner, emailVerified: false }, [], owner).ok, false);
+      assert.equal(decideAccess({ ...owner, emailVerified: false }, [], null).ok, false, 'ne peut pas devenir propriétaire');
+      assert.deepEqual(decideAccess({ ...owner, emailVerified: true }, liste, null), { ok: true, claim: false });
+      assert.deepEqual(decideAccess({ ...owner, emailVerified: true }, [], null), { ok: true, claim: true });
+    },
+  ],
+  [
     'stockage : un vrai « stockage plein » est reconnu, un quota Gemini ne l’est pas',
     () => {
       assert.equal(isStorageFull({ name: 'QuotaExceededError', message: 'x' }), true);

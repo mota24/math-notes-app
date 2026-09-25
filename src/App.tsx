@@ -8,9 +8,10 @@ import { SettingsDialog } from './components/SettingsDialog';
 import { TabBar } from './components/TabBar';
 import { WelcomeDialog } from './components/WelcomeDialog';
 import { AuthPanel } from './components/AuthPanel';
+import { IosInstallHint } from './components/IosInstallHint';
 import { StorageBanner } from './components/StorageBanner';
 import { useAccess } from './auth/useAccess';
-import { watchStorage } from './db/storageAlert';
+import { reportStorageError, watchStorage } from './db/storageAlert';
 import { NewNotebookDialog } from './components/NewNotebookDialog';
 import { createNotebook } from './db/library';
 import { migrateLegacyDraft } from './db/migrate';
@@ -128,6 +129,7 @@ export default function App() {
         {screen}
       </div>
       <StorageBanner />
+      <IosInstallHint />
       {settingsOpen && (
         <SettingsDialog
           settings={settings}
@@ -146,9 +148,9 @@ export default function App() {
             setNewNotebookOpen(false);
             // Créé dans le dossier courant si on est dans la bibliothèque, à la racine sinon
             const folderId = route.name === 'library' ? route.folderId : null;
-            void createNotebook({ title, folderId, paper, subject }).then((n) =>
-              go({ name: 'notebook', notebookId: n.id, pageIndex: 0 }),
-            );
+            void createNotebook({ title, folderId, paper, subject })
+              .then((n) => go({ name: 'notebook', notebookId: n.id, pageIndex: 0 }))
+              .catch(reportStorageError);
           }}
         />
       )}

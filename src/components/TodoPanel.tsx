@@ -179,6 +179,7 @@ export function TodoPanel({ onClose }: { onClose(): void }) {
             value={texte}
             onChange={(e) => setTexte(e.target.value)}
             placeholder="Ajouter une tâche…"
+            autoComplete="off" data-1p-ignore data-lpignore="true" data-bwignore
             autoFocus
             className={`${champ} h-10 flex-1 basis-40`}
             aria-label="Nouvelle tâche"

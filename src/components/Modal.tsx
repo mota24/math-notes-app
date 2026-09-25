@@ -70,7 +70,7 @@ export function PromptDialog({
       >
         <label className="field">
           <span>{label}</span>
-          <input autoFocus value={value} placeholder={placeholder} onChange={(e) => setValue(e.target.value)} />
+          <input autoFocus autoComplete="off" data-1p-ignore data-lpignore="true" data-bwignore value={value} placeholder={placeholder} onChange={(e) => setValue(e.target.value)} />
         </label>
       </form>
     </Modal>

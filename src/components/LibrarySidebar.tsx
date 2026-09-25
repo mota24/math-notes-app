@@ -170,6 +170,7 @@ export function LibrarySidebar(p: SidebarProps) {
           <Icon name="search" className="pointer-events-none absolute left-2.5 top-1/2 z-10 size-3.5 -translate-y-1/2 text-zinc-500" />
           <input
             type="search"
+            autoComplete="off" data-1p-ignore data-lpignore="true" data-bwignore
             value={p.query}
             onChange={(e) => p.onQuery(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && !wide && p.onClose()}

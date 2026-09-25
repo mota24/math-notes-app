@@ -27,8 +27,6 @@ export const ICONS = {
   export: icon(<path d="M12 4v11M7 9l5-5 5 5M5 15v5h14v-5" />),
   /** Anti-paume */
   shield: icon(<path d="M12 3l7 3v5.4c0 4.1-2.9 7.6-7 9.6-4.1-2-7-5.5-7-9.6V6l7-3zM9 12l2 2 4-4" />),
-  /** Convertir en LaTeX */
-  sigma: icon(<path d="M16 5H7l6 7-6 7h9" />),
   dots: (
     <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" aria-hidden="true">
       <path d="M6 12h.01M12 12h.01M18 12h.01" />

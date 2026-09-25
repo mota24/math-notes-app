@@ -526,7 +526,7 @@ export function Library({ route, onOpenSettings }: { route: Extract<Route, { nam
       {dialog?.kind === 'subject' && (
         <PromptDialog
           title="Matière / contexte"
-          label="Transmis à Gemini pour mieux lire ton écriture"
+          label="Affichée sous le titre du cahier"
           initial={dialog.notebook.subject}
           placeholder="ex. Électronique : filtres du premier ordre"
           onClose={() => setDialog(null)}

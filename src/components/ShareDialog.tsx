@@ -60,6 +60,7 @@ export function ShareDialog({ notebook, onClose }: { notebook: Notebook; onClose
             <div className="flex items-center gap-2">
               <input
                 readOnly
+                autoComplete="off" data-1p-ignore data-lpignore="true" data-bwignore
                 value={url}
                 onFocus={(e) => e.currentTarget.select()}
                 aria-label="Lien de partage"

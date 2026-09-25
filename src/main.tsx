@@ -30,6 +30,13 @@ createRoot(document.getElementById('root')!).render(
   </StrictMode>,
 );
 
+// iOS/iPadOS : Safari ignore « user-scalable=no » ; sans ceci, pincer une barre ou un menu zoomait la page
+// entière, qui restait ensuite de travers. Le pincement DANS la page (zoom de la feuille) passe par les
+// événements pointeur/tactiles, que ceci ne bloque pas.
+for (const type of ['gesturestart', 'gesturechange', 'gestureend']) {
+  document.addEventListener(type, (e) => e.preventDefault(), { passive: false });
+}
+
 // Hors-ligne : l'appli se rouvre sans réseau une fois installée (uniquement en https:// ou localhost).
 if ('serviceWorker' in navigator && import.meta.env.PROD && window.isSecureContext) {
   window.addEventListener('load', () => {

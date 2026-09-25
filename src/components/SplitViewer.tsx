@@ -32,6 +32,8 @@ export function SplitViewer({
   const notebooks = useQuery(() => db.notebooks(), [], ['notebooks']) ?? NO_NOTEBOOKS;
   const notebook = notebooks.find((n) => n.id === notebookId);
   const pages = useQuery(() => db.pagesOf(notebookId), [notebookId], ['pages']) ?? NO_PAGES;
+  // Un PDF qui arrive par la synchronisation : les pages restées « indisponibles » se rechargent
+  const fileCount = useQuery(() => db.fileIds().then((ids) => ids.length), [], ['files']) ?? 0;
   const ordered = useMemo(() => {
     const byId = new Map(pages.map((p) => [p.id, p]));
     return (notebook?.pageIds ?? []).map((id) => byId.get(id)).filter((p): p is Page => !!p);
@@ -113,7 +115,7 @@ export function SplitViewer({
           <div className="flex w-max min-w-full flex-col items-center gap-3 px-3 py-3">
             {ordered.map((p, i) => (
               <LazyPage
-                key={p.id}
+                key={`${p.id}:${p.updatedAt}:${fileCount}`}
                 size={[p.width, p.height]}
                 cssWidth={cssWidth}
                 load={load(p)}

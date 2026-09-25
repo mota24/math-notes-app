@@ -105,7 +105,10 @@ ${blocksToLatex(blocks)}
 
 /** Cahier complet : une section par page convertie. */
 export function notebookLatex(title: string, pages: { number: number; blocks: Block[] }[]): string {
-  const escaped = title.replace(/([%&#_{}$])/g, '\\$1');
+  // Titre en texte pur : aucune commande TeX ne doit pouvoir s'y glisser (\input, \write18…). La barre
+  // oblique inverse, ^ et ~ ne s'échappent pas par un simple « \ » : ils ont leurs propres commandes.
+  const TEX_TEXT: Record<string, string> = { '\\': '\\textbackslash{}', '^': '\\textasciicircum{}', '~': '\\textasciitilde{}' };
+  const escaped = title.replace(/[\\^~%&#_{}$]/g, (c) => TEX_TEXT[c] ?? `\\${c}`);
   const body = pages.map((p) => `% ---------------- Page ${p.number}\n\\section*{Page ${p.number}}\n\n${blocksToLatex(p.blocks)}`).join('\n\n');
   return `${PREAMBLE}
 
