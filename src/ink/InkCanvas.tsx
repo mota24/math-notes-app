@@ -10,7 +10,8 @@ import {
 import type { ResizeHandle, ScaleCorner, Similarity } from './geometry';
 import { MAX_PAGE_HEIGHT, SHEET_H, growHeight } from './pageExtent';
 import { MultiColorSwatch } from './MultiColorSwatch';
-import { farthestPoint, recognizeShape } from './shapeRecognize';
+import { farthestPoint, recognizeShape, regularizeShape } from './shapeRecognize';
+import { DEFAULT_TEXT_WIDTH, MIN_TEXT_WIDTH, TEXT_FONT, TEXT_LINE_HEIGHT, textBoxHeight, textPadding } from './textLayout';
 import { newId } from './types';
 import type { BBox, InkPoint, InputKind, PaperColor, PaperStyle, ShapeKind, Stroke, Tool, View } from './types';
 import { BAR_WIDTH, BAR_WIDTH_REGION, CAPTURE_HANDLES, HANDLE_SIZE, ROTATE_GAP, ROTATE_SIZE, clamp, isCorner, layoutHandles, rotatePosition, trackDrag } from './handles';
@@ -19,6 +20,23 @@ import { PAGE_GAP, docH, docW, findSheet, getSheets } from './sheets';
 import type { CanvasPage, Sheet } from './sheets';
 
 export type { CanvasPage, Sheet } from './sheets';
+
+/** Zone de texte en cours de frappe : où elle est (page, mm), ce qu'elle contient, et le trait qu'elle modifie */
+export interface TextEdit {
+  pageId: string;
+  /** Trait `text` modifié ; null = nouvelle zone */
+  id: string | null;
+  x: number;
+  y: number;
+  width: number;
+  text: string;
+  /** Taille du texte (mm) */
+  size: number;
+  color: string;
+}
+
+/** Outil Texte : où l'on a touché la page — une nouvelle zone, ou une zone existante à modifier */
+export type TextTarget = { pageId: string; x: number; y: number; width: number; tap: boolean } | { pageId: string; stroke: Stroke };
 
 
 interface Props {
@@ -92,6 +110,14 @@ interface Props {
   onCopySelection(): void;
   onCaptureRegion(region: BBox | null): void;
   onCopyCapture(): void;
+  /** Taille du texte des nouvelles zones (mm), pour l'aperçu quand on tire leur largeur */
+  textSize: number;
+  /** Zone de texte en cours de frappe (champ posé sur la page), null sinon */
+  textEdit: TextEdit | null;
+  onTextTarget(target: TextTarget): void;
+  onTextChange(text: string): void;
+  /** Fin de la frappe (tap ailleurs, Échap, champ quitté) : le parent enregistre la zone */
+  onTextDone(): void;
 }
 
 /**
@@ -207,6 +233,14 @@ export function InkCanvas(props: Props) {
   const applyConfigRef = useRef<() => void>(() => {});
   const activePageIndexRef = useRef(props.currentPageIndex ?? 0);
   const clampViewRef = useRef<(v: View, allowOverscroll?: boolean) => View>((v) => v);
+  /**
+   * Le champ de saisie des zones de texte. Toujours présent (invisible au repos) : iOS n'ouvre le clavier
+   * virtuel que si le focus est donné PENDANT le geste de l'utilisateur, donc dans la levée du doigt, avant
+   * que React n'ait affiché quoi que ce soit.
+   */
+  const textArea = useRef<HTMLTextAreaElement>(null);
+  /** Fait défiler la vue de (dx, dy) px, depuis l'extérieur de l'effet principal (champ de texte à garder visible) */
+  const panByRef = useRef<(dx: number, dy: number) => void>(() => {});
   /** Passerelle vers le canevas pour les poignées de la sélection : aperçu en direct, validation, papier qui s'allonge */
   const editApiRef = useRef<{
     begin(strokes: Stroke[]): void;
@@ -387,6 +421,20 @@ export function InkCanvas(props: Props) {
           display.lineWidth = 1.5 / scale;
           display.strokeStyle = '#2563eb';
           display.stroke();
+          display.setLineDash([]);
+        } else if (l.tool === 'text' && l.points.length) {
+          // Zone de texte tirée au doigt : sa largeur suit, sa hauteur est celle d'une ligne
+          const a = l.points[0];
+          const b = l.points[l.points.length - 1];
+          const size = propsRef.current.textSize;
+          const rx = Math.min(a[0], b[0]);
+          const rw = Math.max(MIN_TEXT_WIDTH, Math.abs(b[0] - a[0]));
+          display.fillStyle = 'rgba(37, 99, 235, 0.06)';
+          display.fillRect(rx, Math.min(a[1], b[1]), rw, textBoxHeight(1, size));
+          display.setLineDash([6 / scale, 4 / scale]);
+          display.lineWidth = 1.5 / scale;
+          display.strokeStyle = '#2563eb';
+          display.strokeRect(rx, Math.min(a[1], b[1]), rw, textBoxHeight(1, size));
           display.setLineDash([]);
         } else if (l.tool === 'capture' && l.points.length) {
           const a = l.points[0];
@@ -681,7 +729,7 @@ export function InkCanvas(props: Props) {
       scheduleBase();
     };
     const addPoints = (l: Live, samples: Sample[]) => {
-      const inking = l.tool === 'pen' || l.tool === 'highlighter' || l.tool === 'shape' || l.tool === 'shapes' || l.tool === 'capture';
+      const inking = l.tool === 'pen' || l.tool === 'highlighter' || l.tool === 'shape' || l.tool === 'shapes' || l.tool === 'capture' || l.tool === 'text';
       const added: InkPoint[] = [];
       const sheets = getSheets(propsRef.current, minHeightRef.current);
       const sheet = sheets.find((s) => s.id === l.pageId) ?? sheets[0];
@@ -736,6 +784,8 @@ export function InkCanvas(props: Props) {
         }
       }
     };
+
+    panByRef.current = (dx, dy) => panZoom(dx, dy, rect.left + size.w / 2, rect.top + size.h / 2, 1);
 
     const listener: ClassifierListener = {
       drawStart(id, kind, samples) {
@@ -847,6 +897,23 @@ export function InkCanvas(props: Props) {
           p.onSelect([stroke.id]);
           // Un tampon posé rend la main au stylo : la prochaine écriture ne dessine pas une forme par mégarde
           if (l.tool === 'shapes') p.onSwitchTool('pen');
+        } else if (l.tool === 'text' && l.points.length && l.pageId) {
+          // Focus tout de suite, dans le geste : le clavier virtuel s'ouvre (voir textArea)
+          textArea.current?.focus({ preventScroll: true });
+          const a = l.points[0];
+          const b = l.points[l.points.length - 1];
+          if (Math.hypot(b[0] - a[0], b[1] - a[1]) < 3) {
+            // Un tap sur une zone de texte : on la reprend ; ailleurs : une nouvelle zone, là où l'on a touché
+            const hit = [...sheet.page.strokes].reverse().find((st) => st.tool === 'text' && !hiddenRef.current.has(st.id) && strokeHit(st, b[0], b[1], 1));
+            if (hit) p.onTextTarget({ pageId: l.pageId, stroke: hit });
+            else {
+              const x = clamp(b[0], 0, Math.max(0, sheet.width - MIN_TEXT_WIDTH));
+              p.onTextTarget({ pageId: l.pageId, x, y: b[1], width: Math.max(MIN_TEXT_WIDTH, Math.min(DEFAULT_TEXT_WIDTH, sheet.width - x - 5)), tap: true });
+            }
+          } else {
+            const x = Math.min(a[0], b[0]);
+            p.onTextTarget({ pageId: l.pageId, x, y: Math.min(a[1], b[1]), width: Math.max(MIN_TEXT_WIDTH, Math.abs(b[0] - a[0])), tap: false });
+          }
         } else if (l.tool === 'capture' && l.points.length) {
           const a = l.points[0];
           const b = l.points[l.points.length - 1];
@@ -959,6 +1026,8 @@ export function InkCanvas(props: Props) {
           far = nearest;
           anchor = [minX + maxX - nearest[0], minY + maxY - nearest[1], 0.5];
         }
+        // Cercle et carré parfaits, ligne alignée : la main tremble, la forme non
+        far = regularizeShape(kind, anchor, far);
         l.tool = 'shape';
         l.shapeKind = kind;
         l.points = [anchor, far];
@@ -990,6 +1059,13 @@ export function InkCanvas(props: Props) {
 
     const onDown = (e: PointerEvent) => {
       e.preventDefault();
+      // Une zone de texte est ouverte : ce tap la valide (preventDefault empêche le champ de perdre le
+      // focus tout seul). Avec l'outil Texte, ce même tap n'ouvre pas aussitôt une nouvelle zone.
+      if (propsRef.current.textEdit) {
+        propsRef.current.onTextDone();
+        textArea.current?.blur(); // referme aussi le clavier virtuel
+        if (propsRef.current.tool === 'text') return;
+      }
       try {
         displayCanvas.setPointerCapture(e.pointerId);
       } catch {
@@ -1314,9 +1390,104 @@ export function InkCanvas(props: Props) {
     top: (corner.includes('n') ? box.top : corner.includes('s') ? box.top + box.height : box.top + box.height / 2) - HANDLE_SIZE / 2,
   });
 
+  // ---- Zone de texte en cours de frappe : un vrai champ, posé exactement sur la boîte de la page
+  const { textEdit, onTextChange, onTextDone } = props;
+  const editedTextId = textEdit?.id ?? null;
+  useEffect(() => {
+    // Le texte d'origine est masqué pendant qu'on le modifie : le champ le remplace
+    if (!editedTextId) return;
+    // L'ensemble des traits masqués garde la même identité toute la vie du canevas ; le redessin, lui, est
+    // relu au moment de l'appel (il est installé par l'effet principal)
+    const hidden = hiddenRef.current;
+    const redraw = () => redrawRef.current();
+    hidden.add(editedTextId);
+    redraw();
+    return () => {
+      hidden.delete(editedTextId);
+      redraw();
+    };
+  }, [editedTextId]);
+  const editKey = textEdit ? `${textEdit.pageId}:${textEdit.id ?? ''}:${textEdit.x}:${textEdit.y}` : null;
+  useEffect(() => {
+    if (!editKey) return;
+    const el = textArea.current;
+    if (!el) return;
+    el.focus({ preventScroll: true });
+    el.setSelectionRange(el.value.length, el.value.length);
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+    // Le champ doit rester au-dessus du clavier virtuel : s'il est bas dans la zone, on fait défiler
+    const host = containerRef.current?.getBoundingClientRect();
+    const box = el.getBoundingClientRect();
+    if (host && box.top > host.top + host.height * 0.45) panByRef.current(0, -(box.top - (host.top + host.height * 0.25)));
+  }, [editKey]);
+  // À chaque rendu (zoom, défilement, frappe) : la hauteur du champ suit son contenu à l'échelle courante
+  useLayoutEffect(() => {
+    const el = textArea.current;
+    if (!el || !textEdit) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  });
+  const textBox = (() => {
+    if (!textEdit) return null;
+    const v = viewRef.current;
+    const sheet = getSheets(props, minHeightRef.current).find((sh) => sh.id === textEdit.pageId);
+    if (!sheet) return null;
+    const lines = Math.max(1, textEdit.text.split('\n').length);
+    return {
+      left: textEdit.x * v.scale + v.tx,
+      top: (sheet.top + textEdit.y) * v.scale + v.ty,
+      width: textEdit.width * v.scale,
+      minHeight: textBoxHeight(lines, textEdit.size) * v.scale,
+      fontSize: textEdit.size * v.scale,
+      padding: textPadding(textEdit.size) * v.scale,
+    };
+  })();
+
   return (
     <div className="ink-area" ref={containerRef}>
       <canvas ref={displayRef} className="ink-layer" />
+      <textarea
+        ref={textArea}
+        className={`text-edit ${textEdit && textBox ? '' : 'text-edit-idle'}`}
+        value={textEdit?.text ?? ''}
+        onChange={(e) => {
+          if (!textEdit) return;
+          onTextChange(e.target.value);
+          // Le champ grandit avec son contenu (retours à la ligne automatiques compris)
+          e.target.style.height = 'auto';
+          e.target.style.height = `${e.target.scrollHeight}px`;
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') {
+            e.preventDefault();
+            onTextDone();
+            e.currentTarget.blur();
+          }
+        }}
+        onBlur={() => textEdit && onTextDone()}
+        tabIndex={textEdit ? 0 : -1}
+        aria-hidden={!textEdit}
+        spellCheck
+        autoComplete="off"
+        aria-label="Texte de la zone"
+        placeholder="Tape ton texte…"
+        style={
+          textEdit && textBox
+            ? {
+                left: textBox.left,
+                top: textBox.top,
+                width: textBox.width,
+                minHeight: textBox.minHeight,
+                fontSize: textBox.fontSize,
+                lineHeight: TEXT_LINE_HEIGHT,
+                padding: textBox.padding,
+                color: textEdit.color,
+                fontFamily: TEXT_FONT,
+              }
+            : undefined
+        }
+      />
       {restZone > 0 && (
         <div className="rest-zone" style={{ height: `${restZone * 100}%` }}>
           <span>Zone de repos pour la main</span>

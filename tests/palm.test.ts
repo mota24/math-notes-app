@@ -384,6 +384,18 @@ test('21. cercle dessiné puis maintenu : appui long « forme »', () => {
   t.up(1, 240, 260, 20);
 });
 
+test('21b. à la souris aussi : cercle dessiné puis bouton maintenu immobile → forme (jamais la gomme)', () => {
+  const t = setup({ shapeHoldMs: 500, holdEraseMs: 700 }).at(0).down(1, 200, 300, 1, 'mouse');
+  for (let i = 1; i <= 30; i++) {
+    const a = (i / 30) * Math.PI * 2;
+    t.at(i * 15).move(1, 240 + Math.cos(a) * 40, 300 + Math.sin(a) * 40, 1);
+  }
+  settle(t, 1500);
+  assert.equal(t.count('forme:1'), 1);
+  assert.equal(t.count('gomme:1'), 0);
+  t.up(1, 240, 260, 1);
+});
+
 test('22. appui long statique (rien dessiné) : toujours la gomme, jamais une forme', () => {
   const t = setup({ holdEraseMs: 700, shapeHoldMs: 500 });
   t.at(0).down(1, 200, 300, 20);

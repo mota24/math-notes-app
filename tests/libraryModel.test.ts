@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { buildFolderTree, countChildren, countLabel, folderPath, paperPreview, viewTitle, visibleNodes } from '../src/components/libraryModel.ts';
+import { buildFolderTree, countChildren, countLabel, folderParents, folderPath, notebookFolder, paperPreview, viewTitle, visibleNodes } from '../src/components/libraryModel.ts';
 import type { Folder, Notebook } from '../src/db/schema.ts';
 
 let n = 0;
@@ -59,13 +59,39 @@ test('un dossier à la corbeille disparaît de l’arbre, avec tout ce qu’il c
   assert.deepEqual(names(tree), ['Garde']);
 });
 
-test('données abîmées : un dossier qui est son propre parent, ou un cycle, ne fait pas boucler', () => {
+test('données abîmées : un cycle ou un dossier qui est son propre parent ne boucle pas ET ne disparaît pas', () => {
   const a = folder('A');
   const b = folder('B', a.id);
   const loopA = { ...a, parentId: b.id };
   const self = folder('Soi');
   const tree = buildFolderTree([loopA, b, { ...self, parentId: self.id }, folder('Racine')]);
-  assert.deepEqual(names(tree), ['Racine']);
+  // Le cycle A ↔ B est cassé au plus petit identifiant (A) : A revient à la racine, B reste dedans
+  assert.deepEqual(names(tree), ['A', 'Racine', 'Soi']);
+  assert.deepEqual(names(tree[0].children), ['B']);
+  const byId = new Map([loopA, b].map((f) => [f.id, f]));
+  assert.deepEqual(folderPath(byId, b).map((f) => f.name), ['A', 'B'], 'le fil d’Ariane s’arrête au lieu de tourner en rond');
+});
+
+test('sous-dossier orphelin (parent supprimé ailleurs) : rattaché à la racine avec son contenu, jamais perdu', () => {
+  const orphan = folder('Chapitre 3', 'parent-disparu');
+  const inside = folder('Exercices', orphan.id);
+  const tree = buildFolderTree([orphan, inside, folder('Semestre 1')]);
+  assert.deepEqual(names(tree), ['Chapitre 3', 'Semestre 1']);
+  assert.deepEqual(names(tree[0].children), ['Exercices']);
+  const parents = folderParents([orphan, inside]);
+  assert.equal(notebookFolder({ folderId: 'dossier-disparu' }, parents), null, 'un cahier au dossier disparu revient à la racine');
+  assert.equal(notebookFolder({ folderId: inside.id }, parents), inside.id);
+});
+
+test('arborescence profonde : 300 niveaux, dans l’ordre, sans limite', () => {
+  const chain: Folder[] = [];
+  for (let i = 0; i < 300; i++) chain.push(folder(`Niveau ${i}`, i ? chain[i - 1].id : null));
+  let node = buildFolderTree(chain)[0];
+  for (let i = 1; i < 300; i++) node = node.children[0];
+  assert.equal(node.folder.name, 'Niveau 299');
+  assert.equal(node.depth, 299);
+  const byId = new Map(chain.map((f) => [f.id, f]));
+  assert.equal(folderPath(byId, chain[299]).length, 300);
 });
 
 test('dossiers visibles : un niveau ne s’ouvre que s’il est déplié', () => {

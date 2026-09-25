@@ -6,8 +6,11 @@ import type { PaperColor, PaperStyle } from '../ink/types';
  * page, papier en miniature), sans DOM ni import de valeur : testé sous Node (`npm test`).
  */
 
-/** Profondeur maximale d'un dossier : garde-fou contre un cycle dans des données abîmées */
-const MAX_DEPTH = 50;
+/**
+ * Profondeur illimitée en pratique : ce n'est qu'un garde-fou (les cycles sont de toute façon cassés par
+ * `folderParents` et les chemins suivis avec un ensemble de dossiers déjà vus).
+ */
+const MAX_DEPTH = 10_000;
 
 const collator = new Intl.Collator('fr');
 
@@ -18,14 +21,56 @@ export interface FolderNode {
   children: FolderNode[];
 }
 
-/** Les dossiers présents (hors corbeille) en arbre, à partir de la racine ; chaque niveau est trié par nom. */
-export function buildFolderTree(folders: readonly Folder[]): FolderNode[] {
-  const childrenOf = new Map<string | null, Folder[]>();
+/**
+ * Le parent EFFECTIF de chaque dossier présent (hors corbeille). Les données peuvent être abîmées par une
+ * synchronisation croisée : un sous-dossier créé ici pendant que son parent était supprimé définitivement
+ * ailleurs, ou deux dossiers déplacés l'un dans l'autre sur deux appareils (cycle A → B → A). Avant, ces
+ * dossiers n'étaient plus accessibles depuis la racine : ils disparaissaient, avec tout leur contenu.
+ *  - parent introuvable → rattaché à la racine ;
+ *  - cycle → cassé au dossier d'identifiant le plus petit (toujours le même, sur tous les appareils), qui
+ *    passe à la racine ;
+ *  - parent à la corbeille → inchangé : le dossier est caché avec lui, comme son contenu.
+ */
+export function folderParents(folders: readonly Folder[]): Map<string, string | null> {
+  const exists = new Set(folders.map((f) => f.id));
+  const parents = new Map<string, string | null>();
   for (const f of folders) {
     if (f.deletedAt) continue;
-    const list = childrenOf.get(f.parentId) ?? [];
+    parents.set(f.id, f.parentId && exists.has(f.parentId) && f.parentId !== f.id ? f.parentId : null);
+  }
+  for (const start of parents.keys()) {
+    const path: string[] = [];
+    const seen = new Set<string>();
+    let at: string | null | undefined = start;
+    // On remonte tant qu'on reste parmi les dossiers présents (un parent à la corbeille arrête la montée)
+    while (at && parents.has(at) && !seen.has(at)) {
+      seen.add(at);
+      path.push(at);
+      at = parents.get(at);
+    }
+    if (at && seen.has(at)) {
+      const cycle = path.slice(path.indexOf(at));
+      parents.set(cycle.reduce((x, y) => (x < y ? x : y)), null);
+    }
+  }
+  return parents;
+}
+
+/** Le dossier effectif d'un cahier : le sien s'il est présent, sinon la racine (dossier disparu ou à la corbeille). */
+export function notebookFolder(notebook: Pick<Notebook, 'folderId'>, parents: ReadonlyMap<string, string | null>): string | null {
+  return notebook.folderId && parents.has(notebook.folderId) ? notebook.folderId : null;
+}
+
+/** Les dossiers présents (hors corbeille) en arbre, à partir de la racine ; chaque niveau est trié par nom. */
+export function buildFolderTree(folders: readonly Folder[]): FolderNode[] {
+  const parents = folderParents(folders);
+  const childrenOf = new Map<string | null, Folder[]>();
+  for (const f of folders) {
+    if (!parents.has(f.id)) continue;
+    const parent = parents.get(f.id) ?? null;
+    const list = childrenOf.get(parent) ?? [];
     list.push(f);
-    childrenOf.set(f.parentId, list);
+    childrenOf.set(parent, list);
   }
   const seen = new Set<string>();
   const level = (parentId: string | null, depth: number): FolderNode[] => {
@@ -54,10 +99,14 @@ export function visibleNodes(tree: readonly FolderNode[], open: ReadonlySet<stri
   return out;
 }
 
-/** De la racine jusqu'au dossier courant (le chemin affiché au-dessus du titre) */
+/** De la racine jusqu'au dossier courant (le fil d'Ariane) ; un cycle dans des données abîmées s'arrête net. */
 export function folderPath(byId: ReadonlyMap<string, Folder>, current: Folder | undefined): Folder[] {
   const path: Folder[] = [];
-  for (let f = current; f && path.length < MAX_DEPTH; f = f.parentId ? byId.get(f.parentId) : undefined) path.unshift(f);
+  const seen = new Set<string>();
+  for (let f = current; f && !seen.has(f.id) && path.length < MAX_DEPTH; f = f.parentId ? byId.get(f.parentId) : undefined) {
+    seen.add(f.id);
+    path.unshift(f);
+  }
   return path;
 }
 

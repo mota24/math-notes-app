@@ -682,7 +682,7 @@ export class InputClassifier {
    */
   private checkShapeHold(t: Track, now = t.last.t): boolean {
     const delay = this.config.shapeHoldMs ?? 0;
-    if (!delay || t.held || t.kind === 'mouse' || !this.listener.shapeHold || t.state !== 'draw') return false;
+    if (!delay || t.held || !this.listener.shapeHold || t.state !== 'draw') return false;
     if (t.path < SHAPE_MIN_PATH) return false;
     if (now - t.since < delay) return false;
     // Vraiment immobile : plus un seul échantillon depuis (presque) tout le délai. Comparer la
@@ -989,9 +989,10 @@ export class InputClassifier {
   private armHold(t: Track) {
     const eraseDelay = this.config.holdEraseMs ?? 0;
     const shapeDelay = this.config.shapeHoldMs ?? 0;
-    const wantErase = eraseDelay > 0 && !!this.listener.holdErase;
+    // À la souris : la reconnaissance de forme oui (maintenir le bouton immobile), la gomme par appui long non
+    const wantErase = eraseDelay > 0 && !!this.listener.holdErase && t.kind !== 'mouse';
     const wantShape = shapeDelay > 0 && !!this.listener.shapeHold;
-    if ((!wantErase && !wantShape) || t.kind === 'mouse') return;
+    if (!wantErase && !wantShape) return;
     const firstDelay = Math.min(wantErase ? eraseDelay : Infinity, wantShape ? shapeDelay : Infinity);
     const maxDelay = Math.max(wantErase ? eraseDelay : 0, wantShape ? shapeDelay : 0);
     // Un stylet parfaitement immobile n'envoie parfois plus un seul événement : c'est ce minuteur, et

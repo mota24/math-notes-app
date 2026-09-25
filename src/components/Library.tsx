@@ -23,7 +23,7 @@ import { FolderCard, NewNotebookCard, NotebookCard } from './LibraryCards';
 import type { MenuItem } from './LibraryCards';
 import { Icon } from './LibraryIcons';
 import type { IconName } from './LibraryIcons';
-import { buildFolderTree, countChildren, countLabel, folderPath, viewTitle } from './libraryModel';
+import { buildFolderTree, countChildren, countLabel, folderParents, folderPath, notebookFolder, viewTitle } from './libraryModel';
 import { LibrarySidebar } from './LibrarySidebar';
 import { glassButton, glassButtonAccent, glassIconButton, glassPanel } from './libraryStyles';
 import { ConfirmDialog, FolderPicker, PromptDialog } from './Modal';
@@ -34,7 +34,7 @@ import { CloudIndicator } from './CloudIndicator';
 import { syncFirestoreNow } from '../sync/useFirestore';
 
 type Dialog =
-  | { kind: 'new-folder' }
+  | { kind: 'new-folder'; parentId: string | null }
   | { kind: 'new-notebook' }
   | { kind: 'rename-folder'; folder: Folder }
   | { kind: 'rename-notebook'; notebook: Notebook }
@@ -112,6 +112,11 @@ export function Library({ route, onOpenSettings }: { route: Extract<Route, { nam
   const current = folderId ? byId.get(folderId) : undefined;
   const path = folderPath(byId, current);
   const tree = useMemo(() => buildFolderTree(folders), [folders]);
+  // Parent effectif de chaque dossier (orphelins et cycles rattachés à la racine) : le contenu affiché
+  // correspond toujours exactement à l'arbre de la barre latérale
+  const parents = useMemo(() => folderParents(folders), [folders]);
+  /** Fil d'Ariane replié au-delà de 4 niveaux (« … » le déplie) */
+  const [trailOpen, setTrailOpen] = useState(false);
   const counts = useMemo(() => countChildren(folders, notebooks), [folders, notebooks]);
   const trashCount = folders.filter((f) => f.deletedAt).length + notebooks.filter((n) => n.deletedAt).length;
 
@@ -146,6 +151,7 @@ export function Library({ route, onOpenSettings }: { route: Extract<Route, { nam
   };
 
   const folderMenu = (f: Folder): MenuItem[] => [
+    { label: 'Nouveau sous-dossier…', onClick: () => setDialog({ kind: 'new-folder', parentId: f.id }) },
     { label: 'Renommer', onClick: () => setDialog({ kind: 'rename-folder', folder: f }) },
     { label: 'Déplacer…', onClick: () => setDialog({ kind: 'move-folder', folder: f }) },
     { label: 'Mettre à la corbeille', danger: true, onClick: () => void trashFolder(f.id) },
@@ -184,8 +190,8 @@ export function Library({ route, onOpenSettings }: { route: Extract<Route, { nam
   );
 
   // ------------------------------------------------------------------ contenu
-  const childFolders = aliveFolders.filter((f) => f.parentId === folderId).sort((a, b) => a.name.localeCompare(b.name, 'fr'));
-  const childNotebooks = aliveNotebooks.filter((n) => n.folderId === folderId).sort((a, b) => b.updatedAt - a.updatedAt);
+  const childFolders = aliveFolders.filter((f) => (parents.get(f.id) ?? null) === folderId).sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+  const childNotebooks = aliveNotebooks.filter((n) => notebookFolder(n, parents) === folderId).sort((a, b) => b.updatedAt - a.updatedAt);
   const recents = folderId ? [] : [...aliveNotebooks].sort((a, b) => b.openedAt - a.openedAt).slice(0, 6);
   const favorites = folderId ? [] : aliveNotebooks.filter((n) => n.favorite);
   const missingFolder = !!folderId && (!current || !!current.deletedAt);
@@ -290,7 +296,7 @@ export function Library({ route, onOpenSettings }: { route: Extract<Route, { nam
       <Empty icon="book" title="Ta bibliothèque est vide.">
         <p className="m-0 text-sm text-zinc-500 dark:text-zinc-400">Commence par un dossier (ex. « Semestre 1 ») ou par un cahier.</p>
         <div className="mt-2 flex flex-wrap justify-center gap-2">
-          <button type="button" className={glassButton} onClick={() => setDialog({ kind: 'new-folder' })}>
+          <button type="button" className={glassButton} onClick={() => setDialog({ kind: 'new-folder', parentId: folderId })}>
             <Icon name="folderPlus" className="size-[18px]" /> Nouveau dossier
           </button>
           <button type="button" className={glassButtonAccent} onClick={() => setDialog({ kind: 'new-notebook' })}>
@@ -328,7 +334,10 @@ export function Library({ route, onOpenSettings }: { route: Extract<Route, { nam
   }
 
   const title = viewTitle({ query, trash: inTrash, folder: missingFolder ? undefined : current, hasRecents: recents.length > 0 });
-  const trail = inTrash || searching ? [] : path.slice(0, -1);
+  // Fil d'Ariane : Bibliothèque › … › dossier courant (le dernier n'est pas un lien : on y est)
+  const crumbs = inTrash || searching || missingFolder ? [] : path;
+  const collapsed = !trailOpen && crumbs.length > 4;
+  const shownCrumbs = collapsed ? [crumbs[0], ...crumbs.slice(-2)] : crumbs;
   const showTrail = inTrash || searching || path.length > 0;
 
   return (
@@ -355,7 +364,7 @@ export function Library({ route, onOpenSettings }: { route: Extract<Route, { nam
         onHome={() => navigate({ name: 'library', folderId: null })}
         onFolder={(id) => navigate({ name: 'library', folderId: id })}
         onTrash={() => navigate({ name: 'trash' })}
-        onNewFolder={() => (setMenuOpen(false), setDialog({ kind: 'new-folder' }))}
+        onNewFolder={(parentId) => (setMenuOpen(false), setDialog({ kind: 'new-folder', parentId }))}
         onHandwriting={() => go({ name: 'handwriting' })}
         onCalendar={() => (setMenuOpen(false), setTodosOpen('calendrier'))}
         onSettings={() => (setMenuOpen(false), onOpenSettings())}
@@ -373,18 +382,38 @@ export function Library({ route, onOpenSettings }: { route: Extract<Route, { nam
               </button>
               <div className="min-w-0">
                 {showTrail && (
-                  <nav aria-label="Chemin" className="mb-0.5 flex min-w-0 flex-wrap items-center gap-0.5 text-[13px] text-zinc-500 dark:text-zinc-400">
-                    <button type="button" onClick={() => navigate({ name: 'library', folderId: null })} className={crumb}>
+                  <nav
+                    aria-label="Fil d’Ariane"
+                    className="-ml-1.5 mb-0.5 flex min-w-0 items-center gap-0.5 overflow-x-auto whitespace-nowrap text-[13px] text-zinc-500 [scrollbar-width:none] dark:text-zinc-400"
+                  >
+                    <button type="button" onClick={() => navigate({ name: 'library', folderId: null })} className={`${crumb} shrink-0`}>
                       Bibliothèque
                     </button>
-                    {trail.map((f) => (
-                      <span key={f.id} className="inline-flex items-center gap-0.5">
-                        <Icon name="chevron" className="size-3.5 opacity-60" />
-                        <button type="button" onClick={() => navigate({ name: 'library', folderId: f.id })} className={crumb}>
-                          {f.name}
-                        </button>
-                      </span>
-                    ))}
+                    {shownCrumbs.map((f, i) => {
+                      const last = i === shownCrumbs.length - 1;
+                      return (
+                        <span key={f.id} className="inline-flex shrink-0 items-center gap-0.5">
+                          <Icon name="chevron" className="size-3.5 opacity-60" />
+                          {collapsed && i === 1 && (
+                            <>
+                              <button type="button" onClick={() => setTrailOpen(true)} className={crumb} title="Afficher tout le chemin" aria-label="Afficher tout le chemin">
+                                …
+                              </button>
+                              <Icon name="chevron" className="size-3.5 opacity-60" />
+                            </>
+                          )}
+                          {last ? (
+                            <span aria-current="page" className="px-1.5 font-semibold text-zinc-800 dark:text-zinc-100">
+                              {f.name}
+                            </span>
+                          ) : (
+                            <button type="button" onClick={() => navigate({ name: 'library', folderId: f.id })} className={crumb}>
+                              {f.name}
+                            </button>
+                          )}
+                        </span>
+                      );
+                    })}
                   </nav>
                 )}
                 <h1 className="m-0 truncate text-2xl font-semibold tracking-tight text-zinc-900 @lg:text-3xl dark:text-zinc-50">{title}</h1>
@@ -430,7 +459,7 @@ export function Library({ route, onOpenSettings }: { route: Extract<Route, { nam
                   <Icon name="plus" className="size-[18px]" />
                   <span className="hidden @xl:inline">Cahier</span>
                 </button>
-                <button type="button" className={glassButton} onClick={() => setDialog({ kind: 'new-folder' })} aria-label="Nouveau dossier" title="Nouveau dossier">
+                <button type="button" className={glassButton} onClick={() => setDialog({ kind: 'new-folder', parentId: folderId })} aria-label="Nouveau dossier" title="Nouveau dossier">
                   <Icon name="folderPlus" className="size-[18px]" />
                   <span className="hidden @xl:inline">Dossier</span>
                 </button>
@@ -479,14 +508,17 @@ export function Library({ route, onOpenSettings }: { route: Extract<Route, { nam
 
       {dialog?.kind === 'new-folder' && (
         <PromptDialog
-          title={current ? `Nouveau dossier dans « ${current.name} »` : 'Nouveau dossier'}
+          title={dialog.parentId && byId.get(dialog.parentId) ? `Nouveau dossier dans « ${byId.get(dialog.parentId)!.name} »` : 'Nouveau dossier'}
           label="Nom"
           placeholder="ex. Semestre 1, Analyse, Électronique…"
           confirmLabel="Créer"
           onClose={() => setDialog(null)}
           onConfirm={(name) => {
+            const parentId = dialog.parentId;
             setDialog(null);
-            void createFolder(name, folderId);
+            void run('Création…', async () => {
+              await createFolder(name, parentId);
+            });
           }}
         />
       )}

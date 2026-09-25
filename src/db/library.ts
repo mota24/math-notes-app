@@ -71,8 +71,11 @@ export async function updateFolder(id: string, patch: Partial<Pick<Folder, 'name
 export async function folderPath(folderId: string | null): Promise<Folder[]> {
   const folders = new Map((await db.folders()).map((f) => [f.id, f]));
   const path: Folder[] = [];
+  const seen = new Set<string>();
   let current = folderId ? folders.get(folderId) : undefined;
-  while (current && path.length < 50) {
+  // Profondeur illimitée ; seul un cycle (données abîmées) arrête la montée
+  while (current && !seen.has(current.id)) {
+    seen.add(current.id);
     path.unshift(current);
     current = current.parentId ? folders.get(current.parentId) : undefined;
   }

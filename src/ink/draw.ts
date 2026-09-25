@@ -4,6 +4,7 @@ import { PAGE_H, PAGE_W } from './types';
 import { volumeParts, volumePolylines } from './volumes';
 import type { ShapePart } from './volumes';
 import { registerShapeOutlines } from './geometry';
+import { TEXT_FONT, TEXT_LINE_HEIGHT, textBoxHeight, textInnerWidth, textPadding, wrapText } from './textLayout';
 import type { InkPoint, InputKind, PaperColor, PaperStyle, ShapeKind, Stroke, StrokeTool } from './types';
 
 /**
@@ -210,6 +211,89 @@ function strokeImage(s: Stroke): HTMLImageElement | null {
     imageCache.set(s, img);
   }
   return img.complete && img.naturalWidth > 0 ? img : null;
+}
+
+// ------------------------------------------------------------------ zones de texte
+// Le texte est mesuré et dessiné à un corps fixe de 100 px, puis mis à l'échelle : la mise en page (les
+// retours à la ligne) est ainsi la même à tous les zooms, à l'écran comme dans le PDF, sans dépendre de
+// l'arrondi des polices aux très petites tailles.
+
+const TEXT_REF = 100;
+let measureCtx: CanvasRenderingContext2D | null = null;
+let fontRequested = false;
+/** Lignes déjà calculées de chaque zone (les traits sont immuables : un changement crée un nouvel objet) */
+let linesCache = new WeakMap<Stroke, string[]>();
+
+/**
+ * La police des zones de texte n'est chargée par le navigateur que lorsqu'une page s'en sert en HTML : un
+ * canevas ne déclenche rien. On la demande donc au premier texte dessiné, puis on redessine toutes les vues
+ * (même mécanisme que les images qui finissent de charger).
+ */
+function ensureTextFont() {
+  if (fontRequested || typeof document === 'undefined' || !document.fonts) return;
+  fontRequested = true;
+  void document.fonts
+    .load(`${TEXT_REF}px ${TEXT_FONT}`)
+    .then(() => {
+      // Mesures faites avec la police de secours : on recommence avec la vraie
+      linesCache = new WeakMap();
+      imageListeners.forEach((cb) => cb());
+    })
+    .catch(() => undefined);
+}
+
+/** Mesure (en unités de la taille `size`) d'un bout de texte */
+function textMeasure(size: number): (s: string) => number {
+  measureCtx ??= document.createElement('canvas').getContext('2d');
+  const ctx = measureCtx;
+  if (!ctx) return (s) => s.length * size * 0.55;
+  ctx.font = `${TEXT_REF}px ${TEXT_FONT}`;
+  return (s) => (ctx.measureText(s).width * size) / TEXT_REF;
+}
+
+/** Les lignes d'une zone de texte, telles qu'elles s'affichent */
+export function textLines(s: Pick<Stroke, 'text' | 'size' | 'points'>): string[] {
+  ensureTextFont();
+  const [a, b] = s.points;
+  const width = Math.abs((b?.[0] ?? a[0]) - a[0]);
+  return wrapText(s.text ?? '', textInnerWidth(width, s.size), textMeasure(s.size));
+}
+
+/**
+ * La zone de texte à la hauteur exacte de son contenu (après une frappe, un changement de largeur ou de
+ * taille) : le bas de la boîte suit les lignes, le haut ne bouge pas.
+ */
+export function fitTextBox(s: Stroke): Stroke {
+  if (s.tool !== 'text' || s.points.length < 2) return s;
+  const [a, b] = s.points;
+  const top = Math.min(a[1], b[1]);
+  const left = Math.min(a[0], b[0]);
+  const right = Math.max(a[0], b[0]);
+  const height = textBoxHeight(textLines(s).length, s.size);
+  return { ...s, points: [[left, top, 0.5], [right, top + height, 0.5]] };
+}
+
+function drawTextBox(ctx: CanvasRenderingContext2D, s: Stroke) {
+  const [a, b] = s.points;
+  const left = Math.min(a[0], b[0]);
+  const top = Math.min(a[1], b[1]);
+  const pad = textPadding(s.size);
+  const k = s.size / TEXT_REF;
+  ctx.save();
+  ctx.translate(left + pad, top + pad);
+  ctx.scale(k, k);
+  ctx.font = `${TEXT_REF}px ${TEXT_FONT}`;
+  ctx.textBaseline = 'top';
+  ctx.fillStyle = s.color;
+  // Le corps occupe ~80 % de l'interligne : léger décalage pour centrer la ligne dans sa hauteur
+  const offset = ((TEXT_LINE_HEIGHT - 1) / 2) * TEXT_REF;
+  let lines = linesCache.get(s);
+  if (!lines) {
+    lines = textLines(s);
+    linesCache.set(s, lines);
+  }
+  lines.forEach((line, i) => ctx.fillText(line, 0, offset + i * TEXT_REF * TEXT_LINE_HEIGHT));
+  ctx.restore();
 }
 
 // ------------------------------------------------------------------ traits « forme »
@@ -439,6 +523,10 @@ export function drawStroke(ctx: CanvasRenderingContext2D, s: Stroke, paperColor?
     const [ax, ay] = s.points[0];
     const [bx, by] = s.points[1];
     rotated(ctx, s, () => drawShapeOn(ctx, shape, ax, ay, bx, by, s.color, Math.max(0.35, s.size), s.dashed));
+    return;
+  }
+  if (s.tool === 'text') {
+    if (s.points.length >= 2 && s.text) rotated(ctx, s, () => drawTextBox(ctx, s));
     return;
   }
   if (s.tool === 'image') {

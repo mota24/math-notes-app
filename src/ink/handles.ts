@@ -74,6 +74,10 @@ export function layoutHandles(box: ScreenBox, only: Stroke | null, view: View): 
     { id: 'se', left: left + width + off, top: top + height + off, size: CORNER_SIZE },
     { id: 'sw', left: left - off, top: top + height + off, size: CORNER_SIZE },
   ];
+  // Zone de texte seule : ses bords gauche et droit changent sa largeur (le texte revient à la ligne)
+  if (only && only.tool === 'text' && !only.angle) {
+    out.push({ id: 'w', left, top: top + height / 2, size: EDGE_SIZE }, { id: 'e', left: left + width, top: top + height / 2, size: EDGE_SIZE });
+  }
   if (only && only.tool === 'shape' && !only.angle) {
     if (width >= 90) out.push({ id: 'n', left: left + width / 2, top, size: EDGE_SIZE }, { id: 's', left: left + width / 2, top: top + height, size: EDGE_SIZE });
     if (height >= 90) out.push({ id: 'w', left, top: top + height / 2, size: EDGE_SIZE }, { id: 'e', left: left + width, top: top + height / 2, size: EDGE_SIZE });

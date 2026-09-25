@@ -5,7 +5,9 @@ import type { Page } from '../db/schema';
 import { hasBackground, pageBackground } from '../ink/background';
 import { strokeBBox, unionBBox } from '../ink/geometry';
 import { InkCanvas } from '../ink/InkCanvas';
-import type { CanvasPage } from '../ink/InkCanvas';
+import type { CanvasPage, TextEdit, TextTarget } from '../ink/InkCanvas';
+import { fitTextBox } from '../ink/draw';
+import { TEXT_LINE_HEIGHT, textPadding } from '../ink/textLayout';
 import { rasterizeRegion } from '../ink/rasterize';
 import { newId } from '../ink/types';
 import type { BBox, PaperColor, PaperStyle, ShapeKind, Stroke, Tool } from '../ink/types';
@@ -427,9 +429,94 @@ export function NotebookEditor({
     },
   };
 
+  // ------------------------------------------------------------ zones de texte
+  const [textEdit, setTextEditState] = useState<TextEdit | null>(null);
+  /** Copie synchrone : valider deux fois de suite (tap puis perte du focus) n'enregistre qu'une fois */
+  const textEditRef = useRef<TextEdit | null>(null);
+  const setTextEdit = (next: TextEdit | null | ((prev: TextEdit | null) => TextEdit | null)) => {
+    const value = typeof next === 'function' ? next(textEditRef.current) : next;
+    textEditRef.current = value;
+    setTextEditState(value);
+  };
+  const onTextTarget = (target: TextTarget) => {
+    if ('stroke' in target) {
+      const st = target.stroke;
+      const [a, b] = st.points;
+      setTextEdit({
+        pageId: target.pageId,
+        id: st.id,
+        x: Math.min(a[0], b[0]),
+        y: Math.min(a[1], b[1]),
+        width: Math.abs(b[0] - a[0]),
+        text: st.text ?? '',
+        size: st.size,
+        color: st.color,
+      });
+      return;
+    }
+    const size = settingsRef.current.textSize;
+    // Un simple tap : la première ligne se centre sur le point touché
+    const y = target.tap ? Math.max(0, target.y - textPadding(size) - (size * TEXT_LINE_HEIGHT) / 2) : target.y;
+    setTextEdit({ pageId: target.pageId, id: null, x: target.x, y, width: target.width, text: '', size, color: settingsRef.current.color });
+  };
+  /**
+   * Fin de la frappe : la zone est créée, modifiée ou (vidée) supprimée, en UN pas d'annulation sur la page
+   * courante. Sur une autre page du défilement continu, l'écriture passe par une transaction (db.mutatePage).
+   */
+  const commitText = () => {
+    const e = textEditRef.current;
+    if (!e) return;
+    setTextEdit(null);
+    const text = e.text.replace(/\s+$/, '');
+    const onCurrent = e.pageId === pageRef.current?.id;
+    const pageStrokes = onCurrent ? strokesRef.current : (orderedPages.find((pg) => pg.id === e.pageId)?.strokes ?? []);
+    const old = e.id ? pageStrokes.find((st) => st.id === e.id) : undefined;
+    let next: Stroke | null = null;
+    if (text.trim()) {
+      next = fitTextBox({
+        id: old?.id ?? newId(),
+        tool: 'text',
+        text,
+        points: [
+          [e.x, e.y, 0.5],
+          [e.x + e.width, e.y, 0.5],
+        ],
+        color: e.color,
+        size: e.size,
+        input: 'mouse',
+        ...(old?.angle ? { angle: old.angle } : {}),
+      });
+      if (old && old.text === next.text && old.color === next.color && old.size === next.size) return; // rien n'a changé
+    } else if (!old) {
+      return; // zone laissée vide : rien à garder
+    }
+    if (onCurrent) {
+      if (!old && next) addStrokes([next]);
+      else if (old && !next) removeStrokes([old.id]);
+      else if (old && next) {
+        const before = strokesRef.current;
+        const after = before.map((st) => (st.id === old.id ? next : st));
+        setPageStrokes(after);
+        record({ type: 'replace', before, after });
+      }
+      return;
+    }
+    void db
+      .mutatePage(e.pageId, (pg) => ({
+        ...pg,
+        strokes: !old ? [...pg.strokes, next!] : next ? pg.strokes.map((st) => (st.id === old.id ? next : st)) : pg.strokes.filter((st) => st.id !== old.id),
+        updatedAt: Date.now(),
+      }))
+      .then(() => touchNotebook(notebookId))
+      .catch(reportStorageError);
+  };
+  const commitTextRef = useRef(commitText);
+  commitTextRef.current = commitText;
+
   // ------------------------------------------------------------ navigation
   const goToPage = useCallback(
     (i: number) => {
+      commitTextRef.current(); // un texte en cours de frappe est enregistré avant de changer de page
       flushSave();
       select([]);
       replaceRoute({ name: 'notebook', notebookId, pageIndex: i });
@@ -575,8 +662,10 @@ export function NotebookEditor({
     const handle = e.currentTarget;
     handle.setPointerCapture(e.pointerId);
     let ratio = splitRatio;
+    // L'éditeur garde toujours au moins 480 px : sa barre d'outils doit tenir entière
+    const maxRatio = Math.max(0.2, Math.min(0.75, 1 - 480 / box.width));
     const move = (ev: PointerEvent) => {
-      ratio = Math.min(0.75, Math.max(0.2, (ev.clientX - box.left) / box.width));
+      ratio = Math.min(maxRatio, Math.max(0.2, (ev.clientX - box.left) / box.width));
       setSplitRatio(ratio);
     };
     const up = () => {
@@ -964,7 +1053,9 @@ export function NotebookEditor({
             // choisir une couleur ou une épaisseur reprend le stylo
             onColor={(color) => {
               update({ color });
-              if (tool !== 'pen') setTool('pen');
+              // Avec l'outil Texte, la couleur s'applique au texte (et à la zone en cours de frappe)
+              if (tool === 'text') setTextEdit((prev) => (prev ? { ...prev, color } : prev));
+              else if (tool !== 'pen') setTool('pen');
             }}
             onSize={(size) => {
               update({ size });
@@ -978,6 +1069,11 @@ export function NotebookEditor({
             onUndo={undo}
             onRedo={redo}
             onPaste={paste}
+            textSize={settings.textSize}
+            onTextSize={(textSize) => {
+              update({ textSize });
+              setTextEdit((prev) => (prev ? { ...prev, size: textSize } : prev));
+            }}
           />
           {page ? (
             <InkCanvas
@@ -1015,7 +1111,8 @@ export function NotebookEditor({
               onErase={removeStrokes}
               onReplaceStrokes={replaceStrokes}
               onTransformStrokes={(changed) => {
-                replaceSelected(() => changed);
+                // Une zone de texte élargie, rétrécie ou agrandie : sa hauteur suit ses nouvelles lignes
+                replaceSelected(() => changed.map(fitTextBox));
                 // La zone du lasso (sur un PDF ou une photo) ne correspond plus à rien une fois la sélection transformée
                 setSelectionRegion(null);
               }}
@@ -1051,6 +1148,11 @@ export function NotebookEditor({
               captureRegion={captureRegion}
               onCaptureRegion={setCaptureRegion}
               onCopyCapture={() => void copyCapture()}
+              textSize={settings.textSize}
+              textEdit={textEdit}
+              onTextTarget={onTextTarget}
+              onTextChange={(text) => setTextEdit((prev) => (prev ? { ...prev, text } : prev))}
+              onTextDone={() => commitTextRef.current()}
             />
           ) : (
             <p className="center-message">Chargement de la page…</p>

@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react';
 import type { SizeMode } from './ink/palm';
 import type { Handedness, PaperStyle, StylusMode } from './ink/types';
 import { DEFAULT_SELECTION_COLORS, normalizeSelectionColors, normalizeShapeColor } from './colors';
+import { DEFAULT_TEXT_SIZE } from './ink/textLayout';
 
 export interface Settings {
   color: string;
@@ -61,6 +62,8 @@ export interface Settings {
   selectionColors: string[];
   /** Export « PDF de mes notes » en mode impression : fond blanc, encre claire convertie en foncé */
   printMode: boolean;
+  /** Taille du texte des nouvelles zones de texte (mm) */
+  textSize: number;
 }
 
 const KEY = 'notes-maths.settings';
@@ -86,7 +89,8 @@ const DEFAULTS: Settings = {
   holdEraser: true,
   holdMs: 700,
   shapeHold: true,
-  shapeHoldMs: 300,
+  // « Dessiner → maintenir 0,5 s → forme parfaite »
+  shapeHoldMs: 500,
   lowLatency: false,
   penSeen: false,
   driveClientId: '',
@@ -101,6 +105,7 @@ const DEFAULTS: Settings = {
   highlightSize: 5,
   selectionColors: [...DEFAULT_SELECTION_COLORS],
   printMode: false,
+  textSize: DEFAULT_TEXT_SIZE,
 };
 
 function load(): Settings {
@@ -117,7 +122,8 @@ function load(): Settings {
     // couper. Le calibrage anti-paume déjà enregistré, lui, est conservé tel quel.
     // La conversion par IA (Gemini) est abandonnée : sa clé API ne doit plus traîner dans le stockage du
     // navigateur, pas plus que ses réglages.
-    const legacyKeys = ['pencilCase', 'tapeColor', 'tapeSize', 'tapeHintSeen', 'lockEnabled', 'showContacts', 'restZone', 'apiKey', 'model', 'autoFallback', 'subject', 'convertBackground'];
+    // `shapeHoldMs` : plus réglable dans l'interface, la durée demandée (0,5 s) s'applique partout
+    const legacyKeys = ['pencilCase', 'tapeColor', 'tapeSize', 'tapeHintSeen', 'lockEnabled', 'showContacts', 'restZone', 'apiKey', 'model', 'autoFallback', 'subject', 'convertBackground', 'shapeHoldMs'];
     const hadLegacy = legacyKeys.some((k) => k in saved);
     for (const legacy of legacyKeys) delete (saved as Record<string, unknown>)[legacy];
     // Réécrit tout de suite, sans attendre le prochain réglage modifié : la clé API disparaît du disque dès

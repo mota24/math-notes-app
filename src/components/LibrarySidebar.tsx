@@ -42,14 +42,31 @@ function NavButton({ icon, label, active = false, badge, onClick }: { icon: Icon
 }
 
 /** Une ligne de l'arbre des dossiers : un chevron pour déplier, puis le dossier (un tap l'ouvre). */
-function TreeRow({ node, open, active, onToggle, onOpen }: { node: FolderNode; open: boolean; active: boolean; onToggle(): void; onOpen(): void }) {
+/** Au-delà, l'arbre ne se décale plus : une ligne très profonde garde de la place pour son nom */
+const MAX_INDENT_DEPTH = 8;
+
+function TreeRow({
+  node,
+  open,
+  active,
+  onToggle,
+  onOpen,
+  onNewChild,
+}: {
+  node: FolderNode;
+  open: boolean;
+  active: boolean;
+  onToggle(): void;
+  onOpen(): void;
+  onNewChild(): void;
+}) {
   const expandable = node.children.length > 0;
   return (
     <div
       className={`group/row flex h-7 shrink-0 items-center rounded-md transition-colors duration-100 ${
         active ? 'bg-black/[0.07] dark:bg-white/[0.08]' : 'hover:bg-black/5 dark:hover:bg-white/[0.05]'
       }`}
-      style={{ paddingLeft: 2 + node.depth * 12 }}
+      style={{ paddingLeft: 2 + Math.min(node.depth, MAX_INDENT_DEPTH) * 12 }}
     >
       <button
         type="button"
@@ -72,6 +89,15 @@ function TreeRow({ node, open, active, onToggle, onOpen }: { node: FolderNode; o
         <span className="size-2 shrink-0 rounded-full" style={{ background: node.folder.color }} />
         <span className="truncate">{node.folder.name}</span>
       </button>
+      <button
+        type="button"
+        onClick={onNewChild}
+        aria-label={`Nouveau sous-dossier dans « ${node.folder.name} »`}
+        title="Nouveau sous-dossier"
+        className={`mr-0.5 grid size-6 min-h-0 shrink-0 place-items-center rounded border-0 bg-transparent p-0 text-zinc-500 opacity-0 transition-opacity duration-100 hover:bg-black/10 hover:text-zinc-900 focus-visible:opacity-100 group-hover/row:opacity-100 pointer-coarse:opacity-60 dark:hover:bg-white/10 dark:hover:text-white ${focusRing}`}
+      >
+        <Icon name="plus" className="size-3.5" />
+      </button>
     </div>
   );
 }
@@ -93,7 +119,8 @@ export interface SidebarProps {
   onHome(): void;
   onFolder(id: string): void;
   onTrash(): void;
-  onNewFolder(): void;
+  /** Nouveau dossier : à la racine (null) ou dans un dossier de l'arbre */
+  onNewFolder(parentId: string | null): void;
   onHandwriting(): void;
   onSettings(): void;
   onCalendar(): void;
@@ -209,7 +236,7 @@ export function LibrarySidebar(p: SidebarProps) {
           </button>
           <button
             type="button"
-            onClick={p.onNewFolder}
+            onClick={() => p.onNewFolder(null)}
             aria-label="Nouveau dossier"
             title="Nouveau dossier"
             className={`grid size-6 min-h-0 shrink-0 place-items-center rounded border-0 bg-transparent p-0 text-zinc-500 transition-colors duration-100 hover:bg-black/5 hover:text-zinc-900 dark:hover:bg-white/[0.08] dark:hover:text-white ${focusRing}`}
@@ -230,6 +257,11 @@ export function LibrarySidebar(p: SidebarProps) {
                   active={node.folder.id === p.currentFolderId}
                   onToggle={() => toggle(node.folder.id)}
                   onOpen={() => p.onFolder(node.folder.id)}
+                  onNewChild={() => {
+                    // Le parent se déplie : le nouveau sous-dossier apparaît tout de suite sous lui
+                    setUnfolded((prev) => new Set([...prev, node.folder.id]));
+                    p.onNewFolder(node.folder.id);
+                  }}
                 />
               ))
             )}

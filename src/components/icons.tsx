@@ -45,6 +45,8 @@ export const ICONS = {
   ),
   /** Lasso de capture rectangulaire */
   capture: icon(<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />),
+  /** Zone de texte (taper au clavier sur la page) */
+  text: icon(<path d="M5 7V5h14v2M12 5v14M9 19h6" />),
   /** Lien de partage (lecture seule) */
   share: icon(<path d="M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1M14 10a4 4 0 00-5.7 0l-3 3a4 4 0 005.7 5.7l1-1" />),
   /** Écran partagé : deux colonnes */
