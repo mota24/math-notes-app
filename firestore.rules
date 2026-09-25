@@ -2,71 +2,139 @@ rules_version = '2';
 
 // Notes Maths — règles de sécurité Firestore.
 //
-// Chaque compte ne peut lire et écrire QUE son propre espace, users/<son uid>/… ; seule exception, les liens
-// de partage en lecture seule (shares/<id>, plus bas) : lisibles par qui a le lien, jamais modifiables par lui.
-// Tout le reste est fermé.
-// Les écritures sont limitées à la forme exacte des documents que l'appli produit (src/sync/firestore.ts) :
-// un document inattendu, un champ en trop ou un identifiant qui ne correspond pas est refusé.
+// Principe : TOUT est fermé, sauf ce qui est explicitement ouvert ci-dessous.
+//  - users/<uid>/… : lisible et modifiable par ce seul compte, et seulement si son adresse est vérifiée
+//    (Google l'est toujours ; un compte e-mail/mot de passe doit avoir cliqué le lien de validation).
+//  - shares/<id> : un cahier partagé en lecture seule. Lisible par qui connaît l'identifiant (22 caractères
+//    aléatoires), jamais listable, modifiable par son seul auteur.
+// Chaque écriture doit avoir la forme exacte de ce que l'appli produit : un champ en trop, un type inattendu,
+// un identifiant incohérent avec le chemin ou une taille démesurée est refusé.
 //
 // Déploiement : Console Firebase → Firestore Database → Règles → coller ce fichier → Publier
 // (ou, avec Firebase CLI : npx firebase-tools deploy --only firestore:rules --project math-notes-pwa).
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    function isOwner(uid) {
-      return request.auth != null && request.auth.uid == uid;
+    // ---------------------------------------------------------------- outils
+
+    function verified() {
+      return request.auth != null && request.auth.token.email_verified == true;
     }
 
-    // Page ou transcription : ses cinq champs exactement, identifiant cohérent avec le chemin, contenu en JSON texte
-    function validSyncDoc(idField, id) {
-      let data = request.resource.data;
-      return data.keys().hasOnly([idField, 'notebookId', 'updatedAt', 'deletedAt', 'json'])
-        && data[idField] == id
-        && data.json is string
-        && data.updatedAt is number;
+    function isOwner(uid) {
+      return verified() && request.auth.uid == uid;
     }
+
+    // Identifiants générés par l'appli (lettres, chiffres, - et _) : rien d'autre dans un chemin
+    function validId(id) {
+      return id.matches('^[A-Za-z0-9_-]{1,128}$');
+    }
+
+    function nullOrNumber(v) {
+      return v == null || v is number;
+    }
+
+    // ---------------------------------------------------------------- espace personnel
 
     // Index : dossiers, cahiers, tâches, écriture perso et suppressions, chacun rangé en JSON texte
     match /users/{uid}/state/index {
       allow read, delete: if isOwner(uid);
       allow create, update: if isOwner(uid)
         && request.resource.data.keys().hasOnly(['v', 'updatedAt', 'foldersJson', 'notebooksJson', 'todosJson', 'glyphsJson', 'tombstonesJson'])
-        && request.resource.data.updatedAt is number;
+        && request.resource.data.v is int
+        && request.resource.data.updatedAt is number
+        && request.resource.data.foldersJson is string
+        && request.resource.data.notebooksJson is string
+        && request.resource.data.todosJson is string
+        && request.resource.data.glyphsJson is string
+        && request.resource.data.tombstonesJson is string;
+    }
+
+    // Page ou transcription : identifiant cohérent avec le chemin, contenu en JSON texte ; une page trop lourde
+    // pour un document laisse `json` vide et range son contenu en `parts` morceaux (sous-collection parts/)
+    function validSyncDoc(idField, id) {
+      let d = request.resource.data;
+      return validId(id)
+        && d.keys().hasOnly([idField, 'notebookId', 'updatedAt', 'deletedAt', 'json', 'parts'])
+        && d.keys().hasAll([idField, 'notebookId', 'updatedAt', 'json'])
+        && d[idField] == id
+        && d.notebookId is string && d.notebookId.size() <= 128
+        && d.json is string
+        && d.updatedAt is number
+        && nullOrNumber(d.get('deletedAt', null))
+        && (d.get('parts', 0) is int) && d.get('parts', 0) >= 0 && d.get('parts', 0) <= 40;
     }
 
     match /users/{uid}/pages/{pageId} {
       allow read, delete: if isOwner(uid);
       allow create, update: if isOwner(uid) && validSyncDoc('id', pageId);
+
+      match /parts/{n} {
+        allow read, delete: if isOwner(uid);
+        allow create, update: if isOwner(uid)
+          && n.matches('^[0-9]{1,2}$')
+          && request.resource.data.keys().hasOnly(['data'])
+          && request.resource.data.data is string;
+      }
     }
 
     match /users/{uid}/transcripts/{pageId} {
       allow read, delete: if isOwner(uid);
-      allow create, update: if isOwner(uid) && validSyncDoc('pageId', pageId);
+      allow create, update: if isOwner(uid) && validSyncDoc('pageId', pageId) && !('parts' in request.resource.data);
+    }
+
+    // Fichier de fond (PDF de cours, photo) : sa description ; ses octets sont dans chunks/ (900 Ko chacun,
+    // 50 Mo au plus par fichier, empreinte SHA-256 vérifiée par l'appli à la réception)
+    match /users/{uid}/files/{fileId} {
+      allow read, delete: if isOwner(uid);
+      allow create, update: if isOwner(uid)
+        && validId(fileId)
+        && request.resource.data.keys().hasOnly(['id', 'name', 'type', 'size', 'chunks', 'sha256', 'updatedAt', 'deletedAt'])
+        && request.resource.data.id == fileId
+        && request.resource.data.name is string && request.resource.data.name.size() <= 300
+        && request.resource.data.type is string && request.resource.data.type.size() <= 100
+        && request.resource.data.size is int && request.resource.data.size >= 0 && request.resource.data.size <= 52428800
+        && request.resource.data.chunks is int && request.resource.data.chunks >= 1 && request.resource.data.chunks <= 60
+        && request.resource.data.sha256 is string && request.resource.data.sha256.matches('^[0-9a-f]{64}$')
+        && request.resource.data.updatedAt is number
+        && nullOrNumber(request.resource.data.get('deletedAt', null));
+
+      match /chunks/{n} {
+        allow read, delete: if isOwner(uid);
+        allow create, update: if isOwner(uid)
+          && n.matches('^[0-9]{1,2}$')
+          && request.resource.data.keys().hasOnly(['data'])
+          && request.resource.data.data is bytes
+          && request.resource.data.data.size() <= 1000000;
+      }
     }
 
     // ---------------------------------------------------------------- partage en lecture seule
-    // shares/<id secret> : un cahier partagé par lien (src/share). N'importe qui peut LIRE un partage dont il
-    // connaît l'identifiant (22 caractères aléatoires, impossible à deviner), mais personne ne peut LISTER
-    // les partages. Seul le compte qui l'a créé peut l'écrire ou le supprimer ; un visiteur n'écrit jamais.
+
     function validShare() {
       let d = request.resource.data;
       return d.keys().hasOnly(['v', 'owner', 'notebookId', 'title', 'pageIds', 'sizes', 'versions', 'bgKeys', 'createdAt', 'updatedAt'])
+        && d.v == 1
         && d.owner == request.auth.uid
+        && d.notebookId is string && d.notebookId.size() <= 128
         && d.title is string && d.title.size() <= 500
         && d.pageIds is list && d.pageIds.size() <= 5000
         && d.sizes is map && d.versions is map && d.bgKeys is map
+        && d.createdAt is number
         && d.updatedAt is number;
     }
 
     match /shares/{shareId} {
-      allow get: if true;
+      allow get: if validId(shareId);
       allow list: if false;
-      allow create: if request.auth != null && validShare();
-      allow update: if request.auth != null && resource.data.owner == request.auth.uid && validShare();
-      allow delete: if request.auth != null && resource.data.owner == request.auth.uid;
+      allow create: if verified() && validId(shareId) && validShare();
+      // L'auteur reste l'auteur, la date de création ne bouge plus
+      allow update: if verified() && resource.data.owner == request.auth.uid && validShare()
+        && request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if verified() && resource.data.owner == request.auth.uid;
 
       function ownsShare() {
-        return request.auth != null
+        return verified()
           && get(/databases/$(database)/documents/shares/$(shareId)).data.owner == request.auth.uid;
       }
 
@@ -75,6 +143,7 @@ service cloud.firestore {
         allow get: if true;
         allow list: if false;
         allow create, update: if ownsShare()
+          && validId(pageId)
           && request.resource.data.keys().hasOnly(['json', 'updatedAt'])
           && request.resource.data.json is string
           && request.resource.data.updatedAt is number;
@@ -86,14 +155,15 @@ service cloud.firestore {
         allow get: if true;
         allow list: if false;
         allow create, update: if ownsShare()
+          && validId(pageId)
           && request.resource.data.keys().hasOnly(['data', 'key'])
           && request.resource.data.data is string
-          && request.resource.data.key is string;
+          && request.resource.data.key is string && request.resource.data.key.size() <= 300;
         allow delete: if ownsShare();
       }
     }
 
-    // Tout le reste : fermé
+    // ---------------------------------------------------------------- tout le reste : fermé
     match /{document=**} {
       allow read, write: if false;
     }

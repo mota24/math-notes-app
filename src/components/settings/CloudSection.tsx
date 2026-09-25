@@ -87,7 +87,7 @@ export function CloudSection({ settings, update }: { settings: Settings; update(
         <Interrupteur actif={settings.firestoreSync} onChange={(v) => update({ firestoreSync: v })} libelle="Synchronisation en temps réel" />
       </Ligne>
       {settings.firestoreSync && fs.skippedHeavy > 0 && (
-        <Etat message={`${fs.skippedHeavy} page(s) trop lourde(s) (images collées) restée(s) sur cet appareil.`} />
+        <Etat message={`${fs.skippedHeavy} élément(s) trop lourd(s) (page de plus de 14 Mo ou PDF de plus de 50 Mo) gardé(s) sur cet appareil seulement.`} />
       )}
 
       {/* Copie sur fichier */}
@@ -146,6 +146,9 @@ export function CloudSection({ settings, update }: { settings: Settings; update(
               placeholder="123456789-xxxx.apps.googleusercontent.com"
               spellCheck={false}
               autoComplete="off"
+              data-1p-ignore
+              data-lpignore="true"
+              data-bwignore
             />
           </label>
           <details className={`text-[12.5px] ${discret}`}>

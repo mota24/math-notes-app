@@ -34,7 +34,7 @@ export function NewNotebookDialog({ onCreate, onClose }: { onCreate(title: strin
       <form onSubmit={(e) => (e.preventDefault(), submit())}>
         <label className="field">
           <span>Titre</span>
-          <input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} placeholder="ex. Analyse 2 — Cours" />
+          <input autoFocus autoComplete="off" data-1p-ignore data-lpignore="true" data-bwignore value={title} onChange={(e) => setTitle(e.target.value)} placeholder="ex. Analyse 2 — Cours" />
         </label>
         <label className="field">
           <span>Papier</span>
@@ -47,8 +47,8 @@ export function NewNotebookDialog({ onCreate, onClose }: { onCreate(title: strin
           </select>
         </label>
         <label className="field">
-          <span>Matière / contexte (aide Gemini)</span>
-          <input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="ex. Analyse 2 : séries entières" />
+          <span>Matière</span>
+          <input autoComplete="off" data-1p-ignore data-lpignore="true" data-bwignore value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="ex. Analyse 2 : séries entières" />
         </label>
       </form>
     </Modal>

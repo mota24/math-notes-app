@@ -1,11 +1,11 @@
 name: Vérification (tests + compilation)
 
-# À chaque envoi sur GitHub, les tests et la compilation tournent sur les serveurs de GitHub (gratuit) :
-# une coche verte ou rouge apparaît sur le commit. Ce workflow ne publie rien : le site en ligne est
-# publié par Vercel, qui se reconstruit tout seul à chaque envoi sur `main`.
+# À chaque envoi sur GitHub (main ET les branches de travail), le lint strict, les tests et la compilation
+# tournent sur les serveurs de GitHub (gratuit) : une coche verte ou rouge apparaît sur le commit. Ce
+# workflow ne publie rien : le site en ligne est publié par Vercel, qui se reconstruit tout seul à chaque
+# envoi sur `main` (et fait un aperçu pour les autres branches).
 on:
   push:
-    branches: [main]
   pull_request:
 
 # Le jeton du workflow ne peut que lire le dépôt (rien à écrire : ni release, ni commit).
@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
 

@@ -42,6 +42,13 @@ const cases: [string, () => void][] = [
       for (const r of routes) assert.deepEqual(parseHash(routeHash(r)), r);
     },
   ],
+  [
+    'adresse mal encodée : pas d’exception (écran blanc), le segment est gardé tel quel',
+    () => {
+      assert.deepEqual(parseHash('#/cahier/%E0%A4%A/2'), { name: 'notebook', notebookId: '%E0%A4%A', pageIndex: 1 });
+      assert.deepEqual(parseHash('#/dossier/%'), { name: 'library', folderId: '%' });
+    },
+  ],
 ];
 
 let failed = 0;

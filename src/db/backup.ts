@@ -3,6 +3,7 @@ import { db } from './db';
 import type { Tombstone } from './library';
 import { validateBackup } from './backupFormat';
 import type { BackupFile, FileEntry } from './backupFormat';
+import type { PageVersion } from './schema';
 
 /** Sauvegarde complète dans un fichier (sans compte Google) et restauration par fusion. */
 
@@ -62,7 +63,7 @@ export async function restoreBackup(file: File): Promise<{ imported: number }> {
   const notebooks = mergeRecords(byKey(await db.notebooks(), (n) => n.id), byKey(data.notebooks, (n) => n.id), tombstones);
   for (const id of notebooks.pull) await db.putNotebook(notebooks.merged[id]);
 
-  const pages = mergeRecords(await db.pageVersions(), byKey(data.pages, (p) => p.id), tombstones);
+  const pages = mergeRecords<PageVersion>(await db.pageVersions(), byKey(data.pages, (p) => p.id), tombstones);
   const backupPages = byKey(data.pages, (p) => p.id);
   for (const id of pages.pull) await db.putPage(backupPages[id], true);
 

@@ -41,19 +41,6 @@ const firebaseConfig = {
   appId: texte(env.VITE_FIREBASE_APP_ID, '1:519312910632:web:a5f4f416820b75d552c81d'),
 };
 
-// Diagnostic : l'état des variables, jamais leur contenu. Seul journal volontaire de l'appli.
-// eslint-disable-next-line no-console
-console.log(
-  'Config Firebase :',
-  !cleEnv
-    ? 'VITE_FIREBASE_API_KEY absente → clé du projet'
-    : cleValide
-      ? 'VITE_FIREBASE_API_KEY utilisée'
-      : `VITE_FIREBASE_API_KEY ignorée (ne ressemble pas à une clé Google, ${cleEnv.length} caractères) → clé du projet`,
-  '· projet', firebaseConfig.projectId,
-  '· domaine d’auth', firebaseConfig.authDomain,
-);
-
 const app: FirebaseApp = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 

@@ -5,7 +5,10 @@
  * la tablette n'avait qu'à toucher « Continuer avec Google » avec SON compte pour voir toutes les notes
  * enregistrées sur l'appareil.
  *
- * Deux règles, dans cet ordre :
+ * Trois règles, dans cet ordre :
+ *  0. Adresse vérifiée : un compte e-mail/mot de passe créé avec une adresse qui n'est pas la sienne (ou mal
+ *     tapée) n'entre pas tant que le lien de validation n'a pas été cliqué. Google vérifie toujours l'adresse.
+ *     Les règles Firestore exigent la même chose : un compte non vérifié ne lit ni n'écrit rien dans le cloud.
  *  1. Liste blanche (VITE_ALLOWED_EMAILS, dans Vercel) : si elle est remplie, seuls ces comptes entrent.
  *  2. Sinon, « propriétaire de l'appareil » : le premier compte connecté sur un appareil en devient le
  *     propriétaire, et tout autre compte y est refusé. Protégé par défaut, sans rien configurer, et sans
@@ -15,7 +18,12 @@
 export interface Account {
   uid: string;
   email: string | null;
+  /** Adresse confirmée (Google : toujours). `false` = refusé ; absent = compte déjà enregistré sur l'appareil */
+  emailVerified?: boolean;
 }
+
+export const UNVERIFIED_REASON =
+  'Adresse e-mail pas encore validée : ouvre le lien reçu par e-mail (regarde aussi les indésirables), puis reconnecte-toi.';
 
 export type Access = { ok: true; claim: boolean } | { ok: false; reason: string };
 
@@ -32,6 +40,7 @@ export function parseAllowlist(raw: unknown): string[] {
 }
 
 export function decideAccess(user: Account, allowlist: string[], owner: Account | null): Access {
+  if (user.emailVerified === false) return { ok: false, reason: UNVERIFIED_REASON };
   if (allowlist.length) {
     const email = (user.email ?? '').toLowerCase();
     return allowlist.includes(email)

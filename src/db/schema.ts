@@ -26,7 +26,7 @@ export interface Notebook extends Versioned {
   /** Ordre des pages */
   pageIds: string[];
   favorite: boolean;
-  /** Matière / contexte transmis à Gemini */
+  /** Matière, affichée sous le titre du cahier */
   subject: string;
   openedAt: number;
   /** Lien de partage en lecture seule (identifiant secret du document shares/<id> de Firestore) ; absent = non partagé */
@@ -60,7 +60,7 @@ export interface StoredFile extends Versioned {
   blob: Blob;
 }
 
-/** Transcription LaTeX d'une page entière (modifiable) */
+/** Transcription LaTeX d'une page (faite quand la conversion IA existait ; sert encore aux exports LaTeX et manuscrit) */
 export interface Transcript {
   pageId: string;
   notebookId: string;

@@ -1,13 +1,15 @@
 import { useEffect, useState } from 'react';
-import { signOut } from 'firebase/auth';
+import { sendEmailVerification, signOut } from 'firebase/auth';
 import type { User } from 'firebase/auth';
 import { db } from '../db/db';
 import { auth } from '../firebase';
-import { decideAccess, parseAllowlist } from './access';
+import { UNVERIFIED_REASON, decideAccess, parseAllowlist } from './access';
 import type { Account } from './access';
 
 /** Liste blanche facultative, lue au build par Vite (vide si la variable n'est pas définie dans Vercel). */
 const ALLOWLIST = parseAllowlist(import.meta.env.VITE_ALLOWED_EMAILS);
+/** Liste blanche remplie : un nouveau compte serait refusé de toute façon, inutile de proposer d'en créer un */
+export const SIGNUP_OPEN = ALLOWLIST.length === 0;
 /** Propriétaire de l'appareil, gardé dans la base locale (jamais synchronisé ni exporté). */
 const OWNER_KEY = 'deviceOwner';
 
@@ -39,14 +41,18 @@ export function useAccess(user: User | null | undefined): Gate {
     setStatus('checking');
     (async () => {
       const owner = (await db.getMeta<Account>(OWNER_KEY)) ?? null;
-      const decision = decideAccess({ uid: user.uid, email: user.email }, ALLOWLIST, owner);
+      const decision = decideAccess({ uid: user.uid, email: user.email, emailVerified: user.emailVerified }, ALLOWLIST, owner);
       if (!alive) return;
       if (decision.ok) {
+        // Le propriétaire est retenu sans son état de vérification (il l'était forcément pour entrer)
         if (decision.claim) await db.setMeta(OWNER_KEY, { uid: user.uid, email: user.email });
         setRefusal(null);
         setStatus('open');
       } else {
         setRefusal(decision.reason);
+        // Adresse pas encore validée : on (re)envoie le lien avant de déconnecter, sinon il faudrait être
+        // connecté pour le redemander. Firebase limite lui-même la fréquence des envois.
+        if (decision.reason === UNVERIFIED_REASON) await sendEmailVerification(user).catch(() => undefined);
         await signOut(auth); // user devient null : l'écran de connexion s'affiche avec le motif
       }
     })().catch((e: unknown) => {

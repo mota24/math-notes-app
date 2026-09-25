@@ -1,12 +1,11 @@
 import type { Settings } from '../settings';
 import { Modal } from './Modal';
-import { AiSection } from './settings/AiSection';
 import { CloudSection } from './settings/CloudSection';
 import { WritingSection } from './settings/WritingSection';
 
 /**
- * Réglages : trois cartes seulement — le compte et la conservation des notes, l'écriture, l'IA — et
- * l'accès au guide. Chaque carte va à l'essentiel ; les explications longues ont disparu.
+ * Réglages : deux cartes seulement — le compte et la conservation des notes, l'écriture — et l'accès au
+ * guide. Chaque carte va à l'essentiel ; les explications longues ont disparu.
  */
 export function SettingsDialog({
   settings,
@@ -23,7 +22,6 @@ export function SettingsDialog({
     <Modal title="Réglages" onClose={onClose}>
       <CloudSection settings={settings} update={update} />
       <WritingSection settings={settings} update={update} />
-      <AiSection settings={settings} update={update} />
       <div className="flex justify-center pt-1">
         <button
           type="button"

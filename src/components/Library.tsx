@@ -156,7 +156,7 @@ export function Library({ route, onOpenSettings }: { route: Extract<Route, { nam
       onClick: () => void updateNotebook(n.id, { favorite: !n.favorite }),
     },
     { label: 'Renommer', onClick: () => setDialog({ kind: 'rename-notebook', notebook: n }) },
-    { label: 'Matière / contexte…', onClick: () => setDialog({ kind: 'subject', notebook: n }) },
+    { label: 'Matière…', onClick: () => setDialog({ kind: 'subject', notebook: n }) },
     { label: 'Déplacer…', onClick: () => setDialog({ kind: 'move-notebook', notebook: n }) },
     { label: 'Mettre à la corbeille', danger: true, onClick: () => void trashNotebook(n.id) },
   ];
@@ -525,8 +525,8 @@ export function Library({ route, onOpenSettings }: { route: Extract<Route, { nam
       )}
       {dialog?.kind === 'subject' && (
         <PromptDialog
-          title="Matière / contexte"
-          label="Transmis à Gemini pour mieux lire ton écriture"
+          title="Matière"
+          label="Affichée sous le titre du cahier"
           initial={dialog.notebook.subject}
           placeholder="ex. Électronique : filtres du premier ordre"
           onClose={() => setDialog(null)}

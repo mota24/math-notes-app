@@ -14,7 +14,7 @@ export function CloudIndicator({ className = '' }: { className?: string }) {
   // Hors ligne passe avant tout : un envoi « en cours » attend en fait le retour du réseau
   const horsLigne = s.offline;
   const enErreur = !horsLigne && s.status === 'error';
-  const enCours = !horsLigne && !enErreur && (s.syncing || s.status === 'connecting');
+  const enCours = !horsLigne && !enErreur && (s.syncing || s.status === 'connecting' || s.transfer !== null);
   const enAttente = !horsLigne && !enErreur && !enCours && s.pending;
 
   const titre = horsLigne
@@ -22,12 +22,12 @@ export function CloudIndicator({ className = '' }: { className?: string }) {
     : enErreur
     ? `Synchronisation en échec (nouvel essai automatique) : ${s.error}`
     : enCours
-      ? 'Envoi en cours…'
+      ? (s.transfer ?? 'Envoi en cours…')
       : enAttente
         ? 'Modifications en attente d’envoi (tap pour envoyer maintenant)'
-        : s.lastPushAt
-          ? `Tout est synchronisé (dernier envoi à ${heure(s.lastPushAt)})`
-          : 'Tout est synchronisé';
+        : `${s.lastPushAt ? `Tout est synchronisé (dernier envoi à ${heure(s.lastPushAt)})` : 'Tout est synchronisé'}${
+            s.skippedHeavy ? ` · ${s.skippedHeavy} élément(s) trop lourd(s) gardé(s) sur cet appareil seulement` : ''
+          }`;
 
   const teinte = enErreur ? 'text-red-500' : enCours || enAttente ? 'text-accent' : 'text-zinc-400 dark:text-zinc-500';
 

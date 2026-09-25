@@ -1,8 +1,8 @@
 # Notes Maths
 
-Appli de prise de notes pour tablette (Galaxy Tab S6 + stylet) : tu écris tes cours de maths à la main,
-Gemini les convertit en LaTeX lisible, et tu exportes en PDF (tel quel, propre, ou « manuscrit lisible »).
-100 % gratuit, fonctionne hors-ligne, sauvegarde optionnelle sur Google Drive.
+Appli de prise de notes pour tablette (Galaxy Tab S6 + stylet), qui marche aussi sur téléphone, iPad et ordinateur :
+tu écris tes cours de maths à la main, tu annotes tes PDF de cours, et tu exportes en PDF. 100 % gratuit, fonctionne
+hors-ligne ; la synchronisation Firestore garde une copie de tes cahiers ET de tes PDF dans le cloud.
 
 ## Fonctionnalités
 
@@ -36,20 +36,17 @@ Gemini les convertit en LaTeX lisible, et tu exportes en PDF (tel quel, propre, 
   apprise sur tes traits **et retenue d'une session à l'autre** ; la section « Anti-paume » des Réglages permet aussi de
   **calibrer** (pose le stylet, pose la paume, le seuil se règle entre les deux) et montre, pour chaque contact,
   la décision prise et le journal des dernières décisions. Tout se règle dans **Réglages → Anti-paume**, pour que la barre d'outils flottante ne serve qu'à dessiner.
-- **Conversion en LaTeX** (Gemini, niveau gratuit) : zone au lasso, page, ou cahier entier ; lit aussi le **texte
-  imprimé** des PDF et des photos ; tableaux de signes et de variations (tkz-tab) ; passages douteux surlignés ;
-  transcription **modifiable** avec aperçu ; texte **collé depuis ChatGPT** (`\( \)`, `\[ \]`, titres, listes) ;
-  nouvel essai automatique et changement de modèle quand Gemini est surchargé.
+- **Conversion par IA (Gemini) : retirée** (septembre 2026). Les transcriptions déjà faites restent dans la base et
+  servent encore aux exports LaTeX et manuscrit ; la clé API éventuellement enregistrée est effacée au démarrage.
 - **Exports** : PDF de tes notes (vectoriel, avec le PDF ou la photo d'origine ; case **Mode impression** : fond blanc à réglures pâles, encre claire — blanc, pastels — convertie en noir ou en teinte foncée, pour lire et économiser l'encre ; les surligneurs gardent leur couleur) ; PDF propre via l'impression ;
   fichier `.tex` pour Overleaf ; **PDF manuscrit lisible** (police manuscrite ou **ta propre écriture**, taille,
   variations, papier, encre) — l'équivalent de MatHandWrite, y compris à partir d'un PDF de cours.
-- **Glisser une formule sur la page** : depuis une conversion (sélection ou page entière), « Poser sur la page » rend le résultat en image nette (police mathématique normale, pas manuscrite) et la pose sur la feuille — déplaçable, duplicable, effaçable comme un trait, incluse dans les PDF.
 - **Formes & tampons** (outil dédié dans la barre, à côté du lasso) :
   - **Dessiner → maintenir → ajuster** : trace un cercle, un rectangle, un triangle, une ligne ou une flèche au stylo normal, reste appuyé sans lever la pointe en fin de trait (~0,3 s, réglable dans Réglages → Anti-paume) — le trait brouillon devient une figure parfaite (un trait droit reste un trait : c'est une flèche seulement si tu as dessiné une pointe), encore **étirable en glissant la pointe** tant qu'elle n'est pas levée. Un bref flash bleu confirme la transformation. Ne se déclenche jamais pendant un tracé actif ni en même temps que l'appui long « gomme » (zone morte entre les deux).
   - **Retour automatique au stylo** : dès qu'un tampon est posé (tap ou glissé), l'outil repasse **au stylo** — on ne dessine plus une forme par mégarde en reprenant l'écriture ; la figure reste sélectionnée avec ses poignées, pour l'ajuster tout de suite.
   - **Tampons d'ingénierie** (sous-menu du même outil) : cercle, rectangle, triangle, flèche, **ligne droite** (de A à B, ou horizontale d'un simple tap), repère 2D, repère 3D en perspective cavalière (z vertical, y horizontal, x en diagonale, sans lettres), torseur (accolade), matrice `( )` dessinées comme de vraies accolades avec un large espace pour écrire — un tap les pose à une taille par défaut, un glissé choisit la taille.
   - **Volumes 3D** avec arêtes cachées en tirets : cylindre, cône, sphère, demi-sphère, pyramide, pavé droit (parallélépipède rectangle), **tore**, **prisme triangulaire**, **tétraèdre** et **ellipsoïde**. Le prisme et le tétraèdre sont en perspective cavalière ; pour le tore et l'ellipsoïde, un vrai test de visibilité décide de ce qui passe derrière le volume (contour, équateur, méridien).
-  - Formes et tampons sont des objets comme les images glissées : déplaçables, dupliquables, effaçables, recolorables, inclus dans la conversion Gemini et dans le PDF vectoriel (tirets compris, net à tout zoom, même tournés).
+  - Formes et tampons sont des objets comme les images glissées : déplaçables, dupliquables, effaçables, recolorables, inclus dans le PDF vectoriel (tirets compris, net à tout zoom, même tournés).
 - **Marge de la page** : toucher/glisser en dehors de la feuille déplace la vue (comme sur GoodNotes) ; l'encre ne peut jamais sortir des bords de la page sur les côtés et en haut.
 - **Canevas infini vers le bas** : sur une page d'écriture (pas sur un PDF ou une photo importés), on peut **défiler sans limite** — deux doigts, molette, ou en glissant dans la marge — et le papier se déroule par **feuilles A4 entières**, tout seul, quand on approche du bas ou qu'on écrit près du bord. Un trait pointillé « Feuille 2 », « Feuille 3 »… marque où la page se coupe à l'impression. La hauteur enregistrée ne suit que ce qui est écrit (défiler ne crée pas de feuilles vides gardées) et redescend si on efface le bas. Jusqu'à 30 feuilles (~9 m). L'**export PDF** (avec ou sans Mode impression) coupe une longue page en pages A4, réglures comprises ; la vignette montre la première feuille avec le nombre de feuilles.
 - **Papier sombre** (par défaut pour les nouveaux cahiers) : fond noir avec quadrillage adapté, pour écrire en encre claire (blanc dans la palette) ; l'export « PDF de mes notes » garde ce fond sombre pour que l'encre claire reste lisible (ou passe en Mode impression pour un fond blanc).
@@ -67,19 +64,6 @@ npm test            # tests : anti-paume, formes, géométrie, bibliothèque, fo
 npm run lint        # vérification du code (oxlint : TypeScript, React hooks)
 npm run build       # version de production dans dist/
 ```
-
-Ajoute `?demo` à l'adresse pour tester la conversion sans clé (réponses fictives).
-
-## Clé Gemini (gratuite)
-
-1. Va sur [aistudio.google.com/apikey](https://aistudio.google.com/apikey) et crée une clé.
-2. Dans l'appli : Réglages → Gemini → colle la clé. Elle reste sur l'appareil (jamais synchronisée, jamais dans les
-   sauvegardes).
-3. **Restreins la clé** (recommandé) : la clé est utilisée directement depuis le navigateur, donc quelqu'un qui aurait
-   accès à ta tablette pourrait la lire. Dans [console.cloud.google.com](https://console.cloud.google.com/apis/credentials)
-   → *Identifiants* → ta clé → *Restrictions liées aux applications* : **Référents HTTP**, et ajoute
-   `https://math-notes-app-indol.vercel.app/*` (et `http://localhost:5173/*` pour le PC) ; *Restrictions liées aux API* :
-   **Generative Language API** seulement. Ainsi la clé ne sert à rien ailleurs que dans l'appli.
 
 ## Mettre l'appli en ligne (Vercel, gratuit)
 
@@ -101,14 +85,15 @@ compilation à chaque envoi (une coche verte ou rouge sur le commit).
 ### Sécurité du site
 
 `vercel.json` fixe les en-têtes HTTP de sécurité : une **Content-Security-Policy** stricte (seuls le site lui-même,
-Gemini, Google Drive et la connexion Google sont autorisés ; aucun script tiers, pas d'iframe), `X-Frame-Options`,
+Firebase, Google Drive et la connexion Google sont autorisés ; aucun script tiers, aucun script en ligne, pas d'iframe
+étrangère), `X-Frame-Options`,
 `Referrer-Policy`, `Permissions-Policy` et HSTS. Il règle aussi le cache : `sw.js`, `precache.json` et `index.html`
 ne sont jamais mis en cache (une mise à jour est vue tout de suite), les fichiers de `assets/` (nom avec empreinte)
 le sont un an. **Si tu ajoutes un service externe** (police, script, API), ajoute son adresse dans la CSP, sinon le
 navigateur le bloquera silencieusement (regarde la console du navigateur).
 
-Rappel de ce qui est stocké où : les notes sont dans IndexedDB sur l'appareil ; la clé Gemini et l'ID client OAuth dans
-`localStorage` ; le jeton Google Drive (1 h) seulement en mémoire et dans `sessionStorage`, effacé à la fermeture de
+Rappel de ce qui est stocké où : les notes sont dans IndexedDB sur l'appareil ; les réglages et l'ID client OAuth Drive
+dans `localStorage` (aucun mot de passe, aucune clé secrète) ; le jeton Google Drive (1 h) seulement en mémoire et dans `sessionStorage`, effacé à la fermeture de
 l'appli. Aucun serveur à toi : rien ne transite ailleurs que vers Google.
 
 **Chaque adresse a ses propres notes locales** (le site Vercel, `localhost`…) : c'est la synchronisation en temps réel
@@ -124,16 +109,22 @@ autorisé (`src/auth/access.ts`).
   un compte Google valide) y est refusé et déconnecté. Aucune synchronisation ne démarre avant cette vérification.
 - **Liste blanche** (recommandé) : dans Vercel, ajoute la variable `VITE_ALLOWED_EMAILS` avec ton adresse (plusieurs
   adresses séparées par des virgules), puis redéploie. Seuls ces comptes peuvent alors entrer, sur tous les appareils.
-- **Fermer la création de comptes** : console Firebase → Authentication → Settings → *User actions* → décoche
-  « Enable create (sign-up) ». Plus personne ne pourra se créer de compte, ni par e-mail ni par Google.
+- **Adresse vérifiée obligatoire** : un compte e-mail/mot de passe n'entre pas (et ne peut rien lire ni écrire dans
+  Firestore) tant que le lien de validation reçu par e-mail n'a pas été cliqué. Les comptes Google sont vérifiés
+  d'office.
+- **Fermer la création de comptes** (le plus strict) : console Firebase → Authentication → Settings → *User actions* →
+  décoche « Enable create (sign-up) ». Le bouton « Créer un compte » disparaît aussi dès que `VITE_ALLOWED_EMAILS` est
+  rempli.
 
 Ce verrou protège l'écran, pas le disque : les notes restent lisibles dans le stockage du navigateur par qui a
 l'appareil et les outils de développement.
 
 ### Règles Firestore
 
-Les règles de sécurité sont dans `firestore.rules` : chaque compte ne lit et n'écrit que `users/<son uid>/…`, avec la
-forme exacte des documents de l'appli ; tout le reste est fermé. **Elles ne s'appliquent qu'une fois publiées** :
+Les règles de sécurité sont dans `firestore.rules` : chaque compte **à l'adresse vérifiée** ne lit et n'écrit que
+`users/<son uid>/…`, avec la forme exacte des documents de l'appli (types, tailles, identifiants) ; les liens de partage
+`shares/<id>` sont lisibles par qui a l'identifiant, jamais listables, modifiables par leur seul auteur ; tout le reste
+est fermé. **Elles ne s'appliquent qu'une fois publiées** :
 console Firebase → Firestore Database → Règles → coller le fichier → Publier (ou
 `npx firebase-tools deploy --only firestore:rules --project math-notes-pwa`).
 
@@ -156,15 +147,16 @@ récente gagne.
 |---|---|
 | `src/ink/` | Écriture : rendu du trait et des formes (`draw.ts`), anti-paume (`palm.ts`), reconnaissance des formes, géométrie (gomme de précision, lasso, mise à l'échelle et rotation : `geometry.ts`), zone de dessin (`InkCanvas.tsx`) avec ses feuilles (`sheets.ts`), ses poignées (`handles.ts`) et l'historique annuler / rétablir (`history.ts`) |
 | `src/db/` | Stockage local IndexedDB et opérations de bibliothèque ; `storageAlert.ts` signale un enregistrement impossible (stockage plein) au lieu de le perdre en silence |
-| `src/ai/` | Gemini : prompt, appel avec réessais, format des transcriptions |
+| `src/ai/` | Format des transcriptions (`blocks.ts`) et leur texte (`notesText.ts`, pour la recherche) |
 | `src/render/` | Affichage KaTeX, tableaux tkz-tab, export LaTeX |
 | `src/export/` | PDF vectoriel, PDF manuscrit |
 | `src/pdf/` | Lecture des PDF importés (pdf.js) |
-| `src/sync/` | Synchronisation : temps réel Firestore (`firestore.ts` : envois groupés, reprises après coupure) et Google Drive ; même fusion « le plus récent gagne » (`merge.ts`) |
+| `src/sync/` | Synchronisation : temps réel Firestore (`firestore.ts` : envois groupés, reprises après coupure, PDF et pages lourdes découpés en morceaux vérifiés par SHA-256 via `chunks.ts`) et Google Drive ; même fusion « le plus récent gagne » (`merge.ts`) |
+| `src/share/` | Partage en lecture seule par lien secret `/share/<id>` (publication incrémentale, lecteur public) |
 | `src/auth/` | Accès réservé : qui a le droit d'entrer (`access.ts`, testé), la porte d'entrée (`useAccess.ts`), la déconnexion complète |
 | `src/db/backupFormat.ts` | Format du fichier de sauvegarde et sa validation (rien n'est écrit dans la base avant vérification) |
 | `vercel.json` | En-têtes de sécurité (CSP…) et règles de cache du site en ligne |
-| `src/components/` | Écrans : bibliothèque (`Library*.tsx`), éditeur, barre d'onglets, exports, mon écriture, réglages (`SettingsDialog.tsx` : trois cartes dans `settings/`, briques communes dans `settings/ui.tsx`), écran de connexion (`AuthPanel.tsx`), indicateur de synchro (`CloudIndicator.tsx`), pictogrammes (`icons.tsx`) et catalogue des tampons (`stamps.tsx`) |
+| `src/components/` | Écrans : bibliothèque (`Library*.tsx`), éditeur, barre d'onglets, exports, mon écriture, réglages (`SettingsDialog.tsx` : deux cartes dans `settings/`, briques communes dans `settings/ui.tsx`), écran de connexion (`AuthPanel.tsx`), indicateur de synchro (`CloudIndicator.tsx`), pictogrammes (`icons.tsx`) et catalogue des tampons (`stamps.tsx`) |
 | `src/index.css` | Point d'entrée des styles : Tailwind CSS, KaTeX et l'ancienne feuille `styles.css`, rangés en couches (voir ci-dessous) |
 | `tests/` | Tests exécutés directement par Node (`npm test`) : anti-paume, formes, géométrie, feuilles, historique, bibliothèque, réponses du modèle, tableaux tkz-tab, rendu des maths, navigation, sauvegardes, fusion de la synchronisation |
 

@@ -8,8 +8,17 @@ export type Route =
   | { name: 'handwriting' }
   | { name: 'print'; notebookId: string; pageIndex: number | null };
 
+/** Un segment d'adresse mal encodé (lien abîmé, « %E0 » seul) donnait une exception, donc un écran blanc. */
+function decodeSegment(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
+}
+
 export function parseHash(hash: string): Route {
-  const parts = hash.replace(/^#\/?/, '').split('/').filter(Boolean).map(decodeURIComponent);
+  const parts = hash.replace(/^#\/?/, '').split('/').filter(Boolean).map(decodeSegment);
   switch (parts[0]) {
     case 'dossier':
       return { name: 'library', folderId: parts[1] ?? null };
