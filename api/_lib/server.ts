@@ -1,8 +1,5 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
-import { cert, getApps, initializeApp } from 'firebase-admin/app';
 import type { App } from 'firebase-admin/app';
-import { getAuth } from 'firebase-admin/auth';
-import { getFirestore } from 'firebase-admin/firestore';
 import type { Firestore } from 'firebase-admin/firestore';
 import { backupFileName, collectBackup, encodeBackup } from './backupCollect.js';
 import type { BackupReader, RemoteFileMeta } from './backupCollect.js';
@@ -41,7 +38,28 @@ function required(name: string): string {
   return v;
 }
 
-export function adminApp(): App {
+/**
+ * Le SDK Admin n'est chargé qu'à la première vraie utilisation (import dynamique) : s'il ne se charge pas,
+ * l'erreur devient une réponse claire au lieu de faire tomber la fonction entière avant même son premier
+ * appel — et une requête qui n'en a pas besoin (déclenchement refusé) répond quand même.
+ */
+type AdminSdk = {
+  app: typeof import('firebase-admin/app');
+  auth: typeof import('firebase-admin/auth');
+  firestore: typeof import('firebase-admin/firestore');
+};
+let sdk: Promise<AdminSdk> | null = null;
+function loadAdmin(): Promise<AdminSdk> {
+  sdk ??= Promise.all([import('firebase-admin/app'), import('firebase-admin/auth'), import('firebase-admin/firestore')]).then(
+    ([app, auth, firestore]) => ({ app, auth, firestore }),
+  );
+  sdk.catch(() => (sdk = null));
+  return sdk;
+}
+
+export async function adminApp(): Promise<App> {
+  const { app } = await loadAdmin();
+  const { cert, getApps, initializeApp } = app;
   const existing = getApps()[0];
   if (existing) return existing;
   const raw = required('FIREBASE_SERVICE_ACCOUNT');
@@ -54,7 +72,12 @@ export function adminApp(): App {
   return initializeApp({ credential: cert(account as Parameters<typeof cert>[0]), projectId: account.project_id });
 }
 
-export const firestore = (): Firestore => getFirestore(adminApp());
+export async function firestore(): Promise<Firestore> {
+  const { firestore: fs } = await loadAdmin();
+  return fs.getFirestore(await adminApp());
+}
+
+const adminAuth = async () => (await loadAdmin()).auth.getAuth(await adminApp());
 
 export function oauthClient(): { clientId: string; clientSecret: string } {
   return { clientId: required('GOOGLE_OAUTH_CLIENT_ID'), clientSecret: required('GOOGLE_OAUTH_CLIENT_SECRET') };
@@ -80,7 +103,7 @@ export async function verifyOwner(request: Request): Promise<{ uid: string; emai
   const owner = required('BACKUP_OWNER_EMAIL').toLowerCase();
   let decoded;
   try {
-    decoded = await getAuth(adminApp()).verifyIdToken(token, true);
+    decoded = await (await adminAuth()).verifyIdToken(token, true);
   } catch {
     throw new HttpError(401, 'Session expirée : reconnecte-toi puis réessaie.');
   }
@@ -91,7 +114,7 @@ export async function verifyOwner(request: Request): Promise<{ uid: string; emai
 export async function ownerUid(): Promise<string> {
   const email = required('BACKUP_OWNER_EMAIL');
   try {
-    return (await getAuth(adminApp()).getUserByEmail(email)).uid;
+    return (await (await adminAuth()).getUserByEmail(email)).uid;
   } catch {
     throw new HttpError(503, `Aucun compte Firebase pour ${email} (BACKUP_OWNER_EMAIL).`);
   }
@@ -190,8 +213,9 @@ export async function runBackup(trigger: 'cron' | 'manual'): Promise<BackupStatu
   const started = Date.now();
   let uid: string | null = null;
   let lockTaken = false;
-  const db = firestore();
+  let db: Firestore | null = null;
   try {
+    db = await firestore();
     uid = await ownerUid();
     if (!(await takeLock(db, 6 * 60_000))) throw new HttpError(409, 'Une sauvegarde est déjà en cours.');
     lockTaken = true;
@@ -247,9 +271,9 @@ export async function runBackup(trigger: 'cron' | 'manual'): Promise<BackupStatu
     };
     // Déjà en cours : l'autre sauvegarde écrira son propre compte rendu (pas de fausse alerte ici)
     const busy = e instanceof HttpError && e.status === 409;
-    if (uid && !busy) await db.doc(`users/${uid}/state/backup`).set(status, { merge: true }).catch((err) => console.error('[sauvegarde] compte rendu impossible :', err));
+    if (uid && db && !busy) await db.doc(`users/${uid}/state/backup`).set(status, { merge: true }).catch((err) => console.error('[sauvegarde] compte rendu impossible :', err));
     return status;
   } finally {
-    if (lockTaken) await db.doc('backupConfig/lock').delete().catch(() => undefined);
+    if (lockTaken && db) await db.doc('backupConfig/lock').delete().catch(() => undefined);
   }
 }
