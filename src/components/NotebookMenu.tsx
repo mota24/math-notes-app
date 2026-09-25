@@ -22,6 +22,9 @@ interface Props {
   onPaper(p: PaperStyle): void;
   onPaperColor(c: PaperColor): void;
   onExport(): void;
+  onShare(): void;
+  /** Le cahier a déjà un lien de partage */
+  shared: boolean;
   onConvertNotebook(): void;
   onPages(): void;
   onConvertPhoto(): void;
@@ -53,6 +56,7 @@ export function NotebookMenu(p: Props) {
       <button className="menu-backdrop" onClick={p.onClose} aria-label="Fermer le menu" />
       <div className="menu-card" role="menu">
         {item('Exporter…', ICONS.export, p.onExport, 'PDF · LaTeX')}
+        {item(p.shared ? 'Lien de partage…' : 'Partager (lecture seule)…', ICONS.share, p.onShare, p.shared ? 'actif' : undefined)}
         {item(
           p.queue ? `Arrêter (${p.queue.done}/${p.queue.total})` : 'Convertir tout le cahier',
           ICONS.sigma,

@@ -28,6 +28,7 @@ import { LibrarySidebar } from './LibrarySidebar';
 import { glassButton, glassButtonAccent, glassIconButton, glassPanel } from './libraryStyles';
 import { ConfirmDialog, FolderPicker, PromptDialog } from './Modal';
 import { NewNotebookDialog } from './NewNotebookDialog';
+import { CalendarPanel } from './CalendarPanel';
 import { TodoPanel } from './TodoPanel';
 import { CloudIndicator } from './CloudIndicator';
 import { syncFirestoreNow } from '../sync/useFirestore';
@@ -331,7 +332,7 @@ export function Library({ route, onOpenSettings }: { route: Extract<Route, { nam
   const showTrail = inTrash || searching || path.length > 0;
 
   return (
-    <div className="library relative flex h-[calc(100dvh_-_var(--tabbar-h,0px))] overflow-hidden bg-zinc-50 text-zinc-900 dark:bg-zinc-900 dark:text-zinc-100">
+    <div className="library relative flex h-[calc(100dvh_-_var(--tabbar-h,0px))] overflow-hidden bg-zinc-50 text-zinc-900 dark:bg-[#121316] dark:text-zinc-100">
       {menuOpen && (
         <button
           type="button"
@@ -362,9 +363,9 @@ export function Library({ route, onOpenSettings }: { route: Extract<Route, { nam
 
       <main
         ref={scrollRef}
-        className="@container relative min-w-0 flex-1 overflow-y-auto overscroll-contain bg-[radial-gradient(60rem_26rem_at_12%_-6rem,rgba(99,102,241,0.08),transparent_70%),radial-gradient(38rem_22rem_at_100%_0%,rgba(14,165,233,0.06),transparent_70%)] dark:bg-[radial-gradient(60rem_26rem_at_12%_-6rem,rgba(99,102,241,0.16),transparent_70%),radial-gradient(38rem_22rem_at_100%_0%,rgba(56,189,248,0.09),transparent_70%)]"
+        className="@container relative min-w-0 flex-1 overflow-y-auto overscroll-contain"
       >
-        <header className="sticky top-0 z-20 border-b border-black/5 bg-zinc-50/75 px-4 py-4 backdrop-blur-xl @2xl:px-8 dark:border-white/5 dark:bg-zinc-900/70">
+        <header className="sticky top-0 z-20 border-b border-black/5 bg-zinc-50/90 px-4 py-3 backdrop-blur-md @2xl:px-8 dark:border-white/[0.05] dark:bg-[#121316]/90">
           <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
             <div className="flex min-w-0 items-center gap-3">
               <button type="button" onClick={() => setMenuOpen(true)} aria-label="Ouvrir le menu" className={`${glassIconButton} lg:hidden`}>
@@ -473,7 +474,8 @@ export function Library({ route, onOpenSettings }: { route: Extract<Route, { nam
         </div>
       </main>
 
-      {todosOpen && <TodoPanel mode={todosOpen} onClose={() => setTodosOpen(null)} />}
+      {todosOpen === 'liste' && <TodoPanel onClose={() => setTodosOpen(null)} />}
+      {todosOpen === 'calendrier' && <CalendarPanel onClose={() => setTodosOpen(null)} />}
 
       {dialog?.kind === 'new-folder' && (
         <PromptDialog

@@ -222,7 +222,7 @@ export async function appendPdf(notebookId: string, file: File) {
 
 export async function updateNotebook(
   id: string,
-  patch: Partial<Pick<Notebook, 'title' | 'color' | 'folderId' | 'favorite' | 'subject' | 'paper' | 'paperColor' | 'openedAt'>>,
+  patch: Partial<Pick<Notebook, 'title' | 'color' | 'folderId' | 'favorite' | 'subject' | 'paper' | 'paperColor' | 'openedAt' | 'shareId'>>,
 ) {
   // Ouvrir un cahier ne compte pas comme une modification à synchroniser
   const touched = Object.keys(patch).some((k) => k !== 'openedAt');

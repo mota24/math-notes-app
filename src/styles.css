@@ -762,24 +762,7 @@ button:disabled {
   height: 32px;
 }
 
-.tb-primary {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  height: 44px;
-  padding: 0 16px;
-  white-space: nowrap;
-  border: 0;
-  border-radius: 12px;
-  background: var(--accent);
-  color: #fff;
-  font-size: 14px;
-  font-weight: 600;
-}
 
-.tb-primary:hover:not(:disabled) {
-  background: var(--accent-ink);
-}
 
 /* segmenté et interrupteurs */
 
@@ -2805,48 +2788,9 @@ code {
 /* BOUTONS D'ACTION (zone droite)                                     */
 /* ================================================================ */
 
-.editor-zone-right .tb-action-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-  white-space: nowrap;
-  height: 32px;
-  padding: 0 10px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  color: rgba(255, 255, 255, 0.75);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background 0.1s, color 0.1s;
-}
 
-.editor-zone-right .tb-action-btn:hover {
-  background: rgba(255, 255, 255, 0.14);
-  color: #fff;
-}
 
-.editor-zone-right .tb-primary {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-  white-space: nowrap;
-  height: 32px;
-  padding: 0 12px;
-  border-radius: 8px;
-  font-size: 13px;
-  font-weight: 600;
-  border: none;
-  cursor: pointer;
-}
 
-.editor-zone-right .tb-primary:disabled {
-  opacity: 0.55;
-  cursor: default;
-}
 
 .editor-zone-right .tb-btn {
   background: transparent;
@@ -2867,6 +2811,149 @@ code {
 
 .tb-label {
   white-space: nowrap;
+}
+
+/* ================================================================ */
+/* ACTIONS DE L'ÉDITEUR : icônes discrètes de 32 px (plus de gros     */
+/* bouton coloré « Convertir la page » ni de libellés)                */
+/* ================================================================ */
+
+.editor-zone-right .tb-icon {
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.62);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.editor-zone-right .tb-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.editor-zone-right .tb-icon:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.editor-zone-right .tb-icon.active {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--accent);
+}
+
+.editor-zone-right .tb-icon:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* Convertir : la seule action « IA », à peine teintée d'accent au survol */
+.editor-zone-right .tb-convert:hover:not(:disabled) {
+  color: var(--accent);
+}
+
+.editor-zone-right .tb-icon .spinner {
+  width: 14px;
+  height: 14px;
+}
+
+.tb-progress {
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ================================================================ */
+/* ÉCRAN PARTAGÉ : un autre cahier à gauche, poignée centrale        */
+/* ================================================================ */
+
+.split-pane {
+  flex: 0 0 auto;
+  min-width: 220px;
+  max-width: 75%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.split-handle {
+  position: relative;
+  flex: 0 0 12px;
+  display: grid;
+  place-items: center;
+  background: #111214;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+  z-index: 2;
+}
+
+/* Zone de prise plus large que le trait visible (doigt, stylet) */
+.split-handle::before {
+  content: '';
+  position: absolute;
+  inset: 0 -8px;
+}
+
+.split-handle span {
+  width: 4px;
+  height: 44px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.22);
+  transition: background 0.15s, height 0.15s;
+}
+
+.split-handle:hover span,
+.split-handle:active span {
+  height: 64px;
+  background: var(--accent);
+}
+
+@media (orientation: portrait) {
+  /* L'écran partagé reste côte à côte, même en portrait : le volet de résultats, lui, passe dessous */
+  .workspace:has(.split-pane) {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .workspace:has(.split-pane) > .canvas-wrap {
+    flex: 1 1 0;
+    min-height: 0;
+    height: 100%;
+  }
+
+  .workspace:has(.split-pane) > .split-pane,
+  .workspace:has(.split-pane) > .split-handle {
+    height: 100%;
+  }
+
+  .workspace:has(.split-pane) > .panel {
+    flex-basis: 100%;
+    height: 42%;
+  }
+}
+
+/* Glisser-déposer : la page s'illumine sous le fichier */
+.canvas-stage.dropping::after {
+  content: 'Dépose ici : image sur la page, PDF à la fin du cahier';
+  position: absolute;
+  inset: 10px;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  border: 2px dashed var(--accent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  pointer-events: none;
 }
 
 /* ================================================================ */

@@ -47,4 +47,12 @@ export const ICONS = {
   ),
   /** Lasso de capture rectangulaire */
   capture: icon(<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />),
+  /** Lien de partage (lecture seule) */
+  share: icon(<path d="M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1M14 10a4 4 0 00-5.7 0l-3 3a4 4 0 005.7 5.7l1-1" />),
+  /** Écran partagé : deux colonnes */
+  split: icon(<path d="M4 5h16v14H4zM12 5v14" />),
+  /** Télécharger (export PDF) */
+  download: icon(<path d="M12 4v11M7 10l5 5 5-5M5 20h14" />),
+  /** Inverser les deux côtés de l'écran partagé */
+  swap: icon(<path d="M7 7h12l-3-3M17 17H5l3 3" />),
 };

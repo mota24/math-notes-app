@@ -9,7 +9,7 @@
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint -c .oxlintrc.json src tests vite.config.ts",
-    "test": "node tests/palm.test.ts && node tests/shapeRecognize.test.ts && node tests/lasso.test.ts && node tests/erase.test.ts && node tests/resize.test.ts && node tests/transform.test.ts && node tests/printInk.test.ts && node tests/pageExtent.test.ts && node tests/volumes.test.ts && node tests/colors.test.ts && node tests/libraryModel.test.ts && node tests/notesText.test.ts && node tests/merge.test.ts && node tests/backupFormat.test.ts && node tests/blocks.test.ts && node tests/tkztab.test.ts && node tests/math.test.ts && node tests/router.test.ts && node tests/history.test.ts && node tests/sheets.test.ts && node tests/access.test.ts"
+    "test": "node tests/palm.test.ts && node tests/shapeRecognize.test.ts && node tests/lasso.test.ts && node tests/erase.test.ts && node tests/resize.test.ts && node tests/transform.test.ts && node tests/printInk.test.ts && node tests/pageExtent.test.ts && node tests/volumes.test.ts && node tests/colors.test.ts && node tests/libraryModel.test.ts && node tests/notesText.test.ts && node tests/merge.test.ts && node tests/backupFormat.test.ts && node tests/blocks.test.ts && node tests/tkztab.test.ts && node tests/math.test.ts && node tests/router.test.ts && node tests/history.test.ts && node tests/sheets.test.ts && node tests/access.test.ts && node tests/share.test.ts"
   },
   "dependencies": {
     "@fontsource/caveat": "^5.3.0",

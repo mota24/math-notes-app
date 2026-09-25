@@ -1,6 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "rewrites": [
+    { "source": "/share/:id", "destination": "/index.html" },
     { "source": "/__/auth/:path*", "destination": "https://math-notes-pwa.firebaseapp.com/__/auth/:path*" },
     { "source": "/__/firebase/:path*", "destination": "https://math-notes-pwa.firebaseapp.com/__/firebase/:path*" }
   ],

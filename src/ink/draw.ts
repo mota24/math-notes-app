@@ -20,14 +20,31 @@ function options(input: InputKind, size: number, last: boolean, tool: StrokeTool
     return { size: size * PF_SCALE, thinning: 0, smoothing: 0.5, streamline: 0.65, simulatePressure: false, last };
   }
   const real = input === 'pen';
+  if (real) {
+    // Stylet actif : la vraie pression. Courbe linéaire (défaut) : une autre courbe changerait l'épaisseur
+    // moyenne, et la taille choisie dans la barre d'outils ne serait plus celle affichée.
+    return {
+      size: size * PF_SCALE,
+      thinning: 0.58,
+      smoothing: 0.62,
+      streamline: 0.42,
+      simulatePressure: false,
+      start: { cap: true },
+      end: { cap: true },
+      last,
+    };
+  }
+  // Stylet passif, doigt, souris : pas de pression, l'épaisseur suit la VITESSE (lent = plein, rapide =
+  // délié), comme une plume. Assez marqué pour vivre, assez retenu pour que les indices restent lisibles.
+  // Le lissage et le « streamline » gomment le tremblement typique des stylets capacitifs.
   return {
     size: size * PF_SCALE,
-    // Sans pression réelle (stylet capacitif), un trait régulier est plus lisible
-    thinning: real ? 0.55 : 0.12,
-    smoothing: 0.55,
-    // Lisse le tremblement typique des stylets capacitifs
-    streamline: real ? 0.4 : 0.5,
-    simulatePressure: !real,
+    thinning: 0.3,
+    smoothing: 0.64,
+    streamline: 0.55,
+    simulatePressure: true,
+    start: { cap: true },
+    end: { cap: true },
     last,
   };
 }
@@ -171,15 +188,16 @@ export function strokePath(s: Stroke): Path2D {
 
 // ------------------------------------------------------------------ traits « image »
 // Une formule glissée sur la page (voir src/export/insertImage.ts) : un PNG posé sur un rectangle.
-// Le décodage est asynchrone ; on redemande un rendu (le seul auditeur courant : la page ouverte)
-// dès qu'une image vient de finir de charger.
+// Le décodage est asynchrone : chaque vue (éditeur, écran partagé, lecture seule) redemande un rendu dès
+// qu'une image vient de finir de charger. Plusieurs vues peuvent écouter en même temps.
 
 const imageCache = new WeakMap<Stroke, HTMLImageElement>();
-let onImageReady: (() => void) | null = null;
+const imageListeners = new Set<() => void>();
 
-/** À appeler une fois par page ouverte : redessine dès qu'une image de trait finit de charger. */
-export function setImageReadyCallback(cb: (() => void) | null) {
-  onImageReady = cb;
+/** Redessine dès qu'une image de trait finit de charger. Renvoie de quoi se désabonner. */
+export function onImageReady(cb: () => void): () => void {
+  imageListeners.add(cb);
+  return () => imageListeners.delete(cb);
 }
 
 function strokeImage(s: Stroke): HTMLImageElement | null {
@@ -187,7 +205,7 @@ function strokeImage(s: Stroke): HTMLImageElement | null {
   if (!img) {
     if (!s.image) return null;
     img = new Image();
-    img.onload = () => onImageReady?.();
+    img.onload = () => imageListeners.forEach((cb) => cb());
     img.src = s.image;
     imageCache.set(s, img);
   }
@@ -428,7 +446,12 @@ export function drawStroke(ctx: CanvasRenderingContext2D, s: Stroke, paperColor?
     if (!img || s.points.length < 2) return;
     const [x0, y0] = s.points[0];
     const [x1, y1] = s.points[1];
+    ctx.save();
+    // Une photo réduite à l'écran reste nette (le lissage par défaut est « low » : crénelage, moiré)
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
     rotated(ctx, s, () => ctx.drawImage(img, Math.min(x0, x1), Math.min(y0, y1), Math.abs(x1 - x0), Math.abs(y1 - y0)));
+    ctx.restore();
     return;
   }
   if (s.tool === 'highlighter') {

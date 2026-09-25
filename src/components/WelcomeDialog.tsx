@@ -35,7 +35,7 @@ export function WelcomeDialog({ onClose, onOpenSettings }: { onClose(): void; on
           <h3>2. Convertis en LaTeX</h3>
           <ul>
             <li>Crée une clé Gemini gratuite et colle-la dans les réglages.</li>
-            <li>« Convertir la page » ou « Convertir le cahier ». Pour une formule : lasso → « Convertir en LaTeX ».</li>
+            <li>« Convertir la page » (bouton Σ en haut à droite) ou « Convertir le cahier » (menu ⋯).</li>
             <li>Les passages douteux sont surlignés en jaune : « Corriger » pour les modifier.</li>
             <li>Marche aussi sur un PDF ou une photo du tableau.</li>
           </ul>

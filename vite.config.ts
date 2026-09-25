@@ -18,9 +18,10 @@ function precacheManifest(): Plugin {
 }
 
 export default defineConfig({
-  // Chemins relatifs par défaut : l'appli marche telle quelle depuis n'importe quel dossier, en particulier
-  // dans la WebView Android (Capacitor). Sur GitHub Pages, BASE_PATH impose /nom-du-depot/ (voir deploy.yml).
-  base: env.BASE_PATH ?? './',
+  // Chemins absolus : l'appli est servie à la racine du domaine (Vercel), et une adresse comme /share/<id>
+  // doit encore trouver /assets/… (en relatif, le navigateur chercherait /share/assets/…). BASE_PATH reste
+  // possible pour un hébergement dans un sous-dossier.
+  base: env.BASE_PATH ?? '/',
   plugins: [react(), tailwindcss(), precacheManifest()],
   build: {
     // Les bibliothèques qui ne changent presque jamais (React, KaTeX) vont dans leurs propres fichiers :

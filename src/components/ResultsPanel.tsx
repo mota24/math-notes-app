@@ -110,7 +110,7 @@ function TranscriptSection(props: {
             <button onClick={() => setEditing(true)}>Écrire ou coller le texte</button>
           </div>
           <p className="hint">
-            Pour une seule formule : entoure-la avec le <strong>lasso</strong> puis « Convertir en LaTeX ». Les passages dont Gemini
+            Les passages dont Gemini
             n’est pas sûr sont surlignés en jaune. « Écrire ou coller » accepte aussi une réponse copiée depuis ChatGPT, pour
             l’exporter en manuscrit.
           </p>

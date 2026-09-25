@@ -2,7 +2,9 @@ rules_version = '2';
 
 // Notes Maths — règles de sécurité Firestore.
 //
-// Chaque compte ne peut lire et écrire QUE son propre espace, users/<son uid>/… ; tout le reste est fermé.
+// Chaque compte ne peut lire et écrire QUE son propre espace, users/<son uid>/… ; seule exception, les liens
+// de partage en lecture seule (shares/<id>, plus bas) : lisibles par qui a le lien, jamais modifiables par lui.
+// Tout le reste est fermé.
 // Les écritures sont limitées à la forme exacte des documents que l'appli produit (src/sync/firestore.ts) :
 // un document inattendu, un champ en trop ou un identifiant qui ne correspond pas est refusé.
 //
@@ -40,6 +42,55 @@ service cloud.firestore {
     match /users/{uid}/transcripts/{pageId} {
       allow read, delete: if isOwner(uid);
       allow create, update: if isOwner(uid) && validSyncDoc('pageId', pageId);
+    }
+
+    // ---------------------------------------------------------------- partage en lecture seule
+    // shares/<id secret> : un cahier partagé par lien (src/share). N'importe qui peut LIRE un partage dont il
+    // connaît l'identifiant (22 caractères aléatoires, impossible à deviner), mais personne ne peut LISTER
+    // les partages. Seul le compte qui l'a créé peut l'écrire ou le supprimer ; un visiteur n'écrit jamais.
+    function validShare() {
+      let d = request.resource.data;
+      return d.keys().hasOnly(['v', 'owner', 'notebookId', 'title', 'pageIds', 'sizes', 'versions', 'bgKeys', 'createdAt', 'updatedAt'])
+        && d.owner == request.auth.uid
+        && d.title is string && d.title.size() <= 500
+        && d.pageIds is list && d.pageIds.size() <= 5000
+        && d.sizes is map && d.versions is map && d.bgKeys is map
+        && d.updatedAt is number;
+    }
+
+    match /shares/{shareId} {
+      allow get: if true;
+      allow list: if false;
+      allow create: if request.auth != null && validShare();
+      allow update: if request.auth != null && resource.data.owner == request.auth.uid && validShare();
+      allow delete: if request.auth != null && resource.data.owner == request.auth.uid;
+
+      function ownsShare() {
+        return request.auth != null
+          && get(/databases/$(database)/documents/shares/$(shareId)).data.owner == request.auth.uid;
+      }
+
+      // Une page : son JSON et sa version
+      match /pages/{pageId} {
+        allow get: if true;
+        allow list: if false;
+        allow create, update: if ownsShare()
+          && request.resource.data.keys().hasOnly(['json', 'updatedAt'])
+          && request.resource.data.json is string
+          && request.resource.data.updatedAt is number;
+        allow delete: if ownsShare();
+      }
+
+      // Le fond d'une page (PDF ou photo rendu en JPEG)
+      match /bgs/{pageId} {
+        allow get: if true;
+        allow list: if false;
+        allow create, update: if ownsShare()
+          && request.resource.data.keys().hasOnly(['data', 'key'])
+          && request.resource.data.data is string
+          && request.resource.data.key is string;
+        allow delete: if ownsShare();
+      }
     }
 
     // Tout le reste : fermé

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { CSSProperties, ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { NOTEBOOK_COLORS } from '../db/schema';
 import type { Folder, Notebook } from '../db/schema';
 import { Icon } from './LibraryIcons';
@@ -150,10 +150,10 @@ function CardMenu({ items, color, onColor, className }: { items: MenuItem[]; col
 }
 
 /**
- * La coque commune des cartes : une surface de verre, la couleur de l'élément en discret (une fine ligne en
- * haut et une lueur très douce dans un coin), un bouton qui couvre toute la carte (clavier et lecteur d'écran y
- * trouvent « ouvrir »), puis les commandes posées par-dessus. Les commandes sont à côté de la surface, pas
- * dedans : elle grandit au survol, et le menu, lui, ne doit ni suivre ni être rogné.
+ * La coque commune des cartes : une surface grise unie, un contour d'un pixel, une ombre douce qui se creuse à
+ * peine au survol. La couleur de l'élément n'apparaît plus qu'en pastille (voir les cartes) : ni bordure
+ * teintée ni lueur. Un bouton couvre toute la carte (clavier et lecteur d'écran y trouvent « ouvrir »), puis
+ * les commandes sont posées par-dessus, à côté de la surface pour que le menu ne soit jamais rogné.
  */
 function CardShell({
   label,
@@ -179,22 +179,8 @@ function CardShell({
   return (
     <article className={`group relative has-[[role=menu]]:z-30 ${className}`}>
       <div
-        className={`${glassPanel} relative h-full overflow-hidden transition-all duration-300 group-hover:scale-[1.02] group-hover:shadow-2xl group-active:scale-[0.99]`}
-        style={{
-          borderColor: `color-mix(in srgb, ${color} 35%, rgba(107, 114, 128, 0.35))`,
-          boxShadow: `0 12px 28px -6px color-mix(in srgb, ${color} 18%, rgba(0,0,0,0.3)), 0 8px 12px -6px rgba(0,0,0,0.25)`,
-        }}
+        className={`${glassPanel} relative h-full overflow-hidden transition-[background-color,border-color,box-shadow,transform] duration-200 group-hover:-translate-y-px group-hover:border-white/[0.1] group-hover:bg-[#1e1f24] group-hover:shadow-[0_2px_4px_rgba(0,0,0,0.35),0_18px_40px_-22px_rgba(0,0,0,0.8)] group-active:translate-y-0`}
       >
-        <span
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-x-0 top-0 h-[3px] opacity-90"
-          style={{ background: `linear-gradient(90deg, ${color}, ${color} 55%, transparent)` }}
-        />
-        <span
-          aria-hidden="true"
-          className="pointer-events-none absolute -right-6 -top-6 size-48 opacity-25 transition-opacity duration-300 group-hover:opacity-45"
-          style={{ background: `radial-gradient(circle at 70% 30%, ${color}, transparent 68%)` }}
-        />
         {children}
       </div>
       <button type="button" aria-label={label} onClick={onOpen} className={`absolute inset-0 z-10 min-h-0 rounded-2xl border-0 bg-transparent p-0 ${focusRing}`} />
@@ -202,6 +188,11 @@ function CardShell({
       <CardMenu items={menu} color={color} onColor={onColor} className={menuClass} />
     </article>
   );
+}
+
+/** La couleur d'un cahier ou d'un dossier : une simple pastille */
+function Dot({ color }: { color: string }) {
+  return <span aria-hidden="true" className="inline-block size-2 shrink-0 rounded-full" style={{ background: color }} />;
 }
 
 export function FolderCard({
@@ -218,14 +209,14 @@ export function FolderCard({
   onColor(c: string): void;
 }) {
   return (
-    <CardShell label={`Ouvrir le dossier « ${folder.name} »`} color={folder.color} onOpen={onOpen} menu={menu} onColor={onColor} menuClass="right-3 top-1/2 -translate-y-1/2">
-      <div className="flex min-h-[76px] items-center gap-3.5 p-4 pr-16" style={{ '--nb': folder.color } as CSSProperties}>
-        <span className="grid size-12 shrink-0 place-items-center rounded-xl border border-[color-mix(in_srgb,var(--nb)_45%,transparent)] bg-[color-mix(in_srgb,var(--nb)_20%,transparent)] text-white">
-          <Icon name="folder" className="size-6" />
+    <CardShell label={`Ouvrir le dossier « ${folder.name} »`} color={folder.color} onOpen={onOpen} menu={menu} onColor={onColor} menuClass="right-2.5 top-1/2 -translate-y-1/2">
+      <div className="flex min-h-[64px] items-center gap-3 p-3.5 pr-14">
+        <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-white/[0.04]" style={{ color: folder.color }}>
+          <Icon name="folder" className="size-5" />
         </span>
         <div className="min-w-0">
-          <h3 className="m-0 truncate text-base font-semibold text-zinc-100">{folder.name}</h3>
-          <p className="m-0 mt-0.5 truncate text-xs text-zinc-400">{count}</p>
+          <h3 className="m-0 truncate text-[15px] font-semibold text-zinc-100">{folder.name}</h3>
+          <p className="m-0 mt-0.5 truncate text-xs text-zinc-500">{count}</p>
         </div>
       </div>
     </CardShell>
@@ -256,20 +247,19 @@ export function NotebookCard({
       onOpen={onOpen}
       menu={menu}
       onColor={onColor}
-      menuClass="bottom-3 right-3"
+      menuClass="bottom-2.5 right-2.5"
       className={className}
-      // Un cahier favori se reconnaît à une petite étoile dans son pied de carte : plus de bouton flottant
-      // qui passait par-dessus le titre de la section (l'action est passée dans le menu « ⋯ »).
+      // Un cahier favori se reconnaît à une petite étoile devant son titre (l'action est dans le menu « ⋯ »)
     >
-      <div className="flex h-full min-h-[210px] flex-col">
+      <div className="flex h-full min-h-[196px] flex-col">
         {/* Le papier du cahier, en miniature : il s'efface vers le bas, comme une page qui dépasse de la carte */}
         <div
           aria-hidden="true"
-          className="mx-3 mt-3 h-24 shrink-0 rounded-xl border border-white/10 shadow-sm [-webkit-mask-image:linear-gradient(to_bottom,#000_55%,transparent)] [mask-image:linear-gradient(to_bottom,#000_55%,transparent)] brightness-[0.9]"
+          className="mx-2.5 mt-2.5 h-24 shrink-0 rounded-[10px] border border-white/[0.06] [-webkit-mask-image:linear-gradient(to_bottom,#000_60%,transparent)] [mask-image:linear-gradient(to_bottom,#000_60%,transparent)] brightness-[0.88]"
           style={paperPreview(notebook.paper, notebook.paperColor)}
         />
-        <div className="flex flex-1 flex-col gap-1 px-4 pb-4 pt-3">
-          <h3 className="m-0 line-clamp-2 flex items-start gap-1.5 text-lg font-semibold leading-snug text-zinc-100">
+        <div className="flex flex-1 flex-col gap-1 px-3.5 pb-3.5 pt-2.5">
+          <h3 className="m-0 line-clamp-2 flex items-start gap-1.5 text-base font-semibold leading-snug text-zinc-100">
             {notebook.favorite && (
               <span className="mt-0.5 shrink-0 text-amber-300" title="Favori">
                 <Icon name="star" filled className="size-4" />
@@ -277,10 +267,13 @@ export function NotebookCard({
             )}
             {notebook.title}
           </h3>
-          {notebook.subject && <p className="m-0 truncate text-[13px] text-zinc-300">{notebook.subject}</p>}
-          <p className="m-0 mt-auto truncate pt-2 text-xs text-zinc-400">
-            {pages} page{pages > 1 ? 's' : ''} · {date(notebook.updatedAt)}
-            {badge && <span className="text-accent"> · {badge}</span>}
+          {notebook.subject && <p className="m-0 truncate text-[13px] text-zinc-400">{notebook.subject}</p>}
+          <p className="m-0 mt-auto flex items-center gap-2 truncate pt-2 pr-10 text-xs text-zinc-500">
+            <Dot color={notebook.color} />
+            <span className="truncate">
+              {pages} page{pages > 1 ? 's' : ''} · {date(notebook.updatedAt)}
+              {badge && <span className="text-accent"> · {badge}</span>}
+            </span>
           </p>
         </div>
       </div>
@@ -294,10 +287,10 @@ export function NewNotebookCard({ onClick }: { onClick(): void }) {
     <button
       type="button"
       onClick={onClick}
-      className={`group flex min-h-[210px] w-full flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-gray-700/80 bg-gray-800/30 p-4 text-zinc-400 backdrop-blur-md transition-all duration-300 hover:border-gray-500 hover:bg-gray-800/50 hover:text-zinc-100 ${focusRing}`}
+      className={`group flex min-h-[196px] w-full flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-white/[0.1] bg-transparent p-4 text-zinc-500 transition-colors duration-200 hover:border-white/20 hover:bg-white/[0.02] hover:text-zinc-200 ${focusRing}`}
     >
-      <span className="grid size-12 place-items-center rounded-full border border-current/40 transition-transform duration-300 group-hover:scale-110">
-        <Icon name="plus" className="size-6" />
+      <span className="grid size-10 place-items-center rounded-full border border-current/30">
+        <Icon name="plus" className="size-5" />
       </span>
       <span className="text-sm font-medium">Nouveau cahier</span>
     </button>

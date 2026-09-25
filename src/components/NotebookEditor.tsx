@@ -18,6 +18,9 @@ import { go, replaceRoute } from '../router';
 import type { Settings } from '../settings';
 import { NotebookMenu } from './NotebookMenu';
 import { ExportDialog } from './ExportDialog';
+import { ShareDialog } from './ShareDialog';
+import { SplitViewer } from './SplitViewer';
+import { flushShareUpdate, scheduleShareUpdate } from '../share/share';
 import { ConfirmDialog, PromptDialog } from './Modal';
 import { PageStrip } from './PageStrip';
 import { ResultsPanel } from './ResultsPanel';
@@ -35,6 +38,25 @@ import type { Action } from '../ink/history';
 type Job = { progress: string } | { error: { message: string; kind: string } };
 
 const sleep = (ms: number) => new Promise((r) => window.setTimeout(r, ms));
+
+/** Écran partagé : le cahier affiché à côté de chaque cahier, et la largeur du volet (préférences locales) */
+const SPLIT_KEY = 'notes-maths:split';
+const RATIO_KEY = 'notes-maths:split-ratio';
+function readStored<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+function writeStored(key: string, value: unknown) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // Navigation privée, stockage plein : la préférence ne sera simplement pas retenue
+  }
+}
 /** Pages voisines (avant et après la page affichée) dont le fond reste prêt en mémoire. */
 const BG_WINDOW = 2;
 
@@ -298,21 +320,24 @@ export function NotebookEditor({
     const below = unionBBox(strokesRef.current.map(strokeBBox))?.maxY ?? 12;
     const x = 15;
     const y = imageTop(p, below, h);
-    addStrokes([
-      {
-        id: newId(),
-        tool: 'image',
-        image: dataUrl,
-        points: [
-          [x, y, 1],
-          [x + w, y + h, 1],
-        ],
-        color: settingsRef.current.color,
-        size: 0,
-        input: 'mouse',
-      },
-    ]);
-    flash('Image posée : sélectionne-la au lasso pour la déplacer, l’agrandir ou la tourner.');
+    const stroke: Stroke = {
+      id: newId(),
+      tool: 'image',
+      image: dataUrl,
+      points: [
+        [x, y, 1],
+        [x + w, y + h, 1],
+      ],
+      color: settingsRef.current.color,
+      size: 0,
+      input: 'mouse',
+    };
+    addStrokes([stroke]);
+    // Sélectionnée d'office : les poignées sont là tout de suite pour la placer, l'agrandir ou la tourner.
+    // L'encre écrite ensuite passe par-dessus (on annote l'image) et la gomme ne l'efface jamais.
+    setTool('lasso');
+    select([stroke.id]);
+    flash('Image posée : glisse-la, tire un coin pour l’agrandir. Reprends le stylo pour écrire dessus.');
   };
 
   /** Lasso de capture : rasterise exactement la zone encadrée (fond + traits) et la garde en mémoire. */
@@ -666,20 +691,6 @@ export function NotebookEditor({
     void runResult(result, image);
   };
 
-  const convertSelection = async () => {
-    const p = pageRef.current;
-    const chosen = selectedStrokes();
-    const boxes = chosen.map(strokeBBox);
-    if (selectionRegion) boxes.push(selectionRegion);
-    select([]);
-    if (!p) return;
-    try {
-      startResult('selection', await imageOfPage(p, chosen, unionBBox(boxes)));
-    } catch (e) {
-      flash((e as Error).message);
-    }
-  };
-
   // ------------------------------------------------------------ interface
   const [panelOpen, setPanelOpen] = useState(false);
   const [stripOpen, setStripOpen] = useState(false);
@@ -690,7 +701,103 @@ export function NotebookEditor({
   const photoInput = useRef<HTMLInputElement>(null);
   const imageInput = useRef<HTMLInputElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [pdfBusy, setPdfBusy] = useState<string | null>(null);
+  const [dropping, setDropping] = useState(false);
   const photoConvertInput = useRef<HTMLInputElement>(null);
+
+  // ---- Écran partagé : un autre cahier (le PDF du cours) à gauche, retenu pour chaque cahier
+  const [splitMap, setSplitMap] = useState<Record<string, string>>(() => readStored(SPLIT_KEY, {}));
+  const [splitRatio, setSplitRatio] = useState<number>(() => readStored(RATIO_KEY, 0.45));
+  const splitId = splitMap[notebookId] ?? null;
+  const setSplitFor = (id: string, other: string | null) =>
+    setSplitMap((prev) => {
+      const next = { ...prev };
+      if (other) next[id] = other;
+      else delete next[id];
+      writeStored(SPLIT_KEY, next);
+      return next;
+    });
+  const workspaceRef = useRef<HTMLElement>(null);
+  const toggleSplit = async () => {
+    if (splitId) return setSplitFor(notebookId, null);
+    // Le dernier cahier ouvert autre que celui-ci ; on en change ensuite depuis le volet
+    const others = (await db.notebooks()).filter((n) => !n.deletedAt && n.id !== notebookId).sort((a, b) => b.openedAt - a.openedAt);
+    if (!others.length) return flash('Crée ou importe un autre cahier (le PDF du cours) pour l’afficher à côté.');
+    setSplitFor(notebookId, others[0].id);
+  };
+  const dragSplit = (e: React.PointerEvent<HTMLDivElement>) => {
+    const box = workspaceRef.current?.getBoundingClientRect();
+    if (!box) return;
+    e.preventDefault();
+    const handle = e.currentTarget;
+    handle.setPointerCapture(e.pointerId);
+    let ratio = splitRatio;
+    const move = (ev: PointerEvent) => {
+      ratio = Math.min(0.75, Math.max(0.2, (ev.clientX - box.left) / box.width));
+      setSplitRatio(ratio);
+    };
+    const up = () => {
+      handle.removeEventListener('pointermove', move);
+      handle.removeEventListener('pointerup', up);
+      handle.removeEventListener('pointercancel', up);
+      writeStored(RATIO_KEY, ratio);
+    };
+    handle.addEventListener('pointermove', move);
+    handle.addEventListener('pointerup', up);
+    handle.addEventListener('pointercancel', up);
+  };
+
+  /** Export PDF direct : papier réglé, fonds PDF d'origine et encre en vectoriel, dans un seul fichier. */
+  const exportPdf = async () => {
+    const nb = notebookRef.current;
+    if (!nb || pdfBusy !== null) return;
+    flushSave();
+    setPdfBusy('0');
+    try {
+      const pages: Page[] = [];
+      for (const id of nb.pageIds) {
+        const p = id === pageRef.current?.id ? { ...pageRef.current, strokes: strokesRef.current } : await db.getPage(id);
+        if (p) pages.push(p);
+      }
+      const [{ exportInkPdf }, { downloadBlob }] = await Promise.all([import('../export/pdfOriginal'), import('../export/download')]);
+      const blob = await exportInkPdf(pages, (done, total) => setPdfBusy(`${Math.round((done / total) * 100)}`), {
+        defaultPaperColor: nb.paperColor ?? 'light',
+        print: settingsRef.current.printMode,
+      });
+      await downloadBlob(blob, `${nb.title}.pdf`);
+      flash(`PDF exporté : ${pages.length} page${pages.length > 1 ? 's' : ''}.`);
+    } catch (e) {
+      flash(`Export impossible : ${(e as Error).message}`);
+    } finally {
+      setPdfBusy(null);
+    }
+  };
+
+  /** Glisser-déposer : une image se pose sur la page, un PDF s'ajoute à la fin du cahier. */
+  const dropFiles = (files: File[]) => {
+    for (const file of files) {
+      if (file.type.startsWith('image/')) void insertImageFile(file);
+      else if (file.type === 'application/pdf')
+        void appendPdf(notebookId, file)
+          .then(() => flash('PDF ajouté à la fin du cahier.'))
+          .catch((err: Error) => flash(err.message));
+    }
+  };
+  const dropRef = useRef(dropFiles);
+  dropRef.current = dropFiles;
+  // Coller une image (capture d'écran, image copiée depuis le navigateur) : elle se pose sur la page
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      if ((e.target as HTMLElement | null)?.closest?.('input, textarea, [contenteditable]')) return;
+      const images = [...(e.clipboardData?.files ?? [])].filter((f) => f.type.startsWith('image/'));
+      if (!images.length) return;
+      e.preventDefault();
+      dropRef.current(images);
+    };
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+  }, []);
   const classifierConfig = useMemo(
     () => ({
       mode: settings.stylusMode,
@@ -709,6 +816,17 @@ export function NotebookEditor({
       settings.shapeHold, settings.shapeHoldMs,
     ],
   );
+
+  // ---- Lien partagé : suit le cahier (15 s après la dernière modification, jamais à chaque trait)
+  const shareId = notebook?.shareId ?? null;
+  const shareSig = useRef<string | null>(null);
+  useEffect(() => {
+    if (!shareId || !notebook) return;
+    const sig = `${version}:${notebook.updatedAt}:${notebook.pageIds.length}`;
+    if (shareSig.current !== null && shareSig.current !== sig) scheduleShareUpdate(notebookId, shareId);
+    shareSig.current = sig;
+  }, [shareId, version, notebook, notebookId]);
+  useEffect(() => () => flushShareUpdate(notebookId), [notebookId]);
 
   // ---- Hooks multi-pages : déclarés ici, avant tout return conditionnel (Rules of Hooks) ----
   const notebookPaperColor = notebook?.paperColor ?? 'light';
@@ -828,30 +946,34 @@ export function NotebookEditor({
           onNewNotebook={onNewNotebook}
         />
 
-        {/* ── ZONE DROITE : actions (fixe, ne rétrécit jamais) ── */}
+        {/* ── ZONE DROITE : actions compactes (icônes), fixe, ne rétrécit jamais ── */}
         <div className="editor-zone-right">
           <CloudIndicator />
           <button
-            className="tb-action-btn"
-            onClick={() => pdfInput.current?.click()}
-            title="Importer un document PDF"
+            className={`tb-icon ${splitId ? 'active' : ''}`}
+            onClick={() => void toggleSplit()}
+            title={splitId ? 'Fermer l’écran partagé' : 'Écran partagé : un autre cahier (cours PDF) à côté'}
+            aria-label="Écran partagé"
+            aria-pressed={!!splitId}
           >
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-              <polyline points="14 2 14 8 20 8" />
-              <line x1="12" y1="18" x2="12" y2="12" />
-              <line x1="9" y1="15" x2="15" y2="15" />
-            </svg>
-            <span className="tb-label hidden md:inline">Importer PDF</span>
+            {ICONS.split}
+          </button>
+          <button className="tb-icon" onClick={() => pdfInput.current?.click()} title="Importer un PDF à la fin du cahier" aria-label="Importer un PDF">
+            {ICONS.file}
           </button>
           <button
-            className="tb-primary"
-            onClick={handleConvertClick}
-            disabled={!!pageBusy}
-            title="Convertir la page"
+            className={`tb-icon ${shareId ? 'active' : ''}`}
+            onClick={() => setShareOpen(true)}
+            title={shareId ? 'Cahier partagé (lien en lecture seule)' : 'Partager en lecture seule'}
+            aria-label="Partager"
           >
+            {ICONS.share}
+          </button>
+          <button className="tb-icon" onClick={() => void exportPdf()} disabled={pdfBusy !== null} title="Exporter en PDF (papier, fonds et encre)" aria-label="Exporter en PDF">
+            {pdfBusy !== null ? <span className="tb-progress">{pdfBusy}%</span> : ICONS.download}
+          </button>
+          <button className="tb-icon tb-convert" onClick={handleConvertClick} disabled={!!pageBusy} title="Convertir la page (Gemini)" aria-label="Convertir la page">
             {pageBusy ? <span className="spinner" /> : ICONS.sigma}
-            <span className="tb-label hidden md:inline">Convertir la page</span>
           </button>
           <button
             className={`tb-btn ${menuOpen ? 'active' : ''}`}
@@ -882,6 +1004,8 @@ export function NotebookEditor({
               void updateNotebook(notebookId, { paperColor });
             }}
             onExport={() => (flushSave(), setExportOpen(true))}
+            onShare={() => setShareOpen(true)}
+            shared={!!shareId}
             onConvertNotebook={() => {
               if (queue) cancelQueue.current = true;
               else void convertNotebook();
@@ -897,7 +1021,35 @@ export function NotebookEditor({
         )}
       </header>
 
-      <main className="workspace">
+      <main className="workspace" ref={workspaceRef}>
+        {splitId && (
+          <>
+            <div className="split-pane" style={{ width: `${splitRatio * 100}%` }}>
+              <SplitViewer
+                notebookId={splitId}
+                currentId={notebookId}
+                onPick={(id) => setSplitFor(notebookId, id)}
+                onClose={() => setSplitFor(notebookId, null)}
+                onSwap={() => {
+                  // Le cours passe dans l'éditeur (pour l'annoter), ce cahier passe à côté
+                  flushSave();
+                  setSplitFor(splitId, notebookId);
+                  go({ name: 'notebook', notebookId: splitId, pageIndex: 0 });
+                }}
+              />
+            </div>
+            <div
+              className="split-handle"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Redimensionner l’écran partagé"
+              onPointerDown={dragSplit}
+              onDoubleClick={() => (setSplitRatio(0.45), writeStored(RATIO_KEY, 0.45))}
+            >
+              <span />
+            </div>
+          </>
+        )}
         {stripOpen && (
           <PageStrip
             pageIds={notebook.pageIds}
@@ -945,7 +1097,23 @@ export function NotebookEditor({
               </button>
             </div>
           </nav>
-          <div className={`canvas-stage${paperColor === 'dark' ? ' paper-dark' : ''}`}>
+          <div
+            className={`canvas-stage${paperColor === 'dark' ? ' paper-dark' : ''}${dropping ? ' dropping' : ''}`}
+            onDragOver={(e) => {
+              if (!e.dataTransfer.types.includes('Files')) return;
+              e.preventDefault();
+              e.dataTransfer.dropEffect = 'copy';
+              if (!dropping) setDropping(true);
+            }}
+            onDragLeave={(e) => {
+              if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropping(false);
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDropping(false);
+              dropFiles([...e.dataTransfer.files]);
+            }}
+          >
           <Toolbar
             tool={tool}
             color={settings.color}
@@ -1036,7 +1204,6 @@ export function NotebookEditor({
               onUndo={undo}
               onPenDetected={() => update({ penSeen: true })}
               onPenSize={(px) => update({ penSizePx: px })}
-              onConvertSelection={() => void convertSelection()}
               onDeleteSelection={() => removeStrokes(selection)}
               onMoveSelection={(dx, dy) => replaceSelected((chosen) => shifted(chosen, dx, dy, false))}
               onRecolorSelection={recolorSelection}
@@ -1171,6 +1338,7 @@ export function NotebookEditor({
           }}
         />
       )}
+      {shareOpen && <ShareDialog notebook={notebook} onClose={() => setShareOpen(false)} />}
       {exportOpen && <ExportDialog notebook={notebook} pageIndex={index} settings={settings} update={update} onClose={() => setExportOpen(false)} />}
     </div>
   );

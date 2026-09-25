@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { InputClassifier } from './palm';
 import type { ClassifierConfig, ClassifierListener, Sample } from './palm';
-import { HIGHLIGHT_ALPHA, PAPER_BACKGROUND, buildPath, drawPaper, drawShapeOn, drawStroke, setImageReadyCallback } from './draw';
+import { HIGHLIGHT_ALPHA, PAPER_BACKGROUND, buildPath, drawPaper, drawShapeOn, drawStroke, onImageReady } from './draw';
 import {
   cornerScale, eraseFromPolyline, fitShift, isErasable, normalizeAngle, orientation, resizedPoints, rotationDelta,
   shapePolylines, strokeBBox, strokeHit, strokesInLasso, transformStroke, unionBBox,
@@ -81,7 +81,6 @@ interface Props {
   onPenDetected(): void;
   /** Taille du stylet apprise (px) : retenue pour les prochaines sessions */
   onPenSize?(size: number): void;
-  onConvertSelection(): void;
   onDeleteSelection(): void;
   onMoveSelection(dx: number, dy: number): void;
   onRecolorSelection(color: string): void;
@@ -493,6 +492,9 @@ export function InkCanvas(props: Props) {
         base.shadowOffsetY = 0;
 
         if (sh.page.background) {
+          // Fond PDF ou photo : lissage haute qualité (l'état du contexte est remis à zéro à chaque redimensionnement)
+          base.imageSmoothingEnabled = true;
+          base.imageSmoothingQuality = 'high';
           base.drawImage(sh.page.background, 0, 0, sh.width, sh.height);
         } else {
           const sheetViewTop = Math.max(0, viewTop - sh.top);
@@ -581,7 +583,7 @@ export function InkCanvas(props: Props) {
     };
     // Une image de trait (formule glissée sur la page) finit de se décoder de façon asynchrone :
     // dès que c'est fait, on redemande un rendu pour qu'elle apparaisse sans action de l'utilisateur.
-    setImageReadyCallback(scheduleBase);
+    const offImageReady = onImageReady(scheduleBase);
 
     /** Un trait touché par la gomme de précision : ses morceaux restants, ou null s'il n'est pas touché. */
     const precisionPieces = (s: Stroke, trail: InkPoint[], r: number): Stroke[] | null => {
@@ -1094,7 +1096,7 @@ export function InkCanvas(props: Props) {
       cancelAnimationFrame(tickRaf);
       window.clearTimeout(scaleTimer);
       classifier.reset();
-      setImageReadyCallback(null);
+      offImageReady();
     };
     // Installation unique ; les props courantes sont lues via propsRef.
     // Changer lowLatency exige une nouvelle toile : le parent remonte le composant (key).
@@ -1324,9 +1326,6 @@ export function InkCanvas(props: Props) {
           <div className="selection-box" style={selBox} />
           {!xf && (
             <div className="selection-actions" style={{ left: barLeft, top: Math.max(8, selBox.top - 52 - barRaise) }}>
-              <button className="primary" onClick={props.onConvertSelection}>
-                Convertir en LaTeX
-              </button>
               {!regionOnly && (
                 <>
                   {props.selectionColors.map((c) => (

@@ -29,6 +29,8 @@ export interface Notebook extends Versioned {
   /** Matière / contexte transmis à Gemini */
   subject: string;
   openedAt: number;
+  /** Lien de partage en lecture seule (identifiant secret du document shares/<id> de Firestore) ; absent = non partagé */
+  shareId?: string | null;
 }
 
 export interface PdfBackground {

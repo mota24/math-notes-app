@@ -222,7 +222,12 @@ export async function exportInkPdf(
   const embedStrokeImage = async (dataUrl: string): Promise<PDFImage> => {
     let img = embeddedImages.get(dataUrl);
     if (!img) {
-      img = await out.embedPng((print ? await printPngBytes(dataUrl) : null) ?? dataUrlBytes(dataUrl));
+      // Les photos posées sur la page sont en JPEG (voir insertImageFile) : les passer à embedPng faisait
+      // échouer TOUT l'export du cahier. L'impression, elle, renvoie toujours un PNG retouché.
+      const printed = print ? await printPngBytes(dataUrl) : null;
+      if (printed) img = await out.embedPng(printed);
+      else if (/^data:image\/jpe?g/i.test(dataUrl)) img = await out.embedJpg(dataUrlBytes(dataUrl));
+      else img = await out.embedPng(dataUrlBytes(dataUrl));
       embeddedImages.set(dataUrl, img);
     }
     return img;
