@@ -89,6 +89,10 @@ function GlyphPad({ char, strokes, onChange, settings }: { char: string; strokes
   };
 
   useEffect(draw);
+  // Les écouteurs de stylet (installés une fois) redessinent avec la version à jour de draw
+  const drawRef = useRef(draw);
+  drawRef.current = draw;
+  const { penSeen } = settings;
 
   useEffect(() => {
     const canvas = canvasRef.current!;
@@ -108,11 +112,11 @@ function GlyphPad({ char, strokes, onChange, settings }: { char: string; strokes
       {
         drawStart: (id, _kind, samples) => {
           live.current.set(id, samples.map(toPad));
-          draw();
+          drawRef.current();
         },
         drawMove: (id, samples) => {
           live.current.get(id)?.push(...samples.map(toPad));
-          draw();
+          drawRef.current();
         },
         drawEnd: (id) => {
           const s = live.current.get(id);
@@ -124,7 +128,7 @@ function GlyphPad({ char, strokes, onChange, settings }: { char: string; strokes
         },
         drawCancel: (id) => {
           live.current.delete(id);
-          draw();
+          drawRef.current();
         },
         panZoom: () => undefined,
         twoFingerTap: () => {
@@ -134,6 +138,7 @@ function GlyphPad({ char, strokes, onChange, settings }: { char: string; strokes
         penDetected: () => undefined,
       },
     );
+    classifier.penSeen = penSeen;
     const sample = (e: PointerEvent): Sample => ({ x: e.clientX, y: e.clientY, p: e.pressure, t: e.timeStamp, size: Math.max(e.width || 0, e.height || 0) });
     const kind = (e: PointerEvent) => (e.pointerType === 'pen' ? 'pen' : e.pointerType === 'mouse' ? 'mouse' : 'touch');
     // La main posée sous le cadre ne dessine pas
@@ -162,7 +167,7 @@ function GlyphPad({ char, strokes, onChange, settings }: { char: string; strokes
       area.removeEventListener('pointercancel', onCancel);
       classifier.reset();
     };
-  }, [settings.stylusMode, settings.sizeMode, settings.palmSize, settings.handedness]);
+  }, [settings.stylusMode, settings.sizeMode, settings.palmSize, settings.handedness, penSeen]);
 
   return (
     <div className="pad-area">

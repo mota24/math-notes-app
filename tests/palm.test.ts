@@ -180,6 +180,29 @@ test('4. mode stylet actif strict : le stylet écrit, le doigt déplace la page 
   assert.ok(t.count('pan') > 5, 'le doigt déplace la page');
 });
 
+test('4b. mode strict sur un téléphone (aucun stylet actif vu) : le doigt écrit', () => {
+  const t = setup({ mode: 'active' }).at(0).down(1, 200, 300, 20).drag(1, [200, 300], [260, 320], 20).up(1, 260, 320, 20);
+  assert.equal(t.count('start:1'), 1, 'le doigt trace un trait');
+  assert.equal(t.count('end:1'), 1);
+  assert.equal(t.count('pan'), 0, 'la page ne défile pas');
+});
+
+test('4c. mode strict, stylet déjà vu sur cet appareil (réglage retenu) : le doigt déplace la page', () => {
+  const t = setup({ mode: 'active' });
+  t.c.penSeen = true;
+  t.at(0).down(1, 100, 100, 20).drag(1, [100, 100], [100, 160], 20).up(1, 100, 160, 20);
+  assert.equal(t.count('start:1'), 0, 'aucun trait au doigt');
+  assert.ok(t.count('pan') > 5, 'le doigt déplace la page');
+});
+
+test('4d. mode strict sans stylet : deux doigts zooment ou défilent, sans laisser de trait', () => {
+  const t = setup({ mode: 'active' }).at(0).down(1, 200, 300, 20).at(10).down(2, 400, 300, 20);
+  for (let i = 1; i <= 20; i++) t.at(10 + i * 8).move(1, 200 - i * 3, 300, 20).move(2, 400 + i * 3, 300, 20);
+  t.up(1, 140, 300, 20).up(2, 460, 300, 20);
+  assert.equal(t.count('end:1') + t.count('end:2'), 0, 'aucun trait gardé');
+  assert.ok(t.count('pan') > 3, 'geste de zoom');
+});
+
 test('5. annulation Android : un vrai trait est gardé, un début de trait est retiré', () => {
   const t = setup().at(0).down(1, 200, 300, 20).drag(1, [200, 300], [240, 300], 20);
   t.c.cancel(1);

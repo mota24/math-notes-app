@@ -110,6 +110,9 @@ export function NotebookEditor({
 
   const allNotebookPages = useQuery(() => db.pagesOf(notebookId), [notebookId], ['pages']);
   const pagesMap = useMemo(() => new Map((allNotebookPages ?? []).map((p) => [p.id, p])), [allNotebookPages]);
+  // Lu par le chargement de page sans le relancer à chaque modification d'une page du cahier
+  const pagesMapRef = useRef(pagesMap);
+  pagesMapRef.current = pagesMap;
   const orderedPages = useMemo(() => {
     if (!notebook) return [];
     return notebook.pageIds.map((id) => pagesMap.get(id)).filter((p): p is Page => !!p);
@@ -164,7 +167,7 @@ export function NotebookEditor({
   useEffect(() => {
     if (!pageId) return;
     let alive = true;
-    const fromMap = pagesMap.get(pageId);
+    const fromMap = pagesMapRef.current.get(pageId);
     if (fromMap && !pageRef.current) loadPage(fromMap);
     void db.getPage(pageId).then((p) => alive && p && loadPage(p));
     // Une version plus récente arrive par la synchronisation : on recharge si rien n'est en attente
@@ -860,7 +863,8 @@ export function NotebookEditor({
     });
   }, [orderedPages, page, pagePaperColor, notebookPaperColor, background, backgrounds, strokes, pageId]);
 
-  const onAddStrokeMulti = useCallback((s: Stroke, targetPageId?: string) => {
+  // Pas de useCallback : InkCanvas lit ses rappels dans une ref, leur identité n'a pas d'importance
+  const onAddStrokeMulti = (s: Stroke, targetPageId?: string) => {
     if (!targetPageId || targetPageId === pageRef.current?.id) {
       addStrokes([s]);
     } else {
@@ -870,7 +874,7 @@ export function NotebookEditor({
         void db.putPage({ ...targetP, strokes: nextStrokes, updatedAt: Date.now() });
       });
     }
-  }, []);
+  };
 
   const handleAddPageAtEnd = useCallback(() => {
     void addPage(notebookId, pageCount - 1).then((i) => {

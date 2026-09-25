@@ -34,7 +34,7 @@ const cases: [string, () => void][] = [
     'identifiant de lien : les octets ≥ 248 sont rejetés (aucun caractère favorisé)',
     () => {
       // 255 et 250 doivent être ignorés ; 0 → « A », 61 → « 9 », 62 → « A »
-      const id = newShareId(() => new Uint8Array([255, 0, 250, 61, 62, ...new Array(27).fill(1)]));
+      const id = newShareId(() => Uint8Array.from([255, 0, 250, 61, 62, ...Array.from({ length: 27 }, () => 1)]));
       assert.equal(id.slice(0, 3), 'A9A');
       assert.equal(id.length, 22);
     },

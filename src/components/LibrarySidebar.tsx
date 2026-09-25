@@ -119,12 +119,13 @@ export function LibrarySidebar(p: SidebarProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openKey]);
 
+  const { open: drawerOpen, onClose } = p;
   useEffect(() => {
-    if (!p.open) return;
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && p.onClose();
+    if (!drawerOpen) return;
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [p.open, p.onClose]);
+  }, [drawerOpen, onClose]);
 
   const toggle = (id: string) =>
     setUnfolded((prev) => {

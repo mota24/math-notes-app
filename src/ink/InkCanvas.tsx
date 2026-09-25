@@ -15,7 +15,7 @@ import { newId } from './types';
 import type { BBox, InkPoint, InputKind, PaperColor, PaperStyle, ShapeKind, Stroke, Tool, View } from './types';
 import { BAR_WIDTH, BAR_WIDTH_REGION, CAPTURE_HANDLES, HANDLE_SIZE, ROTATE_GAP, ROTATE_SIZE, clamp, isCorner, layoutHandles, rotatePosition, trackDrag } from './handles';
 import type { Corner, TransformDrag } from './handles';
-import { docH, docW, findSheet, getSheets } from './sheets';
+import { PAGE_GAP, docH, docW, findSheet, getSheets } from './sheets';
 import type { CanvasPage, Sheet } from './sheets';
 
 export type { CanvasPage, Sheet } from './sheets';
@@ -219,7 +219,7 @@ export function InkCanvas(props: Props) {
     end: () => {},
     grow: () => {},
   });
-  const [viewTick, setViewTick] = useState(0);
+  const [, setViewTick] = useState(0); // seul effet : redessiner cadres et poignées quand la vue bouge
 
   useLayoutEffect(() => {
     propsRef.current = props;
@@ -1131,16 +1131,17 @@ export function InkCanvas(props: Props) {
   const dragging = xf !== null;
   const shown = xf?.strokes ?? chosen;
 
+  /** Décalage vertical (mm) de la feuille de chaque trait dans le défilement continu ; une page seule : 0 partout */
+  const { pages: canvasPages } = props;
   const strokeSheetOffset = useMemo(() => {
     const map = new Map<string, number>();
-    const sheets = getSheets(props, minHeightRef.current);
-    for (const sh of sheets) {
-      for (const s of sh.page.strokes) {
-        map.set(s.id, sh.top);
-      }
+    let top = 0;
+    for (const page of canvasPages ?? []) {
+      for (const s of page.strokes) map.set(s.id, top);
+      top += page.height + PAGE_GAP; // même empilement que getSheets
     }
     return map;
-  }, [props.pages, props.strokes]);
+  }, [canvasPages]);
 
   /** Le cadre de la sélection (mm) : ses traits, plus la zone du lasso tant qu'on ne les transforme pas */
   const selMm = useMemo(() => {
@@ -1152,7 +1153,9 @@ export function InkCanvas(props: Props) {
     if (selectionRegion && !dragging) boxes.push(selectionRegion);
     return unionBBox(boxes);
   }, [shown, strokeSheetOffset, selectionRegion, dragging]);
-  const selBox = useMemo(() => {
+  // Recalculé à chaque rendu (quelques multiplications) : la vue change sans que React le sache, c'est
+  // viewTick qui provoque le rendu quand elle bouge
+  const selBox = (() => {
     if (!selMm) return null;
     const v = viewRef.current;
     const pad = 6;
@@ -1162,8 +1165,7 @@ export function InkCanvas(props: Props) {
       width: (selMm.maxX - selMm.minX) * v.scale + 2 * pad,
       height: (selMm.maxY - selMm.minY) * v.scale + 2 * pad,
     };
-    // viewTick : recalcul quand la vue bouge
-  }, [selMm, viewTick]);
+  })();
   const regionOnly = selection.length === 0;
 
   // Poignées : 4 angles (échelle proportionnelle) et une poignée de rotation, pour toute sélection de traits ; s'y
@@ -1275,7 +1277,7 @@ export function InkCanvas(props: Props) {
   };
 
   const { captureRegion } = props;
-  const capBox = useMemo(() => {
+  const capBox = (() => {
     if (!captureRegion) return null;
     const v = viewRef.current;
     return {
@@ -1284,8 +1286,7 @@ export function InkCanvas(props: Props) {
       width: (captureRegion.maxX - captureRegion.minX) * v.scale,
       height: (captureRegion.maxY - captureRegion.minY) * v.scale,
     };
-    // viewTick : recalcul quand la vue bouge
-  }, [captureRegion, viewTick]);
+  })();
 
   /** Poignées de recadrage (comme un crop d'image) : glissé natif, en dehors du classifieur anti-paume. */
   const dragCaptureHandle = (e: ReactPointerEvent<HTMLDivElement>, corner: Corner) => {

@@ -201,6 +201,11 @@ export class InputClassifier {
     // 'auto' et 'capacitive' : le rejet de paume logiciel est désactivé ; l'OS de la tablette s'en charge.
     // On retourne 'finger' : tous les contacts tactiles sont traités de la même façon.
     if (m === 'auto' || m === 'capacitive') return 'finger';
+    // « Stylet actif strict » n'a de sens que sur un appareil qui A un stylet actif. Tant qu'aucun n'a touché
+    // l'écran (téléphone, tablette à stylet passif vu comme un doigt), le doigt écrit : sinon rien ne pouvait
+    // écrire du tout, chaque contact faisait défiler la page. Dès le premier vrai stylet, le mode strict
+    // s'applique (penSeen est retenu dans les réglages pour les sessions suivantes).
+    if (m === 'active' && !this.penSeen) return 'finger';
     return m;
   }
 

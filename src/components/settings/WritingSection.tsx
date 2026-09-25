@@ -29,7 +29,13 @@ export function WritingSection({ settings, update }: { settings: Settings; updat
       </Ligne>
       <Ligne
         libelle="Stylet actif strict"
-        precision={strict ? 'Seul le stylet écrit ; les doigts déplacent et zooment.' : 'Tout contact écrit (doigt, stylet passif, souris).'}
+        precision={
+          !strict
+            ? 'Tout contact écrit (doigt, stylet passif, souris).'
+            : settings.penSeen
+              ? 'Seul le stylet écrit ; les doigts déplacent et zooment.'
+              : 'Aucun stylet actif vu sur cet appareil : le doigt écrit (deux doigts zooment) jusqu’au premier contact d’un stylet actif.'
+        }
       >
         <Interrupteur actif={strict} onChange={(v) => update({ stylusMode: v ? 'active' : 'finger' })} libelle="Stylet actif strict" />
       </Ligne>
