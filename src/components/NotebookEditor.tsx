@@ -17,6 +17,7 @@ import { NotebookMenu } from './NotebookMenu';
 import { ExportDialog } from './ExportDialog';
 import { ShareDialog } from './ShareDialog';
 import { SplitViewer } from './SplitViewer';
+import { readSplits, writeSplits } from './splitStore';
 import { flushShareUpdate, scheduleShareUpdate } from '../share/share';
 import { ConfirmDialog, PromptDialog } from './Modal';
 import { PageStrip } from './PageStrip';
@@ -32,7 +33,6 @@ import { applyAction, invertAction, splitStrokes } from '../ink/history';
 import type { Action } from '../ink/history';
 
 /** Écran partagé : le cahier affiché à côté de chaque cahier, et la largeur du volet (préférences locales) */
-const SPLIT_KEY = 'notes-maths:split';
 const RATIO_KEY = 'notes-maths:split-ratio';
 function readStored<T>(key: string, fallback: T): T {
   try {
@@ -655,7 +655,7 @@ export function NotebookEditor({
   const [dropping, setDropping] = useState(false);
 
   // ---- Écran partagé : un autre cahier (le PDF du cours) à gauche, retenu pour chaque cahier
-  const [splitMap, setSplitMap] = useState<Record<string, string>>(() => readStored(SPLIT_KEY, {}));
+  const [splitMap, setSplitMap] = useState<Record<string, string>>(readSplits);
   const [splitRatio, setSplitRatio] = useState<number>(() => readStored(RATIO_KEY, 0.45));
   const splitId = splitMap[notebookId] ?? null;
   const setSplitFor = (id: string, other: string | null) =>
@@ -663,16 +663,20 @@ export function NotebookEditor({
       const next = { ...prev };
       if (other) next[id] = other;
       else delete next[id];
-      writeStored(SPLIT_KEY, next);
+      writeSplits(next);
       return next;
     });
   const workspaceRef = useRef<HTMLElement>(null);
+  /** Écran partagé qu'on vient d'ouvrir : le volet montre d'abord le mini-explorateur, pour choisir le cahier */
+  const [splitPicking, setSplitPicking] = useState(false);
   const toggleSplit = async () => {
-    if (splitId) return setSplitFor(notebookId, null);
-    // Le dernier cahier ouvert autre que celui-ci ; on en change ensuite depuis le volet
-    const others = (await db.notebooks()).filter((n) => !n.deletedAt && n.id !== notebookId).sort((a, b) => b.openedAt - a.openedAt);
+    if (splitId || splitPicking) {
+      setSplitPicking(false);
+      return setSplitFor(notebookId, null);
+    }
+    const others = (await db.notebooks()).filter((n) => !n.deletedAt && n.id !== notebookId);
     if (!others.length) return flash('Crée ou importe un autre cahier (le PDF du cours) pour l’afficher à côté.');
-    setSplitFor(notebookId, others[0].id);
+    setSplitPicking(true);
   };
   const dragSplit = (e: React.PointerEvent<HTMLDivElement>) => {
     const box = workspaceRef.current?.getBoundingClientRect();
@@ -890,11 +894,11 @@ export function NotebookEditor({
         <div className="editor-zone-right">
           <CloudIndicator />
           <button
-            className={`tb-icon ${splitId ? 'active' : ''}`}
+            className={`tb-icon ${splitId || splitPicking ? 'active' : ''}`}
             onClick={() => void toggleSplit()}
             title={splitId ? 'Fermer l’écran partagé' : 'Écran partagé : un autre cahier (cours PDF) à côté'}
             aria-label="Écran partagé"
-            aria-pressed={!!splitId}
+            aria-pressed={!!splitId || splitPicking}
           >
             {ICONS.split}
           </button>
@@ -953,16 +957,24 @@ export function NotebookEditor({
       </header>
 
       <main className="workspace" ref={workspaceRef}>
-        {splitId && (
+        {(splitId || splitPicking) && (
           <>
             <div className="split-pane" style={{ width: `${splitRatio * 100}%` }}>
               <SplitViewer
+                key={splitId ?? 'choix'}
                 notebookId={splitId}
                 currentId={notebookId}
-                onPick={(id) => setSplitFor(notebookId, id)}
-                onClose={() => setSplitFor(notebookId, null)}
+                onPick={(id) => {
+                  setSplitPicking(false);
+                  setSplitFor(notebookId, id);
+                }}
+                onClose={() => {
+                  setSplitPicking(false);
+                  setSplitFor(notebookId, null);
+                }}
                 onSwap={() => {
                   // Le cours passe dans l'éditeur (pour l'annoter), ce cahier passe à côté
+                  if (!splitId) return;
                   flushSave();
                   setSplitFor(splitId, notebookId);
                   go({ name: 'notebook', notebookId: splitId, pageIndex: 0 });

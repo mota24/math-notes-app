@@ -193,3 +193,33 @@ export const coverKey = (s: CoverSource): string => (s.kind === 'pdf' ? `pdf-${s
  */
 export const coverGradient = (color: string): string =>
   `radial-gradient(120% 140% at 50% 0%, color-mix(in srgb, ${color} 30%, transparent) 0%, transparent 70%), linear-gradient(160deg, color-mix(in srgb, ${color} 14%, #1c1d22) 0%, #141518 100%)`;
+
+/** Ce que montre le mini-explorateur de l'écran partagé : un dossier (ses sous-dossiers et ses cahiers), ou une recherche */
+export interface Browse {
+  folders: Folder[];
+  notebooks: Notebook[];
+}
+
+const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name, 'fr', { numeric: true, sensitivity: 'base' });
+const byTitle = (a: Notebook, b: Notebook) => a.title.localeCompare(b.title, 'fr', { numeric: true, sensitivity: 'base' });
+const fold = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+
+/**
+ * Le contenu d'un dossier (`folderId`, null = racine), ou, si `query` n'est pas vide, les dossiers et cahiers de
+ * TOUTE la bibliothèque dont le nom contient chaque mot tapé (sans accents ni majuscules ; un cahier se trouve
+ * aussi par sa matière). Corbeille et cahier `exclude` (celui de l'éditeur) écartés.
+ */
+export function browseNotebooks(folders: readonly Folder[], notebooks: readonly Notebook[], folderId: string | null, query: string, exclude: string | null): Browse {
+  const parents = folderParents(folders);
+  const live = folders.filter((f) => parents.has(f.id));
+  const books = notebooks.filter((n) => !n.deletedAt && n.id !== exclude && (!n.folderId || !folders.some((f) => f.id === n.folderId && f.deletedAt)));
+  const words = fold(query).split(/\s+/).filter(Boolean);
+  if (words.length) {
+    const hit = (text: string) => words.every((w) => fold(text).includes(w));
+    return { folders: live.filter((f) => hit(f.name)).sort(byName), notebooks: books.filter((n) => hit(`${n.title} ${n.subject}`)).sort(byTitle) };
+  }
+  return {
+    folders: live.filter((f) => parents.get(f.id) === folderId).sort(byName),
+    notebooks: books.filter((n) => notebookFolder(n, parents) === folderId).sort(byTitle),
+  };
+}

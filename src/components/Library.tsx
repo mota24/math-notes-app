@@ -25,6 +25,7 @@ import { Icon } from './LibraryIcons';
 import type { IconName } from './LibraryIcons';
 import { buildFolderTree, countChildren, countLabel, folderParents, folderPath, notebookFolder, viewTitle } from './libraryModel';
 import { LibrarySidebar } from './LibrarySidebar';
+import { setSplit } from './splitStore';
 import { dangerButton, glassButton, glassButtonAccent, glassIconButton, glassPanel } from './libraryStyles';
 import { ConfirmDialog, FolderPicker, PromptDialog } from './Modal';
 import { NewNotebookDialog } from './NewNotebookDialog';
@@ -153,7 +154,27 @@ export function Library({ route, onOpenSettings }: { route: Extract<Route, { nam
     { label: 'Déplacer…', onClick: () => setDialog({ kind: 'move-folder', folder: f }) },
     { label: 'Mettre à la corbeille', danger: true, onClick: () => void trashFolder(f.id) },
   ];
+  /**
+   * « Ouvrir à côté » : le cahier choisi s'affiche en écran partagé à côté du dernier cahier ouvert (celui où
+   * l'on écrivait), qui s'ouvre. Sans autre cahier ouvert avant, l'entrée n'apparaît pas.
+   */
+  const lastOpened = (except: string) =>
+    notebooks.filter((o) => !o.deletedAt && o.id !== except && o.openedAt > 0).reduce<Notebook | null>((a, o) => (!a || o.openedAt > a.openedAt ? o : a), null);
+  const sideBySide = (n: Notebook): MenuItem[] => {
+    const main = lastOpened(n.id);
+    if (!main) return [];
+    return [
+      {
+        label: `Ouvrir à côté de « ${main.title.length > 28 ? `${main.title.slice(0, 27)}…` : main.title} »`,
+        onClick: () => {
+          setSplit(main.id, n.id);
+          openNotebook(main);
+        },
+      },
+    ];
+  };
   const notebookMenu = (n: Notebook): MenuItem[] => [
+    ...sideBySide(n),
     {
       label: n.favorite ? 'Retirer des favoris' : 'Ajouter aux favoris',
       onClick: () => void updateNotebook(n.id, { favorite: !n.favorite }),
