@@ -63,7 +63,8 @@ const permissionHint = (e: unknown) =>
 /**
  * Supprime le compte connecté, dans cet ordre (chaque étape peut être relancée sans risque) :
  *  1. plus rien ne part vers le cloud (synchronisation, Drive de l'appareil, mises à jour de liens) ;
- *  2. la sauvegarde hebdomadaire Google Drive est déconnectée (autorisation révoquée) ;
+ *  2. la sauvegarde hebdomadaire Google Drive est déconnectée (autorisation révoquée) — étape facultative : un
+ *     serveur de sauvegarde en panne ou pas encore configuré n'empêche JAMAIS la suite ;
  *  3. tout ce que le compte a dans Firestore est effacé (partages, pages, fichiers, transcriptions, index) ;
  *  4. l'appareil oublie ce compte : liens de partage des cahiers, « propriétaire de l'appareil » ;
  *  5. le compte Firebase Auth est détruit — ce qui déconnecte et ramène à l'écran « Accès Réservé ».
@@ -83,7 +84,15 @@ export async function deleteAccount(progress: (message: string) => void): Promis
   cancelAllShareUpdates();
 
   progress('Déconnexion de la sauvegarde Google Drive…');
-  await disconnectDriveBackup();
+  // Étape facultative : si le serveur de sauvegarde est en panne ou pas encore configuré, la suppression du
+  // compte continue quand même (avant, un échec ici arrêtait tout AVANT d'effacer les données et le compte).
+  // Au pire, une autorisation Drive orpheline reste côté serveur : elle ne donne accès à rien de l'appli, et
+  // se révoque depuis myaccount.google.com → Sécurité → Applications tierces.
+  try {
+    await disconnectDriveBackup();
+  } catch (e) {
+    console.warn('[suppression du compte] déconnexion de Google Drive ignorée :', e);
+  }
 
   let report: WipeReport;
   try {

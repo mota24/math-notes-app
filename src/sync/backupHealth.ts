@@ -49,3 +49,18 @@ export function formatBytes(n: number): string {
   if (n < 1024 * 1024) return `${Math.max(1, Math.round(n / 1024))} Ko`;
   return `${(n / (1024 * 1024)).toFixed(1).replace('.', ',')} Mo`;
 }
+
+/**
+ * Le message d'un appel au serveur de sauvegarde qui a échoué, selon son code HTTP : un jeton expiré (401) n'est
+ * pas une panne du serveur (5xx). Avant, une configuration manquante côté Vercel s'affichait « Session expirée ».
+ * `detail` : le message du serveur (même origine que l'appli, donc fiable), s'il en a donné un.
+ */
+export function driveErrorMessage(status: number, detail?: string | null): string {
+  const d = detail?.trim();
+  if (status === 401) return 'Session expirée : reconnecte-toi puis réessaie.';
+  if (status === 403) return d || 'Ce compte n’est pas autorisé à gérer la sauvegarde.';
+  if (status === 404 || status === 405) return 'Service de sauvegarde indisponible sur ce serveur.';
+  if (status === 503) return `Erreur serveur : configuration manquante. ${d || 'Les variables de la sauvegarde ne sont pas encore définies dans Vercel (voir le README).'}`;
+  if (status >= 500) return d?.startsWith('Erreur serveur') ? d : `Erreur serveur (HTTP ${status}) : ${d || 'réessaie dans un moment.'}`;
+  return d || `Échec (HTTP ${status}).`;
+}

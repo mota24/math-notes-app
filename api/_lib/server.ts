@@ -101,11 +101,18 @@ export async function verifyOwner(request: Request): Promise<{ uid: string; emai
   const token = /^Bearer (.+)$/.exec(request.headers.get('authorization') ?? '')?.[1];
   if (!token) throw new HttpError(401, 'Connexion requise.');
   const owner = required('BACKUP_OWNER_EMAIL').toLowerCase();
+  // Le SDK Admin est démarré HORS du try : une configuration manquante (FIREBASE_SERVICE_ACCOUNT absente ou
+  // illisible) remonte telle quelle (503), au lieu d'être prise pour un jeton expiré. Avant, elle s'affichait
+  // « Session expirée » et bloquait la suppression du compte côté appli.
+  const auth = await adminAuth();
   let decoded;
   try {
-    decoded = await (await adminAuth()).verifyIdToken(token, true);
-  } catch {
-    throw new HttpError(401, 'Session expirée : reconnecte-toi puis réessaie.');
+    decoded = await auth.verifyIdToken(token, true);
+  } catch (e) {
+    // Seules les erreurs d'authentification Firebase (jeton expiré, révoqué, invalide) veulent dire « reconnecte-toi »
+    const code = (e as { code?: string })?.code ?? '';
+    if (code.startsWith('auth/')) throw new HttpError(401, 'Session expirée : reconnecte-toi puis réessaie.');
+    throw new HttpError(503, `Vérification du compte impossible côté serveur (${(e as Error)?.message ?? 'erreur inconnue'}).`);
   }
   if (!decoded.email_verified || (decoded.email ?? '').toLowerCase() !== owner) throw new HttpError(403, 'Ce compte n’est pas autorisé à gérer la sauvegarde.');
   return { uid: decoded.uid, email: decoded.email ?? owner };

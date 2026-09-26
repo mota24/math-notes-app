@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { auth, getFirestoreDb, useAuthUser } from '../firebase';
+import { driveErrorMessage } from './backupHealth';
 import type { BackupStatusDoc } from './backupHealth';
 
 /**
@@ -66,7 +67,8 @@ export async function runBackupNow(): Promise<BackupStatusDoc> {
     throw new Error(navigator.onLine ? `Serveur injoignable (${(e as Error).message}).` : 'Pas de réseau : réessaie une fois en ligne.', { cause: e });
   }
   const body = (await res.json().catch(() => ({}))) as BackupStatusDoc & { error?: string | null };
-  if (!res.ok || body.ok === false) throw new Error(body.error || `La sauvegarde a échoué (HTTP ${res.status}).`);
+  if (!res.ok) throw new Error(driveErrorMessage(res.status, body.error));
+  if (body.ok === false) throw new Error(body.error || 'La sauvegarde a échoué.');
   return body;
 }
 
@@ -74,7 +76,8 @@ export async function runBackupNow(): Promise<BackupStatusDoc> {
 export async function connectGoogleDrive(): Promise<void> {
   const res = await authorizedPost('/api/drive-auth');
   const body = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
-  if (!res.ok || !body.url) throw new Error(body.error || `Connexion impossible (HTTP ${res.status}).`);
+  if (!res.ok) throw new Error(driveErrorMessage(res.status, body.error));
+  if (!body.url) throw new Error('Connexion impossible : le serveur n’a pas renvoyé l’adresse de Google.');
   window.location.assign(body.url);
 }
 
