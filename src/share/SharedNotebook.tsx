@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { Firestore } from 'firebase/firestore';
 import { getFirestoreDb } from '../firebase';
 import { LazyPage } from '../ink/LazyPage';
+import { lruGet, lruSet } from '../lru';
 import type { LoadedPage } from '../ink/LazyPage';
 import type { ShareDoc, SharedPage } from './plan';
 
@@ -15,7 +16,7 @@ import type { ShareDoc, SharedPage } from './plan';
 const cache = new Map<string, Promise<{ page: SharedPage; bg: string | null }>>();
 
 function fetchPage(firestore: Firestore, shareId: string, pageId: string) {
-  let p = cache.get(pageId);
+  let p = lruGet(cache, pageId);
   if (!p) {
     p = (async () => {
       const { doc, getDoc } = await import('firebase/firestore');
@@ -29,7 +30,8 @@ function fetchPage(firestore: Firestore, shareId: string, pageId: string) {
       }
       return { page, bg };
     })();
-    cache.set(pageId, p);
+    // Borné : un cahier partagé de centaines de pages (fonds en images) ne reste pas entier en mémoire
+    lruSet(cache, pageId, p, 60);
     p.catch(() => cache.delete(pageId));
   }
   return p;

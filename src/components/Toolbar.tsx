@@ -4,6 +4,20 @@ import type { ShapeKind, Tool } from '../ink/types';
 import { ICONS } from './icons';
 import { ALL_STAMPS, STAMP_GROUPS } from './stamps';
 import { TEXT_SIZES } from '../ink/textLayout';
+import { strokeSvgPath } from '../ink/draw';
+import type { Signature } from '../ink/signature';
+import { SIGNATURE_PEN } from '../ink/signatureRender';
+
+/** Aperçu vectoriel d'une signature dans le menu des tampons */
+function SignatureGlyph({ sig }: { sig: Signature }) {
+  return (
+    <svg viewBox={`0 0 ${sig.width} ${sig.height}`} className="sig-glyph" aria-hidden="true">
+      {sig.strokes.map((points, i) => (
+        <path key={i} d={strokeSvgPath({ id: '', points, color: '', size: SIGNATURE_PEN, input: 'pen' })} fill="currentColor" />
+      ))}
+    </svg>
+  );
+}
 
 const TEXT_SIZE_LABELS = ['Petit', 'Normal', 'Grand'];
 
@@ -69,6 +83,10 @@ interface Props {
   onSize(s: number): void;
   onHighlight(patch: { highlightColor?: string; highlightSize?: number }): void;
   onShapeKind(k: ShapeKind): void;
+  /** Signatures enregistrées sur cet appareil : un toucher en pose une sur la page */
+  signatures?: Signature[];
+  onPlaceSignature?(id: string): void;
+  onManageSignatures?(): void;
   onShapeColor(c: string | null): void;
   onDashed(v: boolean): void;
   onEraser(patch: { eraserMode?: 'stroke' | 'precision'; eraserSize?: number }): void;
@@ -525,6 +543,38 @@ export function Toolbar(p: Props) {
             Dessine au stylo normal, puis reste appuyé sans lever la pointe en fin de trait : la forme se reconnaît toute
             seule et tu peux encore l’ajuster. Ou choisis un tampon ci-dessous, puis tapote ou glisse sur la page pour le poser.
           </p>
+          {p.onManageSignatures && (
+            <div>
+              <div className="pop-label stamp-group-title">Signatures</div>
+              <div className="stamp-grid">
+                {(p.signatures ?? []).map((sig, i) => (
+                  <button
+                    key={sig.id}
+                    className="stamp-btn sig-btn"
+                    onClick={() => {
+                      p.onPlaceSignature?.(sig.id);
+                      setPop(null);
+                    }}
+                    title="Poser cette signature sur la page"
+                    aria-label={`Poser la signature ${i + 1} sur la page`}
+                  >
+                    <SignatureGlyph sig={sig} />
+                  </button>
+                ))}
+                <button
+                  className="stamp-btn"
+                  onClick={() => {
+                    p.onManageSignatures?.();
+                    setPop(null);
+                  }}
+                  title="Tracer ou supprimer une signature"
+                >
+                  {ICONS.pen}
+                  <span>{p.signatures?.length ? 'Gérer' : 'Ma signature'}</span>
+                </button>
+              </div>
+            </div>
+          )}
           {STAMP_GROUPS.map((group) => (
             <div key={group.title}>
               <div className="pop-label stamp-group-title">{group.title}</div>

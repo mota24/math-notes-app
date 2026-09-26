@@ -67,3 +67,45 @@ export function textBoxHeight(lines: number, size: number): number {
 export function textInnerWidth(width: number, size: number): number {
   return Math.max(size, width - 2 * textPadding(size));
 }
+
+// ------------------------------------------------------------------ polices assorties au document (correction de scans)
+
+/**
+ * Familles proposées pour se fondre dans un document : des polices libres AUX MÊMES DIMENSIONS que les polices
+ * de bureau (Tinos = Times New Roman, Arimo = Arial, Cousine = Courier New), servies par le site : le rendu est
+ * le même sur la tablette (qui n'a ni Times ni Arial), à l'écran comme dans le PDF exporté.
+ */
+export type TextFamily = 'serif' | 'sans' | 'mono';
+
+export const FAMILY_STACK: Record<TextFamily, string> = {
+  serif: '"Tinos", "Times New Roman", "Liberation Serif", "Noto Serif", serif',
+  sans: '"Arimo", Arial, Helvetica, "Liberation Sans", Roboto, sans-serif',
+  mono: '"Cousine", "Courier New", "Liberation Mono", monospace',
+};
+
+export const FAMILY_LABEL: Record<TextFamily, string> = { serif: 'Serif', sans: 'Sans', mono: 'Mono' };
+
+/**
+ * Hauteur des majuscules et des minuscules, en fraction du corps (mesures de Times New Roman, Arial et Courier
+ * New, reprises par leurs équivalents libres). C'est ce qui permet de donner au texte tapé EXACTEMENT la hauteur
+ * physique des lettres du scan : corps = hauteur mesurée ÷ proportion de la police choisie.
+ */
+export const FAMILY_METRICS: Record<TextFamily, { cap: number; x: number }> = {
+  serif: { cap: 0.662, x: 0.448 },
+  sans: { cap: 0.716, x: 0.519 },
+  mono: { cap: 0.571, x: 0.423 },
+};
+
+/** Ligne de base sous le haut de la ligne, en fraction du corps (texte en police assortie) */
+export const MATCHED_BASELINE = (TEXT_LINE_HEIGHT - 1) / 2 + 0.8;
+
+export interface TextStyle {
+  family?: TextFamily;
+  bold?: boolean;
+  italic?: boolean;
+}
+
+/** La police CSS / canevas d'une zone de texte (police de l'appli si aucune famille n'est choisie) */
+export function fontCss(style: TextStyle, px: number): string {
+  return `${style.italic ? 'italic ' : ''}${style.bold ? '700 ' : ''}${px}px ${style.family ? FAMILY_STACK[style.family] : TEXT_FONT}`;
+}

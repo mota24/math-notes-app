@@ -4,7 +4,8 @@ import { PAGE_H, PAGE_W } from './types';
 import { volumeParts, volumePolylines } from './volumes';
 import type { ShapePart } from './volumes';
 import { registerShapeOutlines } from './geometry';
-import { TEXT_FONT, TEXT_LINE_HEIGHT, textBoxHeight, textInnerWidth, textPadding, wrapText } from './textLayout';
+import { MATCHED_BASELINE, TEXT_FONT, TEXT_LINE_HEIGHT, fontCss, textBoxHeight, textInnerWidth, textPadding, wrapText } from './textLayout';
+import type { TextStyle } from './textLayout';
 import type { InkPoint, InputKind, PaperColor, PaperStyle, ShapeKind, Stroke, StrokeTool } from './types';
 
 /**
@@ -242,6 +243,22 @@ function ensureTextFont() {
     .catch(() => undefined);
 }
 
+/** Polices assorties (Tinos, Arimo, Cousine) déjà demandées : chacune n'est téléchargée qu'au premier usage */
+const stylesRequested = new Set<string>();
+function ensureStyleFont(style: TextStyle) {
+  if (!style.family || typeof document === 'undefined' || !document.fonts) return;
+  const font = fontCss(style, TEXT_REF);
+  if (stylesRequested.has(font)) return;
+  stylesRequested.add(font);
+  void document.fonts
+    .load(font)
+    .then(() => {
+      linesCache = new WeakMap();
+      imageListeners.forEach((cb) => cb());
+    })
+    .catch(() => undefined);
+}
+
 /**
  * « Mon écriture » : les caractères enregistrés dans l'écran du même nom (coordonnées en em, x depuis le début
  * du tracé, y depuis la ligne de base, `advance` = largeur occupée). Fournis par l'appli (setHandGlyphs) : ce
@@ -276,20 +293,38 @@ function handMeasure(size: number): (s: string) => number {
 }
 
 /** Mesure (en unités de la taille `size`) d'un bout de texte */
-function textMeasure(size: number): (s: string) => number {
+function textMeasure(size: number, style: TextStyle = {}): (s: string) => number {
   measureCtx ??= document.createElement('canvas').getContext('2d');
   const ctx = measureCtx;
   if (!ctx) return (s) => s.length * size * 0.55;
-  ctx.font = `${TEXT_REF}px ${TEXT_FONT}`;
-  return (s) => (ctx.measureText(s).width * size) / TEXT_REF;
+  const font = fontCss(style, TEXT_REF);
+  return (s) => {
+    ctx.font = font;
+    return (ctx.measureText(s).width * size) / TEXT_REF;
+  };
+}
+
+/**
+ * Largeur (mm) de l'ENCRE d'un texte à la taille `size` dans ce style, sans les marges latérales des caractères :
+ * c'est ce que mesure le cadre d'un mot lu par Tesseract. Sert à choisir la police la plus proche d'un scan.
+ */
+export function measureStyled(text: string, size: number, style: TextStyle): number {
+  measureCtx ??= document.createElement('canvas').getContext('2d');
+  const ctx = measureCtx;
+  if (!ctx) return text.length * size * 0.5;
+  ctx.font = fontCss(style, TEXT_REF);
+  const m = ctx.measureText(text);
+  const ink = m.actualBoundingBoxLeft + m.actualBoundingBoxRight;
+  return ((Number.isFinite(ink) && ink > 0 ? ink : m.width) * size) / TEXT_REF;
 }
 
 /** Les lignes d'une zone de texte, telles qu'elles s'affichent */
-export function textLines(s: Pick<Stroke, 'text' | 'size' | 'points' | 'font'>): string[] {
+export function textLines(s: Pick<Stroke, 'text' | 'size' | 'points' | 'font' | 'family' | 'bold' | 'italic'>): string[] {
   ensureTextFont();
+  ensureStyleFont(s);
   const [a, b] = s.points;
   const width = Math.abs((b?.[0] ?? a[0]) - a[0]);
-  return wrapText(s.text ?? '', textInnerWidth(width, s.size), s.font === 'mine' ? handMeasure(s.size) : textMeasure(s.size));
+  return wrapText(s.text ?? '', textInnerWidth(width, s.size), s.font === 'mine' ? handMeasure(s.size) : textMeasure(s.size, s));
 }
 
 /**
@@ -357,9 +392,23 @@ function drawTextBox(ctx: CanvasRenderingContext2D, s: Stroke) {
   ctx.save();
   ctx.translate(left + pad, top + pad);
   ctx.scale(k, k);
+  ctx.fillStyle = s.color;
+  if (s.family) {
+    // Police assortie à un document : la ligne de base tombe à une hauteur exacte (MATCHED_BASELINE), pour que le
+    // texte corrigé repose sur la ligne de base du scan, quelle que soit la police
+    ctx.font = fontCss(s, TEXT_REF);
+    ctx.textBaseline = 'alphabetic';
+    let styled = linesCache.get(s);
+    if (!styled) {
+      styled = textLines(s);
+      linesCache.set(s, styled);
+    }
+    styled.forEach((line, i) => ctx.fillText(line, 0, (MATCHED_BASELINE + i * TEXT_LINE_HEIGHT) * TEXT_REF));
+    ctx.restore();
+    return;
+  }
   ctx.font = `${TEXT_REF}px ${TEXT_FONT}`;
   ctx.textBaseline = 'top';
-  ctx.fillStyle = s.color;
   // Le corps occupe ~80 % de l'interligne : léger décalage pour centrer la ligne dans sa hauteur
   const offset = ((TEXT_LINE_HEIGHT - 1) / 2) * TEXT_REF;
   let lines = linesCache.get(s);

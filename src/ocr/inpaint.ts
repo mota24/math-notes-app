@@ -165,6 +165,22 @@ export function pullPush(rgb: Float32Array, known: Uint8Array, w: number, h: num
   }
 }
 
+/**
+ * Ce que l'encre dit du caractère d'origine, mesuré sur les pixels (Tesseract LSTM ne donne ni famille, ni
+ * graisse, ni inclinaison) :
+ *  - `stem` : épaisseur typique des traits verticaux (px) — la graisse ;
+ *  - `thin` : épaisseur des traits horizontaux fins (px) — le contraste plein / délié des polices à empattements ;
+ *  - `foot` : largeur de l'encre juste au-dessus de la ligne de base, rapportée au milieu des lettres — les
+ *    empattements (« pieds ») l'élargissent nettement ;
+ *  - `slant` : inclinaison (décalage horizontal par pixel de hauteur) — l'italique.
+ */
+export interface InkStyle {
+  stem: number;
+  thin: number;
+  foot: number;
+  slant: number;
+}
+
 export interface EraseResult {
   /** La rustine : le cadre `patch` de l'image, encre des mots effacée (RGBA opaque) */
   pixels: Uint8ClampedArray;
@@ -172,13 +188,116 @@ export interface EraseResult {
   ink: [number, number, number];
   /** Pixels d'encre trouvés dans les mots (0 : rien à effacer) */
   inkPixels: number;
+  /** Mesures du caractère d'origine ; null si trop peu d'encre pour conclure */
+  style: InkStyle | null;
+}
+
+const medianOf = (xs: number[]) => {
+  if (!xs.length) return 0;
+  const s = xs.sort((a, b) => a - b);
+  return s[Math.floor(s.length / 2)];
+};
+const quantile = (xs: number[], q: number) => {
+  if (!xs.length) return 0;
+  const s = xs.sort((a, b) => a - b);
+  return s[Math.min(s.length - 1, Math.floor(s.length * q))];
+};
+
+/** Un mot à mesurer : son cadre (px) et, si elle est connue, sa ligne de base (px) et la hauteur des capitales (px) */
+export interface StyleProbe extends Rect {
+  base?: number;
+  cap?: number;
+}
+
+/** Mesure le style de l'encre `ink` (1 = encre) dans les mots `probes` */
+export function measureInkStyle(ink: Uint8Array, w: number, h: number, probes: readonly StyleProbe[]): InkStyle | null {
+  const hRuns: number[] = [];
+  const vRuns: number[] = [];
+  const foot: number[] = [];
+  const mid: number[] = [];
+  let pixels = 0;
+  // Coordonnées (x, y) de l'encre, pour chercher l'inclinaison
+  const points: [number, number][] = [];
+  for (const r of probes) {
+    const x0 = Math.max(0, Math.floor(r.x));
+    const x1 = Math.min(w, Math.ceil(r.x + r.w));
+    const y0 = Math.max(0, Math.floor(r.y));
+    const y1 = Math.min(h, Math.ceil(r.y + r.h));
+    for (let y = y0; y < y1; y++) {
+      let run = 0;
+      const rowRuns: number[] = [];
+      for (let x = x0; x <= x1; x++) {
+        const on = x < x1 && ink[y * w + x] === 1;
+        if (on) {
+          run++;
+          pixels++;
+          if ((x + y) % 2 === 0) points.push([x, y]);
+        } else if (run) {
+          rowRuns.push(run);
+          run = 0;
+        }
+      }
+      hRuns.push(...rowRuns);
+      if (r.base !== undefined && r.cap) {
+        const fromBase = r.base - y;
+        const total = rowRuns.reduce((a, b) => a + b, 0);
+        if (fromBase > 0 && fromBase <= Math.max(1.5, r.cap * 0.1)) foot.push(total);
+        else if (fromBase >= r.cap * 0.3 && fromBase <= r.cap * 0.55) mid.push(total);
+      }
+    }
+    for (let x = x0; x < x1; x++) {
+      let run = 0;
+      for (let y = y0; y <= y1; y++) {
+        const on = y < y1 && ink[y * w + x] === 1;
+        if (on) run++;
+        else if (run) {
+          vRuns.push(run);
+          run = 0;
+        }
+      }
+    }
+  }
+  if (pixels < 40) return null;
+
+  // Inclinaison : le cisaillement qui rend les colonnes d'encre les plus nettes (les fûts deviennent verticaux)
+  let slant = 0;
+  let best = -1;
+  const cy = points.reduce((a, p) => a + p[1], 0) / Math.max(1, points.length);
+  for (let s = -0.1; s <= 0.45 + 1e-9; s += 0.025) {
+    const cols = new Map<number, number>();
+    for (const [x, y] of points) {
+      const k = Math.round(x + s * (y - cy));
+      cols.set(k, (cols.get(k) ?? 0) + 1);
+    }
+    let sharp = 0;
+    for (const c of cols.values()) sharp += c * c;
+    if (sharp > best + 1e-9) {
+      best = sharp;
+      slant = s;
+    }
+  }
+  const midWidth = medianOf(mid);
+  return {
+    stem: medianOf(hRuns),
+    thin: quantile(vRuns, 0.25),
+    foot: midWidth > 0 ? medianOf(foot) / midWidth : 1,
+    slant: Math.round(slant * 1000) / 1000,
+  };
 }
 
 /**
  * Efface l'encre des `words` (rectangles en pixels de l'image `data`) et renvoie la rustine du cadre `patch`.
  * `halo` : nombre de pixels ajoutés autour de chaque lettre (bords adoucis par la numérisation).
  */
-export function eraseText(data: Uint8ClampedArray, w: number, h: number, words: readonly Rect[], patch: Rect, halo: number): EraseResult {
+export function eraseText(
+  data: Uint8ClampedArray,
+  w: number,
+  h: number,
+  words: readonly Rect[],
+  patch: Rect,
+  halo: number,
+  probes: readonly StyleProbe[] = [],
+): EraseResult {
   const inWords = new Uint8Array(w * h);
   for (const r of words)
     for (let y = Math.max(0, Math.floor(r.y)); y < Math.min(h, Math.ceil(r.y + r.h)); y++)
@@ -260,5 +379,5 @@ export function eraseText(data: Uint8ClampedArray, w: number, h: number, words: 
       pixels[o + 3] = 255;
     }
   const ink: [number, number, number] = core ? [Math.round(r / core), Math.round(g / core), Math.round(b / core)] : [29, 36, 51];
-  return { pixels, ink, inkPixels };
+  return { pixels, ink, inkPixels, style: probes.length && inkPixels ? measureInkStyle(inkWords, w, h, probes) : null };
 }

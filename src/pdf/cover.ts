@@ -1,6 +1,7 @@
 import { coverKey } from '../components/libraryModel';
 import type { CoverSource } from '../components/libraryModel';
 import { db } from '../db/db';
+import { lruGet, lruSet } from '../lru';
 import { renderPdfThumbnail } from './pdfjs';
 
 /**
@@ -72,8 +73,26 @@ function oneAtATime<T>(task: () => Promise<T>): Promise<T> {
   return run;
 }
 
-/** Adresse locale (blob:) de chaque miniature déjà prête, pour toute la session */
+/**
+ * Adresse locale (blob:) des miniatures prêtes, bornée : au-delà, la plus ancienne est libérée (une image déjà
+ * affichée le reste ; une carte réaffichée plus tard redemande sa miniature, relue en un instant sur l'appareil)
+ */
 const ready = new Map<string, Promise<string | null>>();
+const READY_MAX = 150;
+const release = (url: Promise<string | null>) => void url.then((u) => u && URL.revokeObjectURL(u)).catch(() => undefined);
+
+/** Une fois par session : les miniatures d'une version précédente du rendu sont retirées de l'appareil */
+let pruned = false;
+function pruneOldVersions() {
+  if (pruned || typeof caches === 'undefined') return;
+  pruned = true;
+  void caches
+    .open(CACHE)
+    .then(async (cache) => {
+      for (const request of await cache.keys()) if (!request.url.includes(`/couvertures/v${VERSION}/`)) await cache.delete(request);
+    })
+    .catch(() => undefined);
+}
 
 /**
  * L'image de couverture de `source`, ou `null` si elle ne peut pas être faite (fichier pas encore arrivé sur
@@ -81,7 +100,8 @@ const ready = new Map<string, Promise<string | null>>();
  */
 export function coverUrl(source: CoverSource): Promise<string | null> {
   const key = coverKey(source);
-  let url = ready.get(key);
+  pruneOldVersions();
+  let url = lruGet(ready, key);
   if (!url) {
     url = (async () => {
       const cached = await fromCache(key);
@@ -91,7 +111,7 @@ export function coverUrl(source: CoverSource): Promise<string | null> {
       await toCache(key, blob);
       return URL.createObjectURL(blob);
     })().catch(() => null);
-    ready.set(key, url);
+    lruSet(ready, key, url, READY_MAX, release);
     void url.then((u) => {
       if (!u) ready.delete(key);
     });

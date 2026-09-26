@@ -6,6 +6,20 @@ import '@fontsource/instrument-sans/600.css';
 import '@fontsource/caveat/400.css';
 import '@fontsource/kalam/400.css';
 import '@fontsource/patrick-hand/400.css';
+// Polices assorties aux documents scannés (mêmes dimensions que Times New Roman, Arial, Courier New) : seules leurs
+// déclarations sont chargées ici, chaque fichier de police n'est téléchargé que si une correction s'en sert
+import '@fontsource/tinos/400.css';
+import '@fontsource/tinos/700.css';
+import '@fontsource/tinos/400-italic.css';
+import '@fontsource/tinos/700-italic.css';
+import '@fontsource/arimo/400.css';
+import '@fontsource/arimo/700.css';
+import '@fontsource/arimo/400-italic.css';
+import '@fontsource/arimo/700-italic.css';
+import '@fontsource/cousine/400.css';
+import '@fontsource/cousine/700.css';
+import '@fontsource/cousine/400-italic.css';
+import '@fontsource/cousine/700-italic.css';
 import './index.css';
 import App from './App';
 import { SHARE_ID_RE } from './share/plan';

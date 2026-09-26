@@ -11,7 +11,7 @@ import type { ResizeHandle, ScaleCorner, Similarity } from './geometry';
 import { MAX_PAGE_HEIGHT, SHEET_H, growHeight } from './pageExtent';
 import { MultiColorSwatch } from './MultiColorSwatch';
 import { farthestPoint, recognizeShape, regularizeShape } from './shapeRecognize';
-import { DEFAULT_TEXT_WIDTH, MIN_TEXT_WIDTH, TEXT_FONT, TEXT_LINE_HEIGHT, textBoxHeight, textPadding } from './textLayout';
+import { DEFAULT_TEXT_WIDTH, FAMILY_STACK, MIN_TEXT_WIDTH, TEXT_FONT, TEXT_LINE_HEIGHT, textBoxHeight, textPadding } from './textLayout';
 import { newId } from './types';
 import type { BBox, InkPoint, InputKind, PaperColor, PaperStyle, ShapeKind, Stroke, Tool, View } from './types';
 import { BAR_WIDTH, BAR_WIDTH_REGION, CAPTURE_HANDLES, HANDLE_SIZE, ROTATE_GAP, ROTATE_SIZE, clamp, isCorner, layoutHandles, rotatePosition, trackDrag } from './handles';
@@ -36,6 +36,8 @@ export interface TextEdit {
   /** Taille du texte (mm) */
   size: number;
   color: string;
+  /** Police de la zone (gardée à la modification) : police assortie, graisse, italique, « Mon écriture » */
+  style?: Pick<Stroke, 'font' | 'family' | 'bold' | 'italic'>;
 }
 
 /** Outil Texte : où l'on a touché la page — une nouvelle zone, ou une zone existante à modifier */
@@ -101,8 +103,11 @@ interface Props {
   onSelect(ids: string[], region?: BBox | null, pageId?: string): void;
   /** Zone du lasso sur un PDF ou une photo : « Corriger le texte » (effacer et réécrire le texte scanné) */
   onCorrectRegion?(): void;
-  /** Une zone de texte seule sélectionnée : l'écrire avec « Mon écriture » ou avec la police */
-  onToggleHandFont?(): void;
+  /**
+   * Une zone de texte seule sélectionnée : changer sa police (celle de l'appli, Times, Arial, Courier ou « Mon
+   * écriture »), sa graisse ou son inclinaison
+   */
+  onTextStyle?(style: Pick<Stroke, 'font' | 'family' | 'bold' | 'italic'>): void;
   /**
    * Un tap sur une zone de texte (stylo, surligneur, outil Texte, lasso, souris, ou le doigt quand il ne dessine
    * pas) : la sélectionner tout de suite, poignées et barre d'actions comprises, sans passer par le lasso.
@@ -185,6 +190,21 @@ interface Live {
 /** Un tap : le geste reste dans un carré de TAP_MM de côté (mm) et dure moins de TAP_MS (ms) */
 const TAP_MM = 2;
 const TAP_MS = 450;
+
+/** Nom court de la police d'une zone de texte, pour la barre de sélection */
+function fontLabel(s: Stroke): string {
+  if (s.font === 'mine') return 'Mon écriture';
+  return s.family === 'serif' ? 'Times' : s.family === 'sans' ? 'Arial' : s.family === 'mono' ? 'Courier' : 'Appli';
+}
+
+/** La police suivante du cycle : appli → Times → Arial → Courier → « Mon écriture » → appli */
+function nextFont(s: Stroke): Pick<Stroke, 'font' | 'family'> {
+  if (s.font === 'mine') return { font: undefined, family: undefined };
+  if (!s.family) return { family: 'serif' };
+  if (s.family === 'serif') return { family: 'sans' };
+  if (s.family === 'sans') return { family: 'mono' };
+  return { family: undefined, font: 'mine' };
+}
 
 /** Identifiant de l'aperçu d'une poignée (aucun vrai contact n'a cet id). */
 const EDIT_LIVE_ID = -1;
@@ -1544,7 +1564,7 @@ export function InkCanvas(props: Props) {
     if (!sheet) return null;
     // Autant de lignes que sur la page (retours à la ligne automatiques compris) : avant, seules les lignes
     // tapées comptaient, et un texte qui passait à la ligne tout seul était rogné pendant la frappe
-    const lines = textLines({ text: textEdit.text, size: textEdit.size, points: [[0, 0, 0.5], [textEdit.width, 0, 0.5]] }).length;
+    const lines = textLines({ ...textEdit.style, text: textEdit.text, size: textEdit.size, points: [[0, 0, 0.5], [textEdit.width, 0, 0.5]] }).length;
     // Le cadre pointillé (1,5 px) est tracé AUTOUR de la zone : il ne prend pas de place au texte
     const border = 1.5;
     return {
@@ -1644,7 +1664,10 @@ export function InkCanvas(props: Props) {
                 lineHeight: TEXT_LINE_HEIGHT,
                 padding: textBox.padding,
                 color: textEdit.color,
-                fontFamily: TEXT_FONT,
+                // Pendant la frappe, la police de la zone (celle du document pour une correction de scan)
+                fontFamily: textEdit.style?.family ? FAMILY_STACK[textEdit.style.family] : TEXT_FONT,
+                fontWeight: textEdit.style?.bold ? 700 : 400,
+                fontStyle: textEdit.style?.italic ? 'italic' : 'normal',
               }
             : undefined
         }
@@ -1666,10 +1689,26 @@ export function InkCanvas(props: Props) {
                   ))}
                   <MultiColorSwatch initial={props.selectionColors[0]} onCommit={props.onPickSelectionColor} />
                   {only?.tool === 'text' && <button onClick={() => editText(only)}>Modifier</button>}
-                  {only?.tool === 'text' && props.onToggleHandFont && (
-                    <button aria-pressed={only.font === 'mine'} onClick={props.onToggleHandFont} title="Écrire ce texte avec les caractères enregistrés dans « Mon écriture »">
-                      {only.font === 'mine' ? 'Police' : 'Mon écriture'}
-                    </button>
+                  {only?.tool === 'text' && props.onTextStyle && (
+                    <>
+                      <button
+                        onClick={() => props.onTextStyle?.(nextFont(only))}
+                        title="Changer de police : appli → Times → Arial → Courier → Mon écriture"
+                        aria-label={`Police : ${fontLabel(only)} (toucher pour changer)`}
+                      >
+                        Aa · {fontLabel(only)}
+                      </button>
+                      {only.family && (
+                        <>
+                          <button className="sel-style" aria-pressed={!!only.bold} onClick={() => props.onTextStyle?.({ bold: !only.bold })} title="Gras" aria-label="Gras">
+                            <b>G</b>
+                          </button>
+                          <button className="sel-style" aria-pressed={!!only.italic} onClick={() => props.onTextStyle?.({ italic: !only.italic })} title="Italique" aria-label="Italique">
+                            <i>I</i>
+                          </button>
+                        </>
+                      )}
+                    </>
                   )}
                   <button onClick={props.onDuplicateSelection}>Dupliquer</button>
                   <button onClick={props.onCopySelection}>Copier</button>

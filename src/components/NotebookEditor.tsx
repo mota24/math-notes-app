@@ -18,7 +18,11 @@ import { NotebookMenu } from './NotebookMenu';
 import { ExportDialog } from './ExportDialog';
 import { ShareDialog } from './ShareDialog';
 import { SplitViewer } from './SplitViewer';
+import { lruGet, lruSet } from '../lru';
 import { TextPanel } from './TextPanel';
+import { SignatureDialog } from './SignatureDialog';
+import { SIGNATURES_KEY, placedAt, placedSize, readSignatures } from '../ink/signature';
+import { signatureImage } from '../ink/signatureRender';
 import type { Highlight } from '../ocr/TextLayer';
 import type { TextWord } from '../ocr/textModel';
 import { readSplits, writeSplits } from './splitStore';
@@ -130,11 +134,10 @@ export function NotebookEditor({
   const histories = useRef(new Map<string, { undo: Action[]; redo: Action[] }>());
   const loadPage = useCallback((p: Page) => {
     if (pageRef.current?.id !== p.id) {
-      let h = histories.current.get(p.id);
-      if (!h) {
-        h = { undo: [], redo: [] };
-        histories.current.set(p.id, h);
-      }
+      // Les 20 dernières pages ouvertes gardent leur historique (chaque action garde les traits de sa page : sans
+      // borne, feuilleter un gros PDF en annotant accumulait la mémoire jusqu'à la fermeture du cahier)
+      const h = lruGet(histories.current, p.id) ?? { undo: [], redo: [] };
+      lruSet(histories.current, p.id, h, 20);
       history.current = h;
     }
     pageRef.current = p;
@@ -506,6 +509,7 @@ export function NotebookEditor({
         text: st.text ?? '',
         size: st.size,
         color: st.color,
+        style: { font: st.font, family: st.family, bold: st.bold, italic: st.italic },
       });
       return;
     }
@@ -540,6 +544,8 @@ export function NotebookEditor({
         size: e.size,
         input: 'mouse',
         ...(old?.angle ? { angle: old.angle } : {}),
+        // La police de la zone survit à la modification (avant, une zone « Mon écriture » repassait en police)
+        ...Object.fromEntries(Object.entries(e.style ?? {}).filter(([, v]) => v !== undefined && v !== false)),
       });
       if (old && old.text === next.text && old.color === next.color && old.size === next.size) return; // rien n'a changé
     } else if (!old) {
@@ -568,14 +574,54 @@ export function NotebookEditor({
   const commitTextRef = useRef(commitText);
   commitTextRef.current = commitText;
 
+  // ------------------------------------------------------------ signatures enregistrées
+  const signatures = useQuery(() => db.getMeta(SIGNATURES_KEY).then(readSignatures), [], ['meta']) ?? [];
+  const [signaturesOpen, setSignaturesOpen] = useState(false);
+  /** Pose une signature en bas à droite de la page, à la couleur du stylo, sélectionnée pour la placer d'un geste */
+  const placeSignature = (id: string) => {
+    const sig = signatures.find((s) => s.id === id);
+    const p = pageRef.current;
+    if (!sig || !p) return;
+    const size = placedSize(sig, p);
+    const at = placedAt(size, p);
+    const stroke: Stroke = {
+      id: newId(),
+      tool: 'image',
+      image: signatureImage(sig, size.w, settingsRef.current.color),
+      points: [
+        [at.x, at.y, 1],
+        [at.x + size.w, at.y + size.h, 1],
+      ],
+      color: settingsRef.current.color,
+      size: 0,
+      input: 'mouse',
+    };
+    addStrokes([stroke]);
+    setTool('lasso');
+    select([stroke.id]);
+    flash('Signature posée en bas à droite : glisse-la à sa place, tire un coin pour l’ajuster.');
+  };
+
   // ------------------------------------------------------------ « Mon écriture » et correction des scans
   const glyphs = useQuery(() => db.glyphs(), [], ['glyphs']);
   useEffect(() => {
     if (glyphs) setHandGlyphs(glyphs);
   }, [glyphs]);
-  const toggleHandFont = () => {
-    if (!glyphs?.length) return flash('Enregistre d’abord ton écriture : Bibliothèque → Mon écriture.');
-    replaceSelected((chosen) => chosen.map((st) => (st.tool === 'text' ? fitTextBox({ ...st, font: st.font === 'mine' ? undefined : 'mine' }) : st)));
+  /** Police, graisse ou inclinaison d'une zone de texte (barre de sélection) ; la hauteur suit les nouvelles lignes */
+  const setTextStyle = (style: Pick<Stroke, 'font' | 'family' | 'bold' | 'italic'>) => {
+    if (style.font === 'mine' && !glyphs?.length) {
+      flash('Enregistre d’abord ton écriture (Bibliothèque → Mon écriture) ; en attendant, retour à la police de l’appli.');
+      style = { font: undefined, family: undefined };
+    }
+    replaceSelected((chosen) =>
+      chosen.map((st) => {
+        if (st.tool !== 'text') return st;
+        const next: Stroke = { ...st, ...style };
+        // Un champ remis à zéro disparaît du trait (pas de « bold: false » stocké partout)
+        for (const k of ['font', 'family', 'bold', 'italic'] as const) if (!next[k]) delete next[k];
+        return fitTextBox(next);
+      }),
+    );
   };
 
   /** Page de la dernière zone tracée au lasso */
@@ -602,10 +648,11 @@ export function NotebookEditor({
       addStrokes(correction.patch ? [correction.patch, correction.text] : [correction.text]);
       select([]);
       onTextTarget({ pageId: target.id, stroke: correction.text });
+      const police = correction.font ? `Police reconnue : ${correction.font}, ${correction.text.size.toFixed(1).replace('.', ',')} mm. ` : '';
       flash(
         correction.patch
-          ? 'Corrige le texte, puis touche à côté pour valider. Le scan d’origine reste dessous : supprimer la rustine le fait réapparaître.'
-          : 'Aucune encre à effacer trouvée ; le texte lu est posé par-dessus, prêt à corriger.',
+          ? `${police}Corrige le texte, puis touche à côté pour valider. Le scan d’origine reste dessous.`
+          : `${police}Aucune encre à effacer trouvée ; le texte lu est posé par-dessus, prêt à corriger.`,
       );
     } catch (e) {
       flash(`Correction impossible : ${(e as Error)?.message ?? 'erreur inconnue'}`);
@@ -1213,6 +1260,9 @@ export function NotebookEditor({
             onShapeColor={(color) => update({ shapeColor: color })}
             onHighlight={(patch) => update(patch)}
             onShapeKind={setShapeKind}
+            signatures={signatures}
+            onPlaceSignature={placeSignature}
+            onManageSignatures={() => setSignaturesOpen(true)}
             onDashed={(dashed) => update({ dashed })}
             onEraser={(patch) => update(patch)}
             onUndo={undo}
@@ -1274,7 +1324,7 @@ export function NotebookEditor({
                 select(ids, region && target && hasBackground(target) ? region : null);
               }}
               onCorrectRegion={() => void correctRegion()}
-              onToggleHandFont={toggleHandFont}
+              onTextStyle={setTextStyle}
               onUndo={undo}
               onPenDetected={() => update({ penSeen: true })}
               onPenSize={(px) => update({ penSizePx: px })}
@@ -1314,6 +1364,7 @@ export function NotebookEditor({
           ) : (
             <p className="center-message">Chargement de la page…</p>
           )}
+          {signaturesOpen && <SignatureDialog signatures={signatures} onClose={() => setSignaturesOpen(false)} />}
           {textOpen && (
             <TextPanel
               pages={orderedPages}

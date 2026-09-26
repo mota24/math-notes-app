@@ -5,7 +5,23 @@ import { connectGoogleDrive, runBackupNow, useBackupStatus } from '../sync/drive
 
 const date = (t: number) => new Date(t).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
 
-/** Retour de l'autorisation Google (?drive=connected ou ?drive=error&message=…), lu une fois puis effacé de l'adresse */
+/**
+ * Les seuls messages qu'un retour de Google Drive peut afficher. L'adresse ne porte qu'un code (?drive=error&reason=…) :
+ * un texte libre dans l'adresse aurait laissé n'importe qui fabriquer un lien affichant SON message dans le bandeau.
+ */
+const DRIVE_REASONS: Record<string, string> = {
+  denied: 'autorisation refusée ou annulée.',
+  incomplete: 'réponse de Google incomplète : recommence.',
+  expired: 'demande expirée ou inconnue : recommence depuis les Réglages.',
+  'no-refresh': 'Google n’a pas donné d’autorisation durable : recommence.',
+  'no-scope': 'l’accès à Google Drive n’a pas été accordé (case décochée ?).',
+  'not-configured': 'la sauvegarde n’est pas encore configurée sur le serveur (voir le README).',
+  forbidden: 'ce compte n’est pas autorisé à gérer la sauvegarde.',
+  session: 'session expirée : reconnecte-toi puis recommence.',
+  server: 'erreur du serveur : réessaie dans un moment (le détail est dans les journaux Vercel).',
+};
+
+/** Retour de l'autorisation Google (?drive=connected ou ?drive=error&reason=…), lu une fois puis effacé de l'adresse */
 function readDriveReturn(): { ok: boolean; message: string } | null {
   const q = new URLSearchParams(window.location.search);
   const drive = q.get('drive');
@@ -13,7 +29,7 @@ function readDriveReturn(): { ok: boolean; message: string } | null {
   window.history.replaceState(null, '', `${window.location.pathname}${window.location.hash}`);
   return drive === 'connected'
     ? { ok: true, message: 'Google Drive est connecté : ta sauvegarde complète partira chaque dimanche vers 3 h.' }
-    : { ok: false, message: `Connexion à Google Drive impossible : ${q.get('message') ?? 'erreur inconnue'}` };
+    : { ok: false, message: `Connexion à Google Drive impossible : ${DRIVE_REASONS[q.get('reason') ?? ''] ?? 'erreur inconnue.'}` };
 }
 
 /**
