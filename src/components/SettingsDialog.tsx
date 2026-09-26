@@ -1,11 +1,12 @@
 import type { Settings } from '../settings';
 import { Modal } from './Modal';
+import { AccountSection } from './settings/AccountSection';
 import { CloudSection } from './settings/CloudSection';
 import { WritingSection } from './settings/WritingSection';
 
 /**
- * Réglages : deux cartes seulement — le compte et la conservation des notes, l'écriture — et l'accès au
- * guide. Chaque carte va à l'essentiel ; les explications longues ont disparu.
+ * Réglages : le compte et la conservation des notes, l'écriture, l'accès au guide, puis — tout en bas, à
+ * part — les méthodes de connexion et la suppression du compte.
  */
 export function SettingsDialog({
   settings,
@@ -31,6 +32,7 @@ export function SettingsDialog({
           Revoir le guide de démarrage
         </button>
       </div>
+      <AccountSection />
     </Modal>
   );
 }

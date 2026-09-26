@@ -1,14 +1,17 @@
 import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import {
-  GoogleAuthProvider,
   createUserWithEmailAndPassword,
+  fetchSignInMethodsForEmail,
   getRedirectResult,
   sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signInWithPopup,
   signInWithRedirect,
 } from 'firebase/auth';
+import type { AuthCredential } from 'firebase/auth';
+import { sameEmail } from '../auth/accountModel';
+import { googleProvider, linkPendingCredential, pendingGoogle, signInWithGoogleAddingPassword } from '../auth/linking';
 import { SIGNUP_OPEN } from '../auth/useAccess';
 import { auth, authMemeOrigine } from '../firebase';
 
@@ -21,12 +24,17 @@ import { auth, authMemeOrigine } from '../firebase';
  *  - e-mail + mot de passe, pour un compte créé ainsi ;
  *  - « Mot de passe oublié ? », qui sert aussi à AJOUTER un mot de passe à un compte créé avec Google.
  *
+ * Google et e-mail mènent au MÊME compte pour une même adresse (voir src/auth/linking.ts) :
+ *  - mot de passe refusé (compte créé avec Google) : « Continuer avec Google et ajouter ce mot de passe » ;
+ *  - Google refusé parce que l'adresse a déjà un compte e-mail : le mot de passe ouvre le compte, et Google
+ *    y est relié au passage.
+ *
  * À savoir : les notes vivent dans le navigateur (IndexedDB). Ce panneau met l'appli à l'abri d'un regard ou
  * d'une main qui traîne sur la tablette — ce n'est pas un coffre-fort.
  */
 
 type Mode = 'connexion' | 'inscription' | 'oubli';
-type Methode = 'google' | 'email' | 'inscription' | 'oubli';
+type Methode = 'google' | 'email' | 'inscription' | 'oubli' | 'liaison';
 
 const champ =
   'h-12 w-full rounded-xl border border-white/10 bg-white/5 px-4 text-[15px] text-white outline-none transition-colors placeholder:text-zinc-600 focus:border-white/40 focus:bg-white/10';
@@ -35,15 +43,19 @@ const lien =
   'min-h-0 border-0 bg-transparent p-0 text-[13px] font-semibold text-zinc-400 underline-offset-4 transition-colors hover:text-white hover:underline';
 
 const COMPTE_GOOGLE =
-  'Si ton compte a été créé avec Google, clique sur « Continuer avec Google », ou sur « Mot de passe oublié ? » pour lui ajouter un mot de passe.';
+  'Compte créé avec Google ? Le bouton ci-dessous t’y connecte et lui ajoute ce mot de passe : ensuite, l’un ou l’autre suffira.';
+
+/** Erreurs après lesquelles « Continuer avec Google et ajouter ce mot de passe » peut débloquer la situation */
+const RELIABLE = /invalid-credential|invalid-login-credentials|wrong-password|user-not-found|email-already-in-use/;
 
 function messageClair(code: string, brut: string, methode: Methode): string {
+  if (/user-mismatch/.test(code)) return brut;
   if (/invalid-credential|invalid-login-credentials|wrong-password|user-not-found/.test(code))
     return `E-mail ou mot de passe incorrect. ${COMPTE_GOOGLE}`;
   if (/invalid-email|missing-email/.test(code)) return 'Adresse e-mail invalide.';
   if (/missing-password/.test(code)) return 'Saisis ton mot de passe.';
   if (/email-already-in-use/.test(code))
-    return 'Un compte existe déjà avec cette adresse (peut-être créé avec Google). Connecte-toi avec « Continuer avec Google », ou utilise « Mot de passe oublié ? » pour lui ajouter un mot de passe.';
+    return `Un compte existe déjà avec cette adresse (peut-être créé avec Google). ${COMPTE_GOOGLE}`;
   if (/weak-password/.test(code)) return 'Mot de passe trop court : 6 caractères minimum.';
   if (/password-does-not-meet-requirements/.test(code))
     return 'Ce mot de passe ne respecte pas les règles du projet (longueur, majuscules, chiffres…).';
@@ -65,7 +77,7 @@ function messageClair(code: string, brut: string, methode: Methode): string {
   if (/unauthorized-domain/.test(code))
     return 'Ce site n’est pas dans les domaines autorisés de Firebase (Authentication → Settings → Authorized domains).';
   if (/account-exists-with-different-credential/.test(code))
-    return 'Cette adresse est déjà liée à une autre méthode de connexion : connecte-toi par e-mail et mot de passe.';
+    return 'Un compte e-mail existe déjà pour cette adresse : entre son mot de passe ci-dessous, Google y sera relié.';
   if (/internal-error/.test(code))
     return 'Firebase n’a pas pu joindre le service de connexion. Vérifie ta connexion, puis réessaie.';
   return brut;
@@ -87,6 +99,22 @@ export function AuthPanel({ refus = null }: { refus?: string | null }) {
   const [erreur, setErreur] = useState<string | null>(refus);
   const [info, setInfo] = useState<string | null>(null);
   const [busy, setBusy] = useState<Methode | null>(null);
+  /** Dernière erreur de mot de passe (ou d'inscription) qui peut venir d'un compte créé avec Google */
+  const [proposerGoogle, setProposerGoogle] = useState(false);
+  /** Accès Google refusé faute de liaison : relié dès que le mot de passe aura ouvert le compte */
+  const [googleEnAttente, setGoogleEnAttente] = useState<{ credential: AuthCredential; email: string | null } | null>(null);
+
+  // Compte supprimé depuis les Réglages : on le confirme ici, une seule fois
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem('notes-maths:compte-supprime')) {
+        sessionStorage.removeItem('notes-maths:compte-supprime');
+        setInfo('Ton compte et toutes ses données en ligne ont été supprimés. Tes cahiers restent sur cet appareil.');
+      }
+    } catch {
+      /* navigation privée */
+    }
+  }, []);
 
   useEffect(() => {
     if (refus) setErreur(refus);
@@ -105,6 +133,8 @@ export function AuthPanel({ refus = null }: { refus?: string | null }) {
     setMode(m);
     setErreur(null);
     setInfo(null);
+    setProposerGoogle(false);
+    setGoogleEnAttente(null);
     setMotDePasse('');
     setConfirmation('');
   };
@@ -113,11 +143,29 @@ export function AuthPanel({ refus = null }: { refus?: string | null }) {
     setBusy(methode);
     setErreur(null);
     setInfo(null);
+    setProposerGoogle(false);
     try {
       await task();
     } catch (e) {
       const err = e as { code?: string; message?: string };
-      setErreur(messageClair(err.code ?? '', err.message ?? 'Connexion impossible.', methode));
+      const code = err.code ?? '';
+      // Google refusé : l'adresse a déjà un compte e-mail ; on garde l'accès Google pour le relier ensuite
+      const attente = methode === 'google' ? pendingGoogle(e) : null;
+      if (attente) {
+        setGoogleEnAttente(attente);
+        setMode('connexion');
+        if (attente.email) setEmail(attente.email);
+        setMotDePasse('');
+      }
+      let message = messageClair(code, err.message ?? 'Connexion impossible.', methode);
+      if ((methode === 'email' || methode === 'inscription') && RELIABLE.test(code)) {
+        setProposerGoogle(true);
+        // Si Firebase veut bien le dire (protection contre l'énumération désactivée), on précise
+        const methodes = await fetchSignInMethodsForEmail(auth, email.trim()).catch(() => [] as string[]);
+        if (methodes.includes('google.com') && !methodes.includes('password'))
+          message = `Ce compte a été créé avec Google et n’a pas encore de mot de passe. ${COMPTE_GOOGLE}`;
+      }
+      setErreur(message);
     } finally {
       setBusy(null);
     }
@@ -130,7 +178,13 @@ export function AuthPanel({ refus = null }: { refus?: string | null }) {
     if (busy) return;
     if (mode === 'connexion') {
       if (!adresse || !motDePasse) return;
-      void lancer('email', () => signInWithEmailAndPassword(auth, adresse, motDePasse));
+      const attente = googleEnAttente;
+      void lancer('email', async () => {
+        const { user } = await signInWithEmailAndPassword(auth, adresse, motDePasse);
+        // Google refusé juste avant : il est relié maintenant, la prochaine fois il suffira. Un échec ici
+        // n'empêche pas d'entrer (la liaison reste possible dans les Réglages).
+        if (attente && (!attente.email || sameEmail(attente.email, user.email))) await linkPendingCredential(user, attente.credential).catch(() => undefined);
+      });
     } else if (mode === 'inscription') {
       if (!adresse || !motDePasse) return;
       if (motDePasse.length < 6) return setErreur('Mot de passe trop court : 6 caractères minimum.');
@@ -156,8 +210,7 @@ export function AuthPanel({ refus = null }: { refus?: string | null }) {
   const parGoogle = () => {
     if (busy) return;
     void lancer('google', async () => {
-      const fournisseur = new GoogleAuthProvider();
-      fournisseur.setCustomParameters({ prompt: 'select_account' });
+      const fournisseur = googleProvider();
       try {
         await signInWithPopup(auth, fournisseur);
       } catch (e) {
@@ -169,6 +222,14 @@ export function AuthPanel({ refus = null }: { refus?: string | null }) {
         throw e;
       }
     });
+  };
+
+  /** Compte créé avec Google : on y entre par Google, et le mot de passe tapé lui est ajouté */
+  const googleEtMotDePasse = () => {
+    if (busy) return;
+    if (motDePasse.length < 6) return setErreur('Mot de passe trop court : 6 caractères minimum.');
+    if (mode === 'inscription' && motDePasse !== confirmation) return setErreur('Les deux mots de passe ne sont pas identiques.');
+    void lancer('liaison', () => signInWithGoogleAddingPassword(adresse, motDePasse));
   };
 
   const [titre, sousTitre] = TITRES[mode];
@@ -307,6 +368,22 @@ export function AuthPanel({ refus = null }: { refus?: string | null }) {
           {erreur && (
             <p role="alert" className="m-0 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-[13px] leading-relaxed text-red-300">
               {erreur}
+            </p>
+          )}
+          {proposerGoogle && mode !== 'oubli' && adresse && motDePasse && (
+            <button
+              type="button"
+              onClick={googleEtMotDePasse}
+              disabled={busy !== null}
+              className="flex min-h-12 w-full items-center justify-center gap-3 rounded-xl border border-white/20 bg-white/[0.07] px-4 py-2 text-sm font-semibold text-white transition-colors duration-200 hover:bg-white/[0.12] disabled:opacity-40"
+            >
+              {busy === 'liaison' ? 'Fenêtre Google ouverte…' : 'Continuer avec Google et ajouter ce mot de passe'}
+            </button>
+          )}
+          {googleEnAttente && mode === 'connexion' && !erreur && (
+            <p role="status" className="m-0 rounded-xl border border-sky-500/30 bg-sky-500/10 px-4 py-3 text-[13px] leading-relaxed text-sky-200">
+              Un compte e-mail existe déjà pour cette adresse. Entre son mot de passe : Google y sera relié, et tu pourras
+              ensuite entrer avec l’un ou l’autre.
             </p>
           )}
           {info && (

@@ -56,6 +56,48 @@ export async function POST(request: Request): Promise<Response> {
   }
 }
 
+/**
+ * DELETE (appli, propriétaire connecté) : déconnecte Google Drive — l'autorisation est révoquée chez Google,
+ * puis effacée de Firestore avec l'état de la sauvegarde. Utilisé par la suppression du compte, avant que le
+ * compte ne disparaisse (le jeton Firebase doit encore être valable).
+ */
+export async function DELETE(request: Request): Promise<Response> {
+  const json = (status: number, body: unknown) => Response.json(body, { status, headers: { 'Cache-Control': 'no-store' } });
+  try {
+    const { HttpError, firestore, verifyOwner } = await import('./_lib/server.js');
+    try {
+      const { uid } = await verifyOwner(request);
+      const db = await firestore();
+      const link = db.doc('backupConfig/drive');
+      const snap = await link.get();
+      let disconnected = false;
+      if (snap.exists && snap.get('uid') === uid) {
+        const token = snap.get('refreshToken') as string | undefined;
+        if (token) {
+          // Révocation chez Google : même recopié, ce jeton ne donnerait plus accès à Drive
+          await fetch('https://oauth2.googleapis.com/revoke', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({ token }).toString(),
+          }).catch(() => undefined);
+        }
+        await link.delete();
+        disconnected = true;
+      }
+      const pending = await db.doc('backupConfig/oauthState').get();
+      if (pending.exists && pending.get('uid') === uid) await pending.ref.delete();
+      await db.doc(`users/${uid}/state/backup`).delete();
+      return json(200, { ok: true, disconnected });
+    } catch (e) {
+      if (e instanceof HttpError) return json(e.status, { ok: false, error: e.message });
+      throw e;
+    }
+  } catch (e) {
+    console.error('[sauvegarde] déconnexion Drive :', e);
+    return json(500, { ok: false, error: `Erreur serveur : ${(e as Error)?.message ?? String(e)}` });
+  }
+}
+
 export async function GET(request: Request): Promise<Response> {
   const q = new URL(request.url).searchParams;
   if (q.get('error')) return back(request, { drive: 'error', message: 'Autorisation refusée ou annulée.' });

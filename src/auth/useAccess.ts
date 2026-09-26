@@ -13,6 +13,14 @@ export const SIGNUP_OPEN = ALLOWLIST.length === 0;
 /** Propriétaire de l'appareil, gardé dans la base locale (jamais synchronisé ni exporté). */
 const OWNER_KEY = 'deviceOwner';
 
+/**
+ * Suppression du compte : l'appareil n'a plus de propriétaire, le prochain compte connecté le devient. Sans
+ * cela, la tablette resterait réservée à un compte qui n'existe plus, et tout nouveau compte y serait refusé.
+ */
+export async function resetDeviceOwner(): Promise<void> {
+  await db.setMeta(OWNER_KEY, null);
+}
+
 export interface Gate {
   /** checking : Firebase ou la vérification n'ont pas encore répondu ; open : on entre ; locked : écran de connexion */
   status: 'checking' | 'open' | 'locked';
