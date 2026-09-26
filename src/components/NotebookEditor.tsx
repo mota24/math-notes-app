@@ -6,7 +6,8 @@ import { hasBackground, pageBackground } from '../ink/background';
 import { strokeBBox, unionBBox } from '../ink/geometry';
 import { InkCanvas } from '../ink/InkCanvas';
 import type { CanvasPage, TextEdit, TextTarget } from '../ink/InkCanvas';
-import { fitTextBox } from '../ink/draw';
+import { fitTextBox, setHandGlyphs } from '../ink/draw';
+import { prepareCorrection } from '../ocr/correct';
 import { TEXT_LINE_HEIGHT, textPadding } from '../ink/textLayout';
 import { rasterizeRegion } from '../ink/rasterize';
 import { newId } from '../ink/types';
@@ -551,6 +552,52 @@ export function NotebookEditor({
   };
   const commitTextRef = useRef(commitText);
   commitTextRef.current = commitText;
+
+  // ------------------------------------------------------------ « Mon écriture » et correction des scans
+  const glyphs = useQuery(() => db.glyphs(), [], ['glyphs']);
+  useEffect(() => {
+    if (glyphs) setHandGlyphs(glyphs);
+  }, [glyphs]);
+  const toggleHandFont = () => {
+    if (!glyphs?.length) return flash('Enregistre d’abord ton écriture : Bibliothèque → Mon écriture.');
+    replaceSelected((chosen) => chosen.map((st) => (st.tool === 'text' ? fitTextBox({ ...st, font: st.font === 'mine' ? undefined : 'mine' }) : st)));
+  };
+
+  /** Page de la dernière zone tracée au lasso */
+  const regionPageRef = useRef<string | null>(null);
+  const [correcting, setCorrecting] = useState(false);
+  /**
+   * « Corriger le texte » : la zone du lasso est lue, son texte effacé dans une rustine (le scan reste intact
+   * dessous), puis une zone de texte pré-remplie est posée par-dessus et ouverte à la frappe. Rustine et texte
+   * arrivent en un seul pas d'annulation.
+   */
+  const correctRegion = async () => {
+    const region = selectionRegion;
+    const target = pageRef.current;
+    if (!region || !target || correcting) return;
+    if (regionPageRef.current && regionPageRef.current !== target.id) return flash('Un instant : la page est encore en train de s’ouvrir. Réessaie.');
+    setCorrecting(true);
+    try {
+      const correction = await prepareCorrection(target, region, setNotice);
+      if (!correction) {
+        flash('Aucun texte lu dans cette zone : entoure des mots imprimés du scan.');
+        return;
+      }
+      if (pageRef.current?.id !== target.id) return; // page quittée entre-temps
+      addStrokes(correction.patch ? [correction.patch, correction.text] : [correction.text]);
+      select([]);
+      onTextTarget({ pageId: target.id, stroke: correction.text });
+      flash(
+        correction.patch
+          ? 'Corrige le texte, puis touche à côté pour valider. Le scan d’origine reste dessous : supprimer la rustine le fait réapparaître.'
+          : 'Aucune encre à effacer trouvée ; le texte lu est posé par-dessus, prêt à corriger.',
+      );
+    } catch (e) {
+      flash(`Correction impossible : ${(e as Error)?.message ?? 'erreur inconnue'}`);
+    } finally {
+      setCorrecting(false);
+    }
+  };
 
   const openText = (focus: boolean) => {
     if (!textOpen) {
@@ -1205,10 +1252,14 @@ export function NotebookEditor({
               }}
               onSwitchTool={setTool}
               onTapText={onTapText}
-              onSelect={(ids, region) => {
-                const current = pageRef.current;
-                select(ids, region && current && hasBackground(current) ? region : null);
+              onSelect={(ids, region, targetPageId) => {
+                // La zone du lasso compte sur la page où il a été tracé (en défilement continu, pas forcément la courante)
+                const target = orderedPages.find((pg) => pg.id === targetPageId) ?? pageRef.current;
+                regionPageRef.current = target?.id ?? null;
+                select(ids, region && target && hasBackground(target) ? region : null);
               }}
+              onCorrectRegion={() => void correctRegion()}
+              onToggleHandFont={toggleHandFont}
               onUndo={undo}
               onPenDetected={() => update({ penSeen: true })}
               onPenSize={(px) => update({ penSizePx: px })}

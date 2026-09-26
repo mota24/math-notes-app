@@ -54,6 +54,8 @@ export interface Stroke {
    * (retour à la ligne automatique, voir textLayout.ts) ; `size` est alors la taille du texte en mm.
    */
   text?: string;
+  /** tool === 'text' seulement : « mine » = écrit avec « Mon écriture » (caractères enregistrés) ; absent = police */
+  font?: 'mine';
   /** tool === 'shape' seulement : quelle forme dessiner (voir ShapeKind). */
   shape?: ShapeKind;
   /** Trait en pointillés (arêtes cachées, lignes de projection) : trait au stylo et formes. */

@@ -97,7 +97,12 @@ interface Props {
   onTransformStrokes(strokes: Stroke[]): void;
   /** Un tampon posé rend la main au stylo : le parent change d'outil, sans toucher à la sélection */
   onSwitchTool(tool: Tool): void;
-  onSelect(ids: string[], region?: BBox | null): void;
+  /** `pageId` : la page où le lasso a été tracé (sa zone y est rattachée) */
+  onSelect(ids: string[], region?: BBox | null, pageId?: string): void;
+  /** Zone du lasso sur un PDF ou une photo : « Corriger le texte » (effacer et réécrire le texte scanné) */
+  onCorrectRegion?(): void;
+  /** Une zone de texte seule sélectionnée : l'écrire avec « Mon écriture » ou avec la police */
+  onToggleHandFont?(): void;
   /**
    * Un tap sur une zone de texte (stylo, surligneur, outil Texte, lasso, souris, ou le doigt quand il ne dessine
    * pas) : la sélectionner tout de suite, poignées et barre d'actions comprises, sans passer par le lasso.
@@ -1041,8 +1046,8 @@ export function InkCanvas(props: Props) {
                 }
               : null;
           const ids = strokesInLasso(sheet.page.strokes, l.points.map(([x, y]) => [x, y]));
-          if (ids.length) activateSheet(sheet);
-          p.onSelect(ids, region);
+          if (ids.length || region) activateSheet(sheet);
+          p.onSelect(ids, region, sheet.id);
         }
         present();
       },
@@ -1657,10 +1662,20 @@ export function InkCanvas(props: Props) {
                   ))}
                   <MultiColorSwatch initial={props.selectionColors[0]} onCommit={props.onPickSelectionColor} />
                   {only?.tool === 'text' && <button onClick={() => editText(only)}>Modifier</button>}
+                  {only?.tool === 'text' && props.onToggleHandFont && (
+                    <button aria-pressed={only.font === 'mine'} onClick={props.onToggleHandFont} title="Écrire ce texte avec les caractères enregistrés dans « Mon écriture »">
+                      {only.font === 'mine' ? 'Police' : 'Mon écriture'}
+                    </button>
+                  )}
                   <button onClick={props.onDuplicateSelection}>Dupliquer</button>
                   <button onClick={props.onCopySelection}>Copier</button>
                   <button onClick={props.onDeleteSelection}>Supprimer</button>
                 </>
+              )}
+              {selectionRegion && props.onCorrectRegion && (
+                <button className="sel-correct" onClick={props.onCorrectRegion} title="Effacer le texte scanné de la zone et le réécrire, corrigé (le scan d’origine reste intact dessous)">
+                  Corriger le texte
+                </button>
               )}
               <button aria-label="Désélectionner" onClick={() => props.onSelect([])}>
                 ✕
