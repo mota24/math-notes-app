@@ -100,10 +100,12 @@ export async function DELETE(request: Request): Promise<Response> {
 
 export async function GET(request: Request): Promise<Response> {
   const q = new URL(request.url).searchParams;
-  if (q.get('error')) return back(request, { drive: 'error', message: 'Autorisation refusée ou annulée.' });
+  // Le retour vers l'appli ne porte qu'un CODE : l'appli affiche son propre message. Un texte libre dans l'adresse
+  // permettait à n'importe qui d'envoyer un lien affichant le message de son choix dans le bandeau de l'appli.
+  if (q.get('error')) return back(request, { drive: 'error', reason: 'denied' });
   const code = q.get('code');
   const state = q.get('state');
-  if (!code || !state) return back(request, { drive: 'error', message: 'Réponse de Google incomplète.' });
+  if (!code || !state) return back(request, { drive: 'error', reason: 'incomplete' });
   try {
     const { HttpError, firestore, oauthClient } = await import('./_lib/server.js');
     const { DRIVE_SCOPE } = await import('./_lib/drive.js');
@@ -112,7 +114,7 @@ export async function GET(request: Request): Promise<Response> {
       const pending = await db.doc('backupConfig/oauthState').get();
       const uid = pending.get('uid') as string | undefined;
       if (!pending.exists || pending.get('state') !== state || !uid || Date.now() - Number(pending.get('createdAt') ?? 0) > STATE_TTL) {
-        return back(request, { drive: 'error', message: 'Demande expirée ou inconnue : recommence depuis les Réglages.' });
+        return back(request, { drive: 'error', reason: 'expired' });
       }
       await db.doc('backupConfig/oauthState').delete();
 
@@ -125,21 +127,21 @@ export async function GET(request: Request): Promise<Response> {
       const body = (await res.json().catch(() => ({}))) as { refresh_token?: string; scope?: string; error?: string };
       if (!res.ok || !body.refresh_token) {
         console.error('[sauvegarde] échange du code Google refusé :', res.status, body.error);
-        return back(request, { drive: 'error', message: 'Google n’a pas donné d’autorisation durable : recommence.' });
+        return back(request, { drive: 'error', reason: 'no-refresh' });
       }
       if (!(body.scope ?? '').includes(DRIVE_SCOPE)) {
-        return back(request, { drive: 'error', message: 'L’accès à Google Drive n’a pas été accordé (case décochée ?).' });
+        return back(request, { drive: 'error', reason: 'no-scope' });
       }
       const now = Date.now();
       await db.doc('backupConfig/drive').set({ refreshToken: body.refresh_token, uid, scope: body.scope, connectedAt: now });
       await db.doc(`users/${uid}/state/backup`).set({ connected: true, connectedAt: now }, { merge: true });
       return back(request, { drive: 'connected' });
     } catch (e) {
-      if (e instanceof HttpError) return back(request, { drive: 'error', message: e.message });
+      if (e instanceof HttpError) return back(request, { drive: 'error', reason: e.status === 503 ? 'not-configured' : e.status === 403 ? 'forbidden' : 'session' });
       throw e;
     }
   } catch (e) {
     console.error('[sauvegarde] connexion Drive (retour) :', e);
-    return back(request, { drive: 'error', message: `Connexion à Google Drive impossible (${(e as Error)?.message ?? 'erreur serveur'}).` });
+    return back(request, { drive: 'error', reason: 'server' });
   }
 }

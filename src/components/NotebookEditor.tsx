@@ -18,6 +18,7 @@ import { NotebookMenu } from './NotebookMenu';
 import { ExportDialog } from './ExportDialog';
 import { ShareDialog } from './ShareDialog';
 import { SplitViewer } from './SplitViewer';
+import { lruGet, lruSet } from '../lru';
 import { TextPanel } from './TextPanel';
 import type { Highlight } from '../ocr/TextLayer';
 import type { TextWord } from '../ocr/textModel';
@@ -130,11 +131,10 @@ export function NotebookEditor({
   const histories = useRef(new Map<string, { undo: Action[]; redo: Action[] }>());
   const loadPage = useCallback((p: Page) => {
     if (pageRef.current?.id !== p.id) {
-      let h = histories.current.get(p.id);
-      if (!h) {
-        h = { undo: [], redo: [] };
-        histories.current.set(p.id, h);
-      }
+      // Les 20 dernières pages ouvertes gardent leur historique (chaque action garde les traits de sa page : sans
+      // borne, feuilleter un gros PDF en annotant accumulait la mémoire jusqu'à la fermeture du cahier)
+      const h = lruGet(histories.current, p.id) ?? { undo: [], redo: [] };
+      lruSet(histories.current, p.id, h, 20);
       history.current = h;
     }
     pageRef.current = p;
