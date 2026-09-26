@@ -38,7 +38,6 @@ export async function createBackup(): Promise<Blob> {
     notebooks: await db.notebooks(),
     pages: await db.allPages(),
     transcripts: await db.transcripts(),
-    glyphs: await db.glyphs(),
     files,
     todos: await db.todos(),
     tombstones: (await db.getMeta<Record<string, Tombstone>>('tombstones')) ?? {},
@@ -89,15 +88,6 @@ export async function restoreBackup(file: File): Promise<{ imported: number }> {
     }
     await db.putFile({ ...meta, blob });
     imported++;
-  }
-
-  const localGlyphs = new Map((await db.glyphs()).map((g) => [g.char, g]));
-  for (const g of data.glyphs) {
-    const mine = localGlyphs.get(g.char);
-    if (!tombstones[`glyph:${g.char}`] && (!mine || g.updatedAt > mine.updatedAt)) {
-      await db.putGlyph(g);
-      imported++;
-    }
   }
 
   const todos = mergeRecords(byKey(await db.todos(), (t) => t.id), byKey(data.todos, (t) => t.id), tombstones);

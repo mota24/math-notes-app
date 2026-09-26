@@ -40,7 +40,6 @@ function fakeReader(overrides: Partial<Record<string, unknown>> = {}): BackupRea
             foldersJson: JSON.stringify([{ id: 'f1', name: 'Semestre 1', parentId: null, color: '#123', createdAt: 1, updatedAt: 2, deletedAt: null }]),
             notebooksJson: JSON.stringify([{ id: 'nb1', title: 'Analyse', folderId: 'f1', color: '#456', paper: 'grid', pageIds: ['p1', 'lourde'], favorite: false, subject: '', openedAt: 3, createdAt: 1, updatedAt: 4, deletedAt: null, shareId: null }]),
             todosJson: JSON.stringify([{ id: 't1', text: 'Réviser Rolle', dueAt: null, done: false, createdAt: 1, updatedAt: 1, deletedAt: null }]),
-            glyphsJson: JSON.stringify([{ char: 'a', strokes: [[[0, 0, 0.5]]], advance: 0.5, updatedAt: 1 }]),
             tombstonesJson: JSON.stringify({ supprimee: { kind: 'page', deletedAt: 8 } }),
           },
     pages: async () => [
@@ -171,7 +170,7 @@ const cases: [string, () => Promise<void>][] = [
       assert.equal(backup.app, 'notes-maths');
       assert.equal(backup.createdAt, 1234);
       assert.deepEqual(counts, { folders: 1, notebooks: 1, pages: 2, files: 1, todos: 1 });
-      assert.deepEqual(Object.keys(backup), ['app', 'version', 'createdAt', 'folders', 'notebooks', 'pages', 'transcripts', 'glyphs', 'files', 'todos', 'tombstones', 'settings']);
+      assert.deepEqual(Object.keys(backup), ['app', 'version', 'createdAt', 'folders', 'notebooks', 'pages', 'transcripts', 'files', 'todos', 'tombstones', 'settings']);
       assert.equal(backup.settings?.color, '#c0392b', 'les réglages de couleurs sont dans la sauvegarde');
       assert.equal(warnings.length, 2, JSON.stringify(warnings));
     },

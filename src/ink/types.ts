@@ -54,8 +54,6 @@ export interface Stroke {
    * (retour à la ligne automatique, voir textLayout.ts) ; `size` est alors la taille du texte en mm.
    */
   text?: string;
-  /** tool === 'text' seulement : « mine » = écrit avec « Mon écriture » (caractères enregistrés) ; absent = police */
-  font?: 'mine';
   /** tool === 'text' : police assortie au document (serif, sans, mono), graisse et inclinaison ; absent = police de l'appli */
   family?: 'serif' | 'sans' | 'mono';
   bold?: boolean;

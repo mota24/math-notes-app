@@ -30,7 +30,7 @@ export interface SyncState {
   lastReport: SyncReport | null;
 }
 
-const SYNCED: StoreName[] = ['folders', 'notebooks', 'pages', 'files', 'transcripts', 'glyphs', 'todos'];
+const SYNCED: StoreName[] = ['folders', 'notebooks', 'pages', 'files', 'transcripts', 'todos'];
 
 let state: SyncState = { status: 'disabled', progress: '', percent: null, error: '', lastSyncAt: null, lastReport: null };
 const listeners = new Set<() => void>();

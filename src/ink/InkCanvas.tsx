@@ -36,8 +36,8 @@ export interface TextEdit {
   /** Taille du texte (mm) */
   size: number;
   color: string;
-  /** Police de la zone (gardée à la modification) : police assortie, graisse, italique, « Mon écriture » */
-  style?: Pick<Stroke, 'font' | 'family' | 'bold' | 'italic'>;
+  /** Police de la zone (gardée à la modification) : police assortie, graisse, italique */
+  style?: Pick<Stroke, 'family' | 'bold' | 'italic'>;
 }
 
 /** Outil Texte : où l'on a touché la page — une nouvelle zone, ou une zone existante à modifier */
@@ -107,7 +107,7 @@ interface Props {
    * Une zone de texte seule sélectionnée : changer sa police (celle de l'appli, Times, Arial, Courier ou « Mon
    * écriture »), sa graisse ou son inclinaison
    */
-  onTextStyle?(style: Pick<Stroke, 'font' | 'family' | 'bold' | 'italic'>): void;
+  onTextStyle?(style: Pick<Stroke, 'family' | 'bold' | 'italic'>): void;
   /**
    * Un tap sur une zone de texte (stylo, surligneur, outil Texte, lasso, souris, ou le doigt quand il ne dessine
    * pas) : la sélectionner tout de suite, poignées et barre d'actions comprises, sans passer par le lasso.
@@ -193,17 +193,15 @@ const TAP_MS = 450;
 
 /** Nom court de la police d'une zone de texte, pour la barre de sélection */
 function fontLabel(s: Stroke): string {
-  if (s.font === 'mine') return 'Mon écriture';
   return s.family === 'serif' ? 'Times' : s.family === 'sans' ? 'Arial' : s.family === 'mono' ? 'Courier' : 'Appli';
 }
 
-/** La police suivante du cycle : appli → Times → Arial → Courier → « Mon écriture » → appli */
-function nextFont(s: Stroke): Pick<Stroke, 'font' | 'family'> {
-  if (s.font === 'mine') return { font: undefined, family: undefined };
+/** La police suivante du cycle : appli → Times → Arial → Courier → appli */
+function nextFont(s: Stroke): Pick<Stroke, 'family'> {
   if (!s.family) return { family: 'serif' };
   if (s.family === 'serif') return { family: 'sans' };
   if (s.family === 'sans') return { family: 'mono' };
-  return { family: undefined, font: 'mine' };
+  return { family: undefined };
 }
 
 /** Identifiant de l'aperçu d'une poignée (aucun vrai contact n'a cet id). */
@@ -1693,7 +1691,7 @@ export function InkCanvas(props: Props) {
                     <>
                       <button
                         onClick={() => props.onTextStyle?.(nextFont(only))}
-                        title="Changer de police : appli → Times → Arial → Courier → Mon écriture"
+                        title="Changer de police : appli → Times → Arial → Courier"
                         aria-label={`Police : ${fontLabel(only)} (toucher pour changer)`}
                       >
                         Aa · {fontLabel(only)}

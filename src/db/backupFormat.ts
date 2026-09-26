@@ -1,5 +1,5 @@
 import type { Tombstone } from './library';
-import type { Folder, Glyph, Notebook, Page, StoredFile, Todo, Transcript } from './schema';
+import type { Folder, Notebook, Page, StoredFile, Todo, Transcript } from './schema';
 
 /**
  * Format du fichier de sauvegarde `.json` et sa validation. Sans dépendance (ni base, ni React) :
@@ -16,7 +16,6 @@ export interface BackupFile {
   notebooks: Notebook[];
   pages: Page[];
   transcripts: Transcript[];
-  glyphs: Glyph[];
   files: FileEntry[];
   todos: Todo[];
   tombstones: Record<string, Tombstone>;
@@ -28,14 +27,14 @@ export interface BackupFile {
   settings?: Record<string, unknown>;
 }
 
-const TOMBSTONE_KINDS = new Set<Tombstone['kind']>(['folder', 'notebook', 'page', 'file', 'transcript', 'glyph', 'todo']);
+const TOMBSTONE_KINDS = new Set<Tombstone['kind']>(['folder', 'notebook', 'page', 'file', 'transcript', 'todo']);
 
 /** Objet JSON « simple » (ni null, ni tableau). Partagé avec la synchronisation Drive. */
 export const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const isFiniteNumber = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 const isNullableTime = (v: unknown): v is number | null => v === null || v === undefined || isFiniteNumber(v);
 
-/** Élément daté, identifié par `idKey` (id, pageId ou char selon le magasin). */
+/** Élément daté, identifié par `idKey` (id ou pageId selon le magasin). */
 function isVersioned(v: unknown, idKey: string): v is Record<string, unknown> & { updatedAt: number } {
   return isRecord(v) && typeof v[idKey] === 'string' && (v[idKey] as string).length > 0 && isFiniteNumber(v.updatedAt) && isNullableTime(v.deletedAt);
 }
@@ -60,7 +59,6 @@ export const isFolder = (f: unknown): f is Folder => isVersioned(f, 'id') && typ
 export const isNotebook = (n: unknown): n is Notebook => isVersioned(n, 'id') && typeof n.title === 'string' && Array.isArray(n.pageIds);
 export const isPage = (p: unknown): p is Page => isVersioned(p, 'id') && typeof p.notebookId === 'string' && Array.isArray(p.strokes);
 export const isTranscript = (t: unknown): t is Transcript => isVersioned(t, 'pageId') && Array.isArray(t.blocks);
-export const isGlyph = (g: unknown): g is Glyph => isVersioned(g, 'char') && Array.isArray(g.strokes);
 export const isFileEntry = (f: unknown): f is FileEntry => isVersioned(f, 'id') && typeof f.data === 'string' && typeof f.type === 'string';
 export const isTodo = (t: unknown): t is Todo =>
   isVersioned(t, 'id') && typeof t.text === 'string' && typeof t.done === 'boolean' && isNullableTime(t.dueAt);
@@ -81,7 +79,6 @@ export function validateBackup(raw: unknown): BackupFile {
     notebooks: cleanList(raw.notebooks, isNotebook),
     pages: cleanList(raw.pages, isPage),
     transcripts: cleanList(raw.transcripts, isTranscript),
-    glyphs: cleanList(raw.glyphs, isGlyph),
     files: cleanList(raw.files, isFileEntry),
     todos: cleanList(raw.todos, isTodo),
     tombstones: cleanTombstones(raw.tombstones),

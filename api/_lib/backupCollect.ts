@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { BackupFile, FileEntry } from '../../src/db/backupFormat';
 import type { Tombstone } from '../../src/db/library';
-import type { Folder, Glyph, Notebook, Page, Todo, Transcript } from '../../src/db/schema';
+import type { Folder, Notebook, Page, Todo, Transcript } from '../../src/db/schema';
 
 /**
  * Reconstruit, à partir de Firestore, EXACTEMENT le fichier que produit l'export manuel de l'appli
@@ -9,7 +9,7 @@ import type { Folder, Glyph, Notebook, Page, Todo, Transcript } from '../../src/
  * (ni Firebase, ni fichier voisin) : testé sous Node avec un lecteur en mémoire (tests/driveBackup.test.ts).
  *
  * Firestore range les données ainsi (src/sync/firestore.ts) :
- *  - users/<uid>/state/index : dossiers, cahiers, tâches, écriture perso et suppressions, en JSON texte ;
+ *  - users/<uid>/state/index : dossiers, cahiers, tâches et suppressions, en JSON texte ;
  *  - users/<uid>/pages/<id> : la page en JSON, ou découpée en `parts` morceaux (pages lourdes) ;
  *  - users/<uid>/transcripts/<id> : la transcription en JSON ;
  *  - users/<uid>/files/<id> + chunks/<n> : les PDF et photos, en morceaux binaires, avec leur SHA-256 ;
@@ -141,7 +141,6 @@ export async function collectBackup(reader: BackupReader, now = Date.now()): Pro
     notebooks: jsonList<Notebook>(index.notebooksJson, 'id'),
     pages,
     transcripts,
-    glyphs: jsonList<Glyph>(index.glyphsJson, 'char'),
     files,
     todos: jsonList<Todo>(index.todosJson, 'id'),
     tombstones,

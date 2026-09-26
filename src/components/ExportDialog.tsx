@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Block } from '../ai/blocks';
 import { db, useQuery } from '../db/db';
-import type { Glyph, Notebook, Page, Transcript } from '../db/schema';
+import type { Notebook, Page, Transcript } from '../db/schema';
 import { downloadBlob } from '../export/download';
 import { HAND_FONTS, handLayout, renderHandwriting } from '../export/handwriting';
 import type { HandSize, HandStyle } from '../export/handwriting';
@@ -19,9 +19,8 @@ const INKS = [
   { value: '#5b2a86', name: 'Violet' },
 ];
 
-// Tableaux vides stables (`?? []` en créerait un nouveau à chaque rendu et casserait les useMemo)
+// Tableau vide stable (`?? []` en créerait un nouveau à chaque rendu et casserait les useMemo)
 const NO_TRANSCRIPTS: Transcript[] = [];
-const NO_GLYPHS: Glyph[] = [];
 
 export function ExportDialog({
   notebook,
@@ -42,7 +41,6 @@ export function ExportDialog({
   const [handJob, setHandJob] = useState<{ number: number; blocks: Block[] }[] | null>(null);
   const layoutRef = useRef<HTMLDivElement>(null);
   const transcripts = useQuery(() => db.transcriptsOf(notebook.id), [notebook.id], ['transcripts']) ?? NO_TRANSCRIPTS;
-  const glyphs = useQuery(() => db.glyphs(), [], ['glyphs']) ?? NO_GLYPHS;
 
   const pageIds = useMemo(() => (scope === 'page' ? [notebook.pageIds[pageIndex]] : notebook.pageIds), [scope, notebook.pageIds, pageIndex]);
   const converted = useMemo(() => {
@@ -100,7 +98,6 @@ export function ExportDialog({
             style: settings.handStyle,
             ink: settings.handInk,
             paper: settings.handPaper,
-            glyphs: new Map(glyphs.map((g) => [g.char, g])),
             variation: settings.handVariation,
           },
           (done, total) => alive && setBusy(`Écriture des pages… ${done}/${total}`),
@@ -188,7 +185,6 @@ export function ExportDialog({
           <label className="field">
             <span>Écriture</span>
             <select value={settings.handStyle} onChange={(e) => update({ handStyle: e.target.value as HandStyle })}>
-              <option value="mine">Mon écriture ({glyphs.length} caractères enregistrés)</option>
               <option value="caveat">Caveat (cursive)</option>
               <option value="kalam">Kalam (script)</option>
               <option value="patrick">Patrick Hand (soignée)</option>
@@ -235,19 +231,6 @@ export function ExportDialog({
               ))}
             </div>
           </div>
-          {settings.handStyle === 'mine' && glyphs.length < 26 && (
-            <p className="hint">
-              Les caractères que tu n’as pas encore écrits utilisent Caveat.{' '}
-              <button
-                onClick={() => {
-                  onClose();
-                  go({ name: 'handwriting' });
-                }}
-              >
-                Enregistrer mon écriture
-              </button>
-            </p>
-          )}
           <button
             className="primary"
             disabled={noTranscript || !!busy}

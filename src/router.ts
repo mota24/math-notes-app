@@ -5,7 +5,6 @@ export type Route =
   | { name: 'library'; folderId: string | null }
   | { name: 'trash' }
   | { name: 'notebook'; notebookId: string; pageIndex: number }
-  | { name: 'handwriting' }
   | { name: 'print'; notebookId: string; pageIndex: number | null };
 
 /** Un segment d'adresse mal encodé (lien abîmé, « %E0 » seul) donnait une exception, donc un écran blanc. */
@@ -26,8 +25,6 @@ export function parseHash(hash: string): Route {
       return { name: 'trash' };
     case 'cahier':
       return { name: 'notebook', notebookId: parts[1] ?? '', pageIndex: Math.max(0, (Number(parts[2]) || 1) - 1) };
-    case 'ecriture':
-      return { name: 'handwriting' };
     case 'imprimer':
       return { name: 'print', notebookId: parts[1] ?? '', pageIndex: parts[2] ? Math.max(0, Number(parts[2]) - 1) : null };
     default:
@@ -43,8 +40,6 @@ export function routeHash(route: Route): string {
       return '#/corbeille';
     case 'notebook':
       return `#/cahier/${encodeURIComponent(route.notebookId)}/${route.pageIndex + 1}`;
-    case 'handwriting':
-      return '#/ecriture';
     case 'print':
       return `#/imprimer/${encodeURIComponent(route.notebookId)}${route.pageIndex !== null ? `/${route.pageIndex + 1}` : ''}`;
   }

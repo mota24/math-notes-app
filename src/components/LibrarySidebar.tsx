@@ -121,7 +121,6 @@ export interface SidebarProps {
   onTrash(): void;
   /** Nouveau dossier : à la racine (null) ou dans un dossier de l'arbre */
   onNewFolder(parentId: string | null): void;
-  onHandwriting(): void;
   onSettings(): void;
   onCalendar(): void;
 }
@@ -130,7 +129,7 @@ export interface SidebarProps {
  * La barre latérale de la bibliothèque, en trois étages :
  *  - en haut (fixe) : le nom de l'appli et la recherche ;
  *  - au milieu : Bibliothèque puis l'arbre de « Mes dossiers », qui est la SEULE partie à défiler ;
- *  - en bas (fixe, toujours visible) : Calendrier, Corbeille, Mon écriture, Réglages et la synchronisation.
+ *  - en bas (fixe, toujours visible) : Calendrier, Corbeille, Réglages et la synchronisation.
  * Fixe à gauche sur un écran large ; sur un petit écran, un tiroir qu'ouvre le bouton du haut.
  */
 export function LibrarySidebar(p: SidebarProps) {
@@ -273,7 +272,6 @@ export function LibrarySidebar(p: SidebarProps) {
       <div className="flex shrink-0 flex-col gap-px border-t border-black/5 px-2.5 pb-3 pt-2 dark:border-white/[0.05]">
         <NavButton icon="calendar" label="Calendrier" onClick={p.onCalendar} />
         <NavButton icon="trash" label="Corbeille" active={p.inTrash} badge={p.trashCount} onClick={p.onTrash} />
-        <NavButton icon="pen" label="Mon écriture" onClick={p.onHandwriting} />
         <NavButton icon="settings" label="Réglages" onClick={p.onSettings} />
         <div className="mt-1 empty:hidden [&>*]:w-full [&>*]:justify-center">
           <SyncChip />

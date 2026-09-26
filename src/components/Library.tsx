@@ -383,7 +383,6 @@ export function Library({ route, onOpenSettings }: { route: Extract<Route, { nam
         onFolder={(id) => navigate({ name: 'library', folderId: id })}
         onTrash={() => navigate({ name: 'trash' })}
         onNewFolder={(parentId) => (setMenuOpen(false), setDialog({ kind: 'new-folder', parentId }))}
-        onHandwriting={() => go({ name: 'handwriting' })}
         onCalendar={() => (setMenuOpen(false), setTodosOpen('calendrier'))}
         onSettings={() => (setMenuOpen(false), onOpenSettings())}
       />

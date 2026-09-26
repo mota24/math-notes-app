@@ -1,7 +1,7 @@
 import { db, notify } from '../db/db';
 import type { Tombstone } from '../db/library';
-import { isFolder, isGlyph, isNotebook, isPage, isRecord, isTodo, isTranscript } from '../db/backupFormat';
-import type { Folder, Glyph, Notebook, Page, StoredFile, Todo, Transcript } from '../db/schema';
+import { isFolder, isNotebook, isPage, isRecord, isTodo, isTranscript } from '../db/backupFormat';
+import type { Folder, Notebook, Page, StoredFile, Todo, Transcript } from '../db/schema';
 import { getFirestoreDb } from '../firebase';
 import { backupPrefs, currentSettings } from '../settings';
 import { FILE_CHUNK_BYTES, MAX_SYNC_FILE_BYTES, MAX_SYNC_PAGE_CHARS, PAGE_PART_CHARS, joinBytes, splitBytes, splitText, toHex } from './chunks';
@@ -10,7 +10,7 @@ import { byKey, mergeRecords, mergeTombstones } from './merge';
 /**
  * Synchronisation temps réel via Firebase Firestore, EN OPTION et sans risque pour les données locales :
  *
- *  - Synchronise dossiers, cahiers, pages (traits), transcriptions, tâches, écriture perso, ET les fichiers de
+ *  - Synchronise dossiers, cahiers, pages (traits), transcriptions, tâches, ET les fichiers de
  *    fond (PDF de cours, photos), découpés en morceaux binaires vérifiés par SHA-256 (voir chunks.ts). Avant,
  *    les PDF restaient sur l'appareil : sur un autre appareil, ou après un nettoyage du stockage par le
  *    navigateur (Safari efface au bout de 7 jours un site non installé), le cours était perdu pour de bon.
@@ -20,7 +20,7 @@ import { byKey, mergeRecords, mergeTombstones } from './merge';
  *  - Fusion « la plus récente gagne », entité par entité, avec le MÊME code éprouvé que la synchro Drive
  *    (mergeRecords/mergeTombstones, 212 tests). Une donnée locale n'est jamais écrasée par une version
  *    distante plus ancienne, et une suppression ne se propage que par pierre tombale.
- *  - Firestore n'accepte pas les tableaux de tableaux (or Stroke.points et Glyph.strokes en sont) : chaque
+ *  - Firestore n'accepte pas les tableaux de tableaux (or Stroke.points en est un) : chaque
  *    entité est donc rangée en JSON (champ texte), ce qui évite aussi toute surprise de schéma.
  *  - Tout appel réseau est protégé : si Firestore n'est pas activé côté console ou si la connexion échoue,
  *    on passe en état « erreur » proprement, sans jamais planter ni toucher à la base locale.
@@ -40,14 +40,11 @@ const URGENT_WINDOW_MS = 2_500;
 const MAX_DOC_BYTES = 1_000_000; // limite Firestore par document (1 Mio) ; on garde une marge
 const BATCH_LIMIT = 400; // Firestore : 500 opérations max par lot
 
-type GlyphRow = Glyph & { deletedAt: null };
-
 interface RemoteIndex {
   updatedAt: number;
   folders: Folder[];
   notebooks: Notebook[];
   todos: Todo[];
-  glyphs: Glyph[];
   tombstones: Record<string, Tombstone>;
 }
 
@@ -68,7 +65,7 @@ interface RemoteFile {
   updatedAt: number;
 }
 
-const EMPTY_INDEX: RemoteIndex = { updatedAt: 0, folders: [], notebooks: [], todos: [], glyphs: [], tombstones: {} };
+const EMPTY_INDEX: RemoteIndex = { updatedAt: 0, folders: [], notebooks: [], todos: [], tombstones: {} };
 
 // ------------------------------------------------------------------ état exposé à l'UI
 
@@ -214,7 +211,6 @@ function parseIndex(data: unknown): RemoteIndex {
     folders: list(d.foldersJson, isFolder),
     notebooks: list(d.notebooksJson, isNotebook),
     todos: list(d.todosJson, isTodo),
-    glyphs: list(d.glyphsJson, isGlyph),
     tombstones: rec<Tombstone>(d.tombstonesJson),
   };
 }
@@ -259,15 +255,6 @@ async function pullNow() {
     const todoPlan = mergeRecords(byKey(await db.todos(), (t) => t.id), byKey(s.remoteIndex.todos, (t) => t.id), tombstones);
     for (const id of todoPlan.pull) await db.putTodo(todoPlan.merged[id]);
     for (const id of todoPlan.purge) await db.deleteTodo(id);
-
-    const localGlyphs = byKey((await db.glyphs()).map((g): GlyphRow => ({ ...g, deletedAt: null })), (g) => g.char);
-    const remoteGlyphs = byKey(s.remoteIndex.glyphs.map((g): GlyphRow => ({ ...g, deletedAt: null })), (g) => g.char);
-    const glyphPlan = mergeRecords(localGlyphs, remoteGlyphs, tombstones, (c) => `glyph:${c}`);
-    for (const c of glyphPlan.pull) {
-      const { deletedAt: _d, ...glyph } = glyphPlan.merged[c];
-      await db.putGlyph(glyph);
-    }
-    for (const c of glyphPlan.purge) await db.deleteGlyph(c);
 
     // pages : la version distante n'est chargée (json) que si elle est réellement plus récente
     const pagePlan = mergeRecords(await db.pageVersions(), Object.fromEntries(s.remotePages), tombstones);
@@ -449,21 +436,16 @@ async function flushNow() {
     const folders = await db.folders();
     const notebooks = await db.notebooks();
     const todos = await db.todos();
-    const glyphs = await db.glyphs();
 
     const folderPlan = mergeRecords(byKey(folders, (f) => f.id), byKey(s.remoteIndex.folders, (f) => f.id), tombstones);
     const notebookPlan = mergeRecords(byKey(notebooks, (n) => n.id), byKey(s.remoteIndex.notebooks, (n) => n.id), tombstones);
     const todoPlan = mergeRecords(byKey(todos, (t) => t.id), byKey(s.remoteIndex.todos, (t) => t.id), tombstones);
-    const localGlyphs = byKey(glyphs.map((g): GlyphRow => ({ ...g, deletedAt: null })), (g) => g.char);
-    const remoteGlyphs = byKey(s.remoteIndex.glyphs.map((g): GlyphRow => ({ ...g, deletedAt: null })), (g) => g.char);
-    const glyphPlan = mergeRecords(localGlyphs, remoteGlyphs, tombstones, (c) => `glyph:${c}`);
 
     const nextIndex: RemoteIndex = {
       updatedAt: now,
       folders: Object.values(folderPlan.merged),
       notebooks: Object.values(notebookPlan.merged),
       todos: Object.values(todoPlan.merged),
-      glyphs: Object.values(glyphPlan.merged).map(({ deletedAt: _d, ...g }) => g),
       tombstones,
     };
 
@@ -474,7 +456,6 @@ async function flushNow() {
       folderPlan.push.length > 0 ||
       notebookPlan.push.length > 0 ||
       todoPlan.push.length > 0 ||
-      glyphPlan.push.length > 0 ||
       JSON.stringify(tombstones) !== JSON.stringify(s.remoteIndex.tombstones);
     // Réglages d'apparence (couleurs…) : lus par la sauvegarde hebdomadaire sur Drive ; réécrits seulement
     // s'ils ont changé depuis le dernier envoi de la session
@@ -492,7 +473,6 @@ async function flushNow() {
         foldersJson: JSON.stringify(nextIndex.folders),
         notebooksJson: JSON.stringify(nextIndex.notebooks),
         todosJson: JSON.stringify(nextIndex.todos),
-        glyphsJson: JSON.stringify(nextIndex.glyphs),
         tombstonesJson: JSON.stringify(tombstones),
       };
       batchOps.push((b) => b.set(indexRef, payload));
@@ -695,7 +675,7 @@ async function subscribe() {
 
 // ------------------------------------------------------------------ contrôleur public
 
-const SYNCED = new Set(['folders', 'notebooks', 'pages', 'files', 'transcripts', 'glyphs', 'todos', 'prefs']);
+const SYNCED = new Set(['folders', 'notebooks', 'pages', 'files', 'transcripts', 'todos', 'prefs']);
 let enabled = false;
 
 export const firestoreController = {

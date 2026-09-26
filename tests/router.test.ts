@@ -12,7 +12,6 @@ const cases: [string, () => void][] = [
       assert.deepEqual(parseHash('#/corbeille'), { name: 'trash' });
       assert.deepEqual(parseHash('#/cahier/n1/3'), { name: 'notebook', notebookId: 'n1', pageIndex: 2 });
       assert.deepEqual(parseHash('#/cahier/n1'), { name: 'notebook', notebookId: 'n1', pageIndex: 0 });
-      assert.deepEqual(parseHash('#/ecriture'), { name: 'handwriting' });
       assert.deepEqual(parseHash('#/imprimer/n1'), { name: 'print', notebookId: 'n1', pageIndex: null });
       assert.deepEqual(parseHash('#/imprimer/n1/2'), { name: 'print', notebookId: 'n1', pageIndex: 1 });
       assert.deepEqual(parseHash('#/inconnu/x'), { name: 'library', folderId: null });
@@ -35,7 +34,6 @@ const cases: [string, () => void][] = [
         { name: 'library', folderId: 'dossier/avec espace #1' },
         { name: 'trash' },
         { name: 'notebook', notebookId: 'id%20?x', pageIndex: 4 },
-        { name: 'handwriting' },
         { name: 'print', notebookId: 'n', pageIndex: null },
         { name: 'print', notebookId: 'n', pageIndex: 0 },
       ];

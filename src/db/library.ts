@@ -4,14 +4,14 @@ import type { PaperColor, PaperStyle } from '../ink/types';
 import { pdfPageSizes } from '../pdf/pdfjs';
 import { db } from './db';
 import { NOTEBOOK_COLORS, PAPER_SIZES } from './schema';
-import type { Folder, Glyph, Notebook, Page, StoredFile, Todo } from './schema';
+import type { Folder, Notebook, Page, StoredFile, Todo } from './schema';
 
 /** Opérations de la bibliothèque (dossiers, cahiers, pages, corbeille, recherche). */
 
 const now = () => Date.now();
 
 export interface Tombstone {
-  kind: 'folder' | 'notebook' | 'page' | 'file' | 'transcript' | 'glyph' | 'todo';
+  kind: 'folder' | 'notebook' | 'page' | 'file' | 'transcript' | 'todo';
   deletedAt: number;
 }
 
@@ -406,24 +406,6 @@ export async function movePage(notebookId: string, from: number, to: number) {
     pageIds.splice(to, 0, id);
     return { ...n, pageIds, updatedAt: now() };
   });
-}
-
-// ------------------------------------------------------------------ écriture perso
-
-export async function saveGlyph(glyph: Glyph) {
-  await db.putGlyph(glyph);
-  const stones = (await db.getMeta<Record<string, Tombstone>>('tombstones')) ?? {};
-  const key = `glyph:${glyph.char}`;
-  if (stones[key]) {
-    // Réécrit après suppression : la suppression ne doit plus se propager
-    delete stones[key];
-    await db.setMeta('tombstones', stones);
-  }
-}
-
-export async function removeGlyph(char: string) {
-  await db.deleteGlyph(char);
-  await addTombstones({ [`glyph:${char}`]: { kind: 'glyph', deletedAt: now() } });
 }
 
 // ------------------------------------------------------------------ à faire

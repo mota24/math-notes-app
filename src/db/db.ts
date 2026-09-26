@@ -1,7 +1,7 @@
 import { openDB } from 'idb';
 import type { DBSchema, IDBPDatabase } from 'idb';
 import { useEffect, useState } from 'react';
-import type { ConversionResult, Folder, Glyph, Notebook, Page, PageVersion, StoredFile, Todo, Transcript } from './schema';
+import type { ConversionResult, Folder, Notebook, Page, PageVersion, StoredFile, Todo, Transcript } from './schema';
 
 /** Base locale (IndexedDB) : tout fonctionne hors-ligne, la synchronisation vient par-dessus. */
 
@@ -12,12 +12,11 @@ interface NotesDB extends DBSchema {
   files: { key: string; value: StoredFile };
   transcripts: { key: string; value: Transcript; indexes: { notebookId: string } };
   results: { key: string; value: ConversionResult; indexes: { pageId: string } };
-  glyphs: { key: string; value: Glyph };
   todos: { key: string; value: Todo };
   meta: { key: string; value: { key: string; value: unknown } };
 }
 
-export type StoreName = 'folders' | 'notebooks' | 'pages' | 'files' | 'transcripts' | 'results' | 'glyphs' | 'todos' | 'meta';
+export type StoreName = 'folders' | 'notebooks' | 'pages' | 'files' | 'transcripts' | 'results' | 'todos' | 'meta';
 
 type Db = IDBPDatabase<NotesDB>;
 let dbPromise: Promise<Db> | null = null;
@@ -25,7 +24,8 @@ let dbPromise: Promise<Db> | null = null;
 function database(): Promise<Db> {
   // Version 2 : ajout du magasin « todos ». `oldVersion` protège les bases existantes (v1) : leurs magasins
   // ne sont jamais recréés (IndexedDB refuse un createObjectStore sur un nom déjà pris), seul « todos » s'ajoute.
-  dbPromise ??= openDB<NotesDB>('notes-maths', 2, {
+  // Version 3 : l'ancien magasin « glyphs » disparaît, avec son contenu.
+  dbPromise ??= openDB<NotesDB>('notes-maths', 3, {
     upgrade(db, oldVersion) {
       if (oldVersion < 1) {
         db.createObjectStore('folders', { keyPath: 'id' });
@@ -34,11 +34,14 @@ function database(): Promise<Db> {
         db.createObjectStore('files', { keyPath: 'id' });
         db.createObjectStore('transcripts', { keyPath: 'pageId' }).createIndex('notebookId', 'notebookId');
         db.createObjectStore('results', { keyPath: 'id' }).createIndex('pageId', 'pageId');
-        db.createObjectStore('glyphs', { keyPath: 'char' });
         db.createObjectStore('meta', { keyPath: 'key' });
       }
       if (oldVersion < 2) {
         db.createObjectStore('todos', { keyPath: 'id' });
+      }
+      if (oldVersion < 3) {
+        const legacy = db as unknown as IDBPDatabase;
+        if (legacy.objectStoreNames.contains('glyphs')) legacy.deleteObjectStore('glyphs');
       }
     },
     // Le navigateur a coupé la connexion (iOS/iPadOS le fait après une mise en arrière-plan : « Connection to
@@ -311,16 +314,6 @@ export const db = {
   async deleteResult(id: string) {
     await withDb((d) => d.delete('results', id));
     notify('results');
-  },
-
-  glyphs: () => withDb((d) => d.getAll('glyphs')),
-  async putGlyph(g: Glyph) {
-    await withDb((d) => d.put('glyphs', g));
-    notify('glyphs');
-  },
-  async deleteGlyph(char: string) {
-    await withDb((d) => d.delete('glyphs', char));
-    notify('glyphs');
   },
 
   todos: () => withDb((d) => d.getAll('todos')),

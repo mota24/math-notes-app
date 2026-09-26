@@ -5,7 +5,6 @@ const folder = { id: 'f1', name: 'Terminale', parentId: null, color: '#2456c9', 
 const notebook = { id: 'n1', folderId: 'f1', title: 'Suites', color: '#2456c9', paper: 'grid', pageIds: ['p1'], favorite: false, subject: '', openedAt: 1, createdAt: 1, updatedAt: 2, deletedAt: null };
 const page = { id: 'p1', notebookId: 'n1', width: 210, height: 297, paper: 'grid', pdf: null, strokes: [], createdAt: 1, updatedAt: 2, deletedAt: null };
 const transcript = { pageId: 'p1', notebookId: 'n1', blocks: [], model: 'x', strokeCount: 0, edited: false, createdAt: 1, updatedAt: 2, deletedAt: null };
-const glyph = { char: 'a', strokes: [], advance: 1, updatedAt: 2 };
 const fileEntry = { id: 'file1', name: 'td.pdf', type: 'application/pdf', size: 3, data: 'AAA=', createdAt: 1, updatedAt: 2, deletedAt: null };
 
 const full = {
@@ -16,7 +15,6 @@ const full = {
   notebooks: [notebook],
   pages: [page],
   transcripts: [transcript],
-  glyphs: [glyph],
   files: [fileEntry],
   tombstones: { old: { kind: 'page', deletedAt: 5 } },
 };
@@ -30,7 +28,6 @@ const cases: [string, () => void][] = [
       assert.equal(out.notebooks.length, 1);
       assert.equal(out.pages.length, 1);
       assert.equal(out.transcripts.length, 1);
-      assert.equal(out.glyphs.length, 1);
       assert.equal(out.files.length, 1);
       assert.deepEqual(out.tombstones, { old: { kind: 'page', deletedAt: 5 } });
       assert.equal(out.createdAt, 123);
@@ -68,16 +65,22 @@ const cases: [string, () => void][] = [
         folders: [folder, { id: 'x' }, null, 'texte', { ...folder, id: '' }, { ...folder, updatedAt: 'hier' }],
         pages: [page, { ...page, strokes: 'pas un tableau' }, { ...page, notebookId: 42 }],
         transcripts: [transcript, { ...transcript, pageId: undefined }],
-        glyphs: [glyph, { char: 'b' }],
         files: [fileEntry, { ...fileEntry, data: 12 }],
         tombstones: { ok: { kind: 'folder', deletedAt: 1 }, bad1: { kind: 'martien', deletedAt: 1 }, bad2: { kind: 'page' }, bad3: 'x' },
       });
       assert.equal(out.folders.length, 1);
       assert.equal(out.pages.length, 1);
       assert.equal(out.transcripts.length, 1);
-      assert.equal(out.glyphs.length, 1);
       assert.equal(out.files.length, 1);
       assert.deepEqual(Object.keys(out.tombstones), ['ok']);
+    },
+  ],
+  [
+    'un champ inconnu (fichier d’une ancienne version) est ignoré, le reste restauré',
+    () => {
+      const out = validateBackup({ ...full, ancien: [{ id: 'x' }] });
+      assert.equal('ancien' in out, false);
+      assert.equal(out.pages.length, 1);
     },
   ],
   [

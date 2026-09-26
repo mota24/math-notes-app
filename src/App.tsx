@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { HandwritingSetup } from './components/HandwritingSetup';
 import { Library } from './components/Library';
 import { NotebookEditor } from './components/NotebookEditor';
 import { PrintView } from './components/PrintView';
@@ -108,9 +107,6 @@ export default function App() {
           onNewNotebook={openNewNotebook}
         />
       );
-      break;
-    case 'handwriting':
-      screen = <HandwritingSetup settings={settings} />;
       break;
     case 'print':
       screen = <PrintView notebookId={route.notebookId} pageIndex={route.pageIndex} />;

@@ -6,7 +6,7 @@ import { hasBackground, pageBackground } from '../ink/background';
 import { strokeBBox, unionBBox } from '../ink/geometry';
 import { InkCanvas } from '../ink/InkCanvas';
 import type { CanvasPage, TextEdit, TextTarget } from '../ink/InkCanvas';
-import { fitTextBox, setHandGlyphs } from '../ink/draw';
+import { fitTextBox } from '../ink/draw';
 import { prepareCorrection } from '../ocr/correct';
 import { TEXT_LINE_HEIGHT, textPadding } from '../ink/textLayout';
 import { rasterizeRegion } from '../ink/rasterize';
@@ -509,7 +509,7 @@ export function NotebookEditor({
         text: st.text ?? '',
         size: st.size,
         color: st.color,
-        style: { font: st.font, family: st.family, bold: st.bold, italic: st.italic },
+        style: { family: st.family, bold: st.bold, italic: st.italic },
       });
       return;
     }
@@ -544,7 +544,7 @@ export function NotebookEditor({
         size: e.size,
         input: 'mouse',
         ...(old?.angle ? { angle: old.angle } : {}),
-        // La police de la zone survit à la modification (avant, une zone « Mon écriture » repassait en police)
+        // La police de la zone survit à la modification
         ...Object.fromEntries(Object.entries(e.style ?? {}).filter(([, v]) => v !== undefined && v !== false)),
       });
       if (old && old.text === next.text && old.color === next.color && old.size === next.size) return; // rien n'a changé
@@ -602,23 +602,15 @@ export function NotebookEditor({
     flash('Signature posée en bas à droite : glisse-la à sa place, tire un coin pour l’ajuster.');
   };
 
-  // ------------------------------------------------------------ « Mon écriture » et correction des scans
-  const glyphs = useQuery(() => db.glyphs(), [], ['glyphs']);
-  useEffect(() => {
-    if (glyphs) setHandGlyphs(glyphs);
-  }, [glyphs]);
+  // ------------------------------------------------------------ correction des scans
   /** Police, graisse ou inclinaison d'une zone de texte (barre de sélection) ; la hauteur suit les nouvelles lignes */
-  const setTextStyle = (style: Pick<Stroke, 'font' | 'family' | 'bold' | 'italic'>) => {
-    if (style.font === 'mine' && !glyphs?.length) {
-      flash('Enregistre d’abord ton écriture (Bibliothèque → Mon écriture) ; en attendant, retour à la police de l’appli.');
-      style = { font: undefined, family: undefined };
-    }
+  const setTextStyle = (style: Pick<Stroke, 'family' | 'bold' | 'italic'>) => {
     replaceSelected((chosen) =>
       chosen.map((st) => {
         if (st.tool !== 'text') return st;
         const next: Stroke = { ...st, ...style };
         // Un champ remis à zéro disparaît du trait (pas de « bold: false » stocké partout)
-        for (const k of ['font', 'family', 'bold', 'italic'] as const) if (!next[k]) delete next[k];
+        for (const k of ['family', 'bold', 'italic'] as const) if (!next[k]) delete next[k];
         return fitTextBox(next);
       }),
     );

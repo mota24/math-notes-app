@@ -1,17 +1,15 @@
-import type { Glyph } from '../db/schema';
-import { buildPath, paperLines } from '../ink/draw';
-import type { InkPoint, PaperStyle } from '../ink/types';
+import { paperLines } from '../ink/draw';
+import type { PaperStyle } from '../ink/types';
 
 /**
  * Export « manuscrit lisible » : la transcription est mise en page par le navigateur (KaTeX), puis
- * chaque caractère est redessiné à la main sur une page A4 : avec TON écriture si tu l'as enregistrée,
- * sinon avec une police manuscrite, et de petites variations pour que rien ne soit identique.
+ * chaque caractère est redessiné sur une page A4 avec une police manuscrite, et de petites variations
+ * pour que rien ne soit identique.
  */
 
-export type HandStyle = 'mine' | 'caveat' | 'kalam' | 'patrick';
+export type HandStyle = 'caveat' | 'kalam' | 'patrick';
 
 export const HAND_FONTS: Record<HandStyle, string> = {
-  mine: 'Caveat',
   caveat: 'Caveat',
   kalam: 'Kalam',
   patrick: 'Patrick Hand',
@@ -38,7 +36,6 @@ export interface HandOptions {
   style: HandStyle;
   ink: string;
   paper: PaperStyle;
-  glyphs: Map<string, Glyph>;
   /** Amplitude des variations naturelles (1 = normale) */
   variation: number;
 }
@@ -71,27 +68,15 @@ function drawChar(f: Frame, ch: string, r: DOMRect, fontSize: number, isMath: bo
   const dx = (rand() - 0.5) * fontSize * 0.04 * v;
   const dy = (rand() - 0.5) * fontSize * 0.06 * v;
   const scale = 1 + (rand() - 0.5) * 0.08 * v;
-  const glyph = opts.style === 'mine' ? opts.glyphs.get(ch) : undefined;
 
   ctx.save();
   ctx.fillStyle = opts.ink;
-  if (glyph) {
-    const em = fontSize * 1.05 * scale;
-    const baseline = y + r.height - fontSize * 0.24 + dy;
-    ctx.translate(x + r.width / 2 - (glyph.advance * em) / 2 + dx, baseline);
-    ctx.rotate(angle);
-    const pen = Math.max(1.6, em * 0.075);
-    for (const stroke of glyph.strokes) {
-      if (stroke.length) ctx.fill(buildPath(stroke.map(([gx, gy, p]): InkPoint => [gx * em, gy * em, p]), 'touch', pen, true));
-    }
-  } else {
-    ctx.translate(x + r.width / 2 + dx, y + r.height / 2 + dy);
-    ctx.rotate(angle);
-    ctx.font = `${fontSize * (isMath ? 1.12 : 1) * scale}px "${f.font}", "KaTeX_Main", serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(ch, 0, 0);
-  }
+  ctx.translate(x + r.width / 2 + dx, y + r.height / 2 + dy);
+  ctx.rotate(angle);
+  ctx.font = `${fontSize * (isMath ? 1.12 : 1) * scale}px "${f.font}", "KaTeX_Main", serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(ch, 0, 0);
   ctx.restore();
 }
 

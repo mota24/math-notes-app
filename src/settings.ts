@@ -50,7 +50,7 @@ export interface Settings {
    */
   firestoreSync: boolean;
   /** Export manuscrit */
-  handStyle: 'mine' | 'caveat' | 'kalam' | 'patrick';
+  handStyle: (typeof HAND_STYLES)[number];
   handInk: string;
   handPaper: PaperStyle;
   handSize: 'small' | 'medium' | 'large';
@@ -67,6 +67,9 @@ export interface Settings {
 }
 
 const KEY = 'notes-maths.settings';
+
+/** Polices de l'export manuscrit */
+const HAND_STYLES = ['caveat', 'kalam', 'patrick'] as const;
 
 const DEFAULTS: Settings = {
   color: '#1d2433',
@@ -151,6 +154,8 @@ function load(): Settings {
     // Réécrit tout de suite, sans attendre le prochain réglage modifié : la clé API disparaît du disque dès
     // l'ouverture de l'appli
     if (hadLegacy) localStorage.setItem(KEY, JSON.stringify(saved));
+    // Police d'export manuscrit qui n'existe plus : celle par défaut
+    if (saved.handStyle !== undefined && !HAND_STYLES.includes(saved.handStyle)) delete saved.handStyle;
     // Migration vers le mode actif strict par défaut
     if (saved.stylusMode === 'auto' || saved.stylusMode === 'capacitive' || !saved.stylusMode) {
       saved.stylusMode = 'active';

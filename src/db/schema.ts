@@ -1,5 +1,5 @@
 import type { Block } from '../ai/blocks';
-import type { InkPoint, PaperColor, PaperStyle, Stroke } from '../ink/types';
+import type { PaperColor, PaperStyle, Stroke } from '../ink/types';
 
 /** Toutes les entités portent updatedAt / deletedAt : la synchronisation garde la version la plus récente. */
 interface Versioned {
@@ -91,17 +91,6 @@ export interface ConversionResult {
   error?: string;
   errorKind?: string;
   durationMs?: number;
-}
-
-/**
- * Un caractère de TON écriture. Coordonnées en « em » : x ≥ 0 depuis le début du tracé,
- * y relatif à la ligne de base (négatif au-dessus). advance = largeur occupée.
- */
-export interface Glyph {
-  char: string;
-  strokes: InkPoint[][];
-  advance: number;
-  updatedAt: number;
 }
 
 /** Tâche à faire, avec échéance optionnelle. Même contrat updatedAt/deletedAt que le reste : la synchronisation garde la version la plus récente. */
