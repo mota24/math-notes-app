@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { STALE_DAYS, backupHealth, formatBytes } from '../src/sync/backupHealth.ts';
+import { STALE_DAYS, backupHealth, driveErrorMessage, formatBytes } from '../src/sync/backupHealth.ts';
 
 const DAY = 24 * 60 * 60 * 1000;
 const now = Date.UTC(2026, 8, 28, 9);
@@ -43,6 +43,19 @@ const cases: [string, () => void][] = [
     () => {
       assert.deepEqual(backupHealth({ ok: true, connected: true, lastRunAt: now - 10 * DAY, lastSuccessAt: now - 10 * DAY }, now), { kind: 'stale', days: 10 });
       assert.deepEqual(backupHealth({ connected: true, connectedAt: now - 9 * DAY }, now), { kind: 'stale', days: 9 }, 'jamais lancée depuis la connexion');
+    },
+  ],
+  [
+    'erreurs du serveur : jeton expiré, compte refusé et panne du serveur ne se confondent plus',
+    () => {
+      assert.equal(driveErrorMessage(401, 'peu importe'), 'Session expirée : reconnecte-toi puis réessaie.');
+      assert.match(driveErrorMessage(503, 'Sauvegarde non configurée : la variable FIREBASE_SERVICE_ACCOUNT manque dans Vercel.'), /^Erreur serveur : configuration manquante\. Sauvegarde non configurée/);
+      assert.match(driveErrorMessage(503), /configuration manquante/);
+      assert.match(driveErrorMessage(500), /^Erreur serveur \(HTTP 500\)/);
+      assert.equal(driveErrorMessage(500, 'Erreur serveur : Firestore injoignable'), 'Erreur serveur : Firestore injoignable', 'pas de préfixe en double');
+      assert.equal(driveErrorMessage(403), 'Ce compte n’est pas autorisé à gérer la sauvegarde.');
+      assert.match(driveErrorMessage(404), /indisponible/);
+      assert.doesNotMatch(driveErrorMessage(502), /Session expirée/);
     },
   ],
   [
