@@ -121,6 +121,18 @@ autorisé (`src/auth/access.ts`).
 Ce verrou protège l'écran, pas le disque : les notes restent lisibles dans le stockage du navigateur par qui a
 l'appareil et les outils de développement.
 
+**Google ou e-mail, même compte.** Une adresse n'a qu'un compte, et les deux méthodes y mènent :
+- mot de passe refusé parce que le compte a été créé avec Google : le bouton **« Continuer avec Google et ajouter ce
+  mot de passe »** ouvre le compte par Google et lui ajoute le mot de passe tapé ;
+- Google refusé parce que l'adresse a déjà un compte e-mail : le mot de passe ouvre le compte, et Google y est relié ;
+- dans **Réglages → Compte et connexion** : « Ajouter un mot de passe » ou « Relier Google » (même adresse).
+
+**Supprimer mon compte** (Réglages, tout en bas) : après avoir recopié `SUPPRIMER` et confirmé son identité (Google ou
+mot de passe), l'appli déconnecte la sauvegarde Google Drive (autorisation révoquée), efface tout ce que le compte a
+dans Firestore (partages, pages, fichiers, transcriptions, index, réglages), libère l'appareil (le prochain compte en
+devient le propriétaire) puis supprime le compte Firebase. Les cahiers de l'appareil restent dans le navigateur.
+Nécessite les règles Firestore à jour (lister ses propres partages, effacer `state/backup`).
+
 ### Règles Firestore
 
 Les règles de sécurité sont dans `firestore.rules` : chaque compte **à l'adresse vérifiée** ne lit et n'écrit que
@@ -211,7 +223,7 @@ récente gagne.
 | `src/sync/` | Synchronisation : temps réel Firestore (`firestore.ts` : envois groupés, reprises après coupure, PDF et pages lourdes découpés en morceaux vérifiés par SHA-256 via `chunks.ts`) et Google Drive ; même fusion « le plus récent gagne » (`merge.ts`) |
 | `api/` | Serveur (fonctions Vercel) : sauvegarde hebdomadaire sur Drive (`backup.ts`, planifiée dans `vercel.json`), connexion de Drive (`drive-auth.ts`) ; `_lib/backupCollect.ts` refait l'export manuel à partir de Firestore, `_lib/drive.ts` l'envoi reprenable vérifié (tous deux testés sans réseau) |
 | `src/share/` | Partage en lecture seule par lien secret `/share/<id>` (publication incrémentale, lecteur public) |
-| `src/auth/` | Accès réservé : qui a le droit d'entrer (`access.ts`, testé), la porte d'entrée (`useAccess.ts`), la déconnexion complète |
+| `src/auth/` | Accès réservé : qui a le droit d'entrer (`access.ts`, testé), la porte d'entrée (`useAccess.ts`), la déconnexion complète, la liaison Google / mot de passe (`linking.ts`) et la suppression du compte (`deleteAccount.ts`, logique testée dans `accountModel.ts`) |
 | `src/db/backupFormat.ts` | Format du fichier de sauvegarde et sa validation (rien n'est écrit dans la base avant vérification) |
 | `vercel.json` | En-têtes de sécurité (CSP…) et règles de cache du site en ligne |
 | `src/components/` | Écrans : bibliothèque (`Library*.tsx`), éditeur, barre d'onglets, exports, mon écriture, réglages (`SettingsDialog.tsx` : deux cartes dans `settings/`, briques communes dans `settings/ui.tsx`), écran de connexion (`AuthPanel.tsx`), indicateur de synchro (`CloudIndicator.tsx`), pictogrammes (`icons.tsx`) et catalogue des tampons (`stamps.tsx`) |

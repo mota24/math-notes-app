@@ -292,3 +292,9 @@ function cancelShareUpdate(notebookId: string) {
   if (pending) window.clearTimeout(pending.timer);
   timers.delete(notebookId);
 }
+
+/** Suppression du compte : plus aucune mise à jour de lien ne doit partir (elle recréerait un partage). */
+export function cancelAllShareUpdates() {
+  for (const { timer } of timers.values()) window.clearTimeout(timer);
+  timers.clear();
+}

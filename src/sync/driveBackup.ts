@@ -77,3 +77,24 @@ export async function connectGoogleDrive(): Promise<void> {
   if (!res.ok || !body.url) throw new Error(body.error || `Connexion impossible (HTTP ${res.status}).`);
   window.location.assign(body.url);
 }
+
+/**
+ * Suppression du compte : déconnecte la sauvegarde hebdomadaire (autorisation révoquée et effacée côté
+ * serveur). « Pas configurée » (variables Vercel absentes, ou serveur local de développement) et « autre
+ * compte que le propriétaire de la sauvegarde » ne sont pas des échecs : il n'y a alors rien à déconnecter.
+ */
+export async function disconnectDriveBackup(): Promise<'disconnected' | 'nothing'> {
+  const user = auth.currentUser;
+  if (!user) throw new Error('Connecte-toi d’abord.');
+  const token = await user.getIdToken(true);
+  let res: Response;
+  try {
+    res = await fetch('/api/drive-auth', { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+  } catch (e) {
+    throw new Error('Serveur injoignable : la sauvegarde Google Drive n’a pas pu être déconnectée. Réessaie une fois en ligne.', { cause: e });
+  }
+  if (res.status === 503 || res.status === 403 || res.status === 404 || res.status === 405) return 'nothing';
+  const body = (await res.json().catch(() => ({}))) as { ok?: boolean; disconnected?: boolean; error?: string };
+  if (!res.ok || !body.ok) throw new Error(body.error || `Déconnexion de Google Drive impossible (HTTP ${res.status}).`);
+  return body.disconnected ? 'disconnected' : 'nothing';
+}
