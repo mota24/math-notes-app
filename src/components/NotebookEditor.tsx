@@ -17,6 +17,9 @@ import { NotebookMenu } from './NotebookMenu';
 import { ExportDialog } from './ExportDialog';
 import { ShareDialog } from './ShareDialog';
 import { SplitViewer } from './SplitViewer';
+import { TextPanel } from './TextPanel';
+import type { Highlight } from '../ocr/TextLayer';
+import type { TextWord } from '../ocr/textModel';
 import { readSplits, writeSplits } from './splitStore';
 import { flushShareUpdate, scheduleShareUpdate } from '../share/share';
 import { ConfirmDialog, PromptDialog } from './Modal';
@@ -224,6 +227,16 @@ export function NotebookEditor({
     setSelectionRegion(region);
   };
   /**
+   * Mode « Texte » (lecture des PDF et scans) : l'outil Main est pris le temps du panneau — la page défile,
+   * les mots se sélectionnent d'un appui long —, puis l'outil d'avant revient à la fermeture.
+   */
+  const [textOpen, setTextOpen] = useState<{ focus: boolean } | null>(null);
+  const toolBeforeText = useRef<Tool | null>(null);
+  const [textLayer, setTextLayer] = useState<ReadonlyMap<string, readonly TextWord[]> | null>(null);
+  const [highlights, setHighlights] = useState<readonly Highlight[] | null>(null);
+  const [reveal, setReveal] = useState<{ pageId: string; y: number; nonce: number } | null>(null);
+
+  /**
    * Zone de texte sélectionnée d'un tap : le lasso est pris le temps de la sélection (glisser la zone, ses
    * poignées, sa barre d'actions), puis l'outil d'avant revient dès qu'elle se referme. Vérifié après le rendu :
    * un changement de page du défilement continu vide la sélection juste avant que le tap la remplisse.
@@ -380,7 +393,13 @@ export function NotebookEditor({
   const redoRef = useRef(redo);
   redoRef.current = redo;
   /** Raccourcis clavier qui dépendent de la sélection du moment (lus par un écouteur installé une fois) */
-  const keysRef = useRef<{ remove(): void; clear(): void; copy(): boolean; paste(): boolean }>({ remove: () => {}, clear: () => {}, copy: () => false, paste: () => false });
+  const keysRef = useRef<{ remove(): void; clear(): void; copy(): boolean; paste(): boolean; find(): void }>({
+    remove: () => {},
+    clear: () => {},
+    copy: () => false,
+    paste: () => false,
+    find: () => {},
+  });
 
   const selectedStrokes = () => {
     const chosen = new Set(selection);
@@ -424,6 +443,7 @@ export function NotebookEditor({
   };
 
   keysRef.current = {
+    find: () => openText(true),
     remove: () => {
       if (selection.length) removeStrokes(selection);
     },
@@ -532,6 +552,22 @@ export function NotebookEditor({
   const commitTextRef = useRef(commitText);
   commitTextRef.current = commitText;
 
+  const openText = (focus: boolean) => {
+    if (!textOpen) {
+      commitTextRef.current();
+      select([]);
+      if (tool !== 'hand') toolBeforeText.current = tool;
+      setTool('hand');
+    }
+    setTextOpen({ focus });
+  };
+  const closeText = () => {
+    setTextOpen(null);
+    const before = toolBeforeText.current;
+    toolBeforeText.current = null;
+    if (before) setTool(before);
+  };
+
   // ------------------------------------------------------------ navigation
   const goToPage = useCallback(
     (i: number) => {
@@ -553,6 +589,10 @@ export function NotebookEditor({
       } else if ((e.ctrlKey || e.metaKey) && (key === 'y' || (key === 'z' && e.shiftKey))) {
         e.preventDefault();
         redoRef.current();
+      } else if ((e.ctrlKey || e.metaKey) && key === 'f') {
+        // Chercher dans le texte des PDF du cahier (et non la recherche du navigateur, qui ne voit pas les scans)
+        e.preventDefault();
+        keysRef.current.find();
       } else if ((e.ctrlKey || e.metaKey) && key === 'c') {
         if (keysRef.current.copy()) e.preventDefault();
       } else if (e.key === 'Delete' || e.key === 'Backspace') {
@@ -893,6 +933,17 @@ export function NotebookEditor({
         {/* ── ZONE DROITE : actions compactes (icônes), fixe, ne rétrécit jamais ── */}
         <div className="editor-zone-right">
           <CloudIndicator />
+          {orderedPages.some(hasBackground) && (
+            <button
+              className={`tb-icon ${textOpen ? 'active' : ''}`}
+              onClick={() => (textOpen ? closeText() : openText(true))}
+              title={textOpen ? 'Fermer le panneau Texte' : 'Texte des PDF et scans : rechercher, sélectionner, copier (Ctrl+F)'}
+              aria-label="Texte du document"
+              aria-pressed={!!textOpen}
+            >
+              {ICONS.scanText}
+            </button>
+          )}
           <button
             className={`tb-icon ${splitId || splitPicking ? 'active' : ''}`}
             onClick={() => void toggleSplit()}
@@ -1077,6 +1128,10 @@ export function NotebookEditor({
             onImage={() => imageInput.current?.click()}
             onTool={(t) => {
               toolBeforeTap.current = null;
+              if (textOpen && t !== 'hand') {
+                toolBeforeText.current = null;
+                setTextOpen(null);
+              }
               setTool(t);
               if (t !== 'lasso') select([]);
               if (t !== 'capture') setCaptureRegion(null);
@@ -1186,9 +1241,26 @@ export function NotebookEditor({
               onTextTarget={onTextTarget}
               onTextChange={(text) => setTextEdit((prev) => (prev ? { ...prev, text } : prev))}
               onTextDone={() => commitTextRef.current()}
+              textLayer={textOpen ? textLayer : null}
+              highlights={textOpen ? highlights : null}
+              reveal={reveal}
             />
           ) : (
             <p className="center-message">Chargement de la page…</p>
+          )}
+          {textOpen && (
+            <TextPanel
+              pages={orderedPages}
+              currentIndex={index}
+              autoFocus={textOpen.focus}
+              onTextLayer={setTextLayer}
+              onHighlights={setHighlights}
+              onReveal={(i, y) => {
+                const target = orderedPages[i];
+                if (target) setReveal((r) => ({ pageId: target.id, y, nonce: (r?.nonce ?? 0) + 1 }));
+              }}
+              onClose={closeText}
+            />
           )}
           {notice && <div className="notice">{notice}</div>}
           </div>

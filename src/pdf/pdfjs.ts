@@ -124,3 +124,20 @@ export async function renderPdfThumbnail(fileId: string, pageIndex: number, widt
     if (own) await doc.loadingTask.destroy();
   }
 }
+
+/** Le texte déjà présent dans une page de PDF (vide pour un scan), avec la taille de la page en points */
+export async function pdfTextItems(
+  fileId: string,
+  pageIndex: number,
+): Promise<{ items: { str: string; transform: number[]; width: number; height: number }[]; width: number; height: number }> {
+  const doc = await pdfForFile(fileId);
+  const page = await doc.getPage(pageIndex + 1);
+  try {
+    const { width, height } = page.getViewport({ scale: 1 });
+    const content = await page.getTextContent();
+    const items = content.items.filter((it): it is (typeof content.items)[number] & { str: string; transform: number[]; width: number; height: number } => 'str' in it);
+    return { items: items.map(({ str, transform, width: w, height: h }) => ({ str, transform, width: w, height: h })), width, height };
+  } finally {
+    page.cleanup();
+  }
+}

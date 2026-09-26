@@ -4,6 +4,7 @@
  * - Requêtes vers d'autres sites (Gemini, Google Drive) : jamais mises en cache. */
 
 const CACHE = 'notes-maths';
+const OCR_CACHE = 'notes-maths-ocr';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon.svg', './icon-192.png', './icon-512.png', './icon-maskable-512.png'];
 
 async function precacheList() {
@@ -53,6 +54,26 @@ self.addEventListener('fetch', (event) => {
   // Fonctions serveur (sauvegarde Drive, retour de l'autorisation Google) : toujours le réseau, jamais le
   // cache — et surtout pas la copie de l'appli à la place d'une redirection
   if (url.pathname.startsWith('/api/')) return;
+
+  // Lecture des scans (Tesseract : worker, moteur, langues, ~8 Mo) : gardée dans son propre cache, que les
+  // mises à jour de l'appli ne vident pas. Téléchargée au premier usage, elle marche ensuite hors-ligne ; à
+  // l'arrivée d'une nouvelle version de Tesseract (ocr/<version>/), l'ancienne est retirée.
+  const ocr = /\/ocr\/([^/]+)\//.exec(url.pathname);
+  if (ocr) {
+    event.respondWith(
+      caches.open(OCR_CACHE).then(async (cache) => {
+        const cached = await cache.match(request);
+        if (cached) return cached;
+        const response = await fetch(request);
+        if (response.ok) {
+          await cache.put(request, response.clone());
+          for (const old of await cache.keys()) if (!old.url.includes(`/ocr/${ocr[1]}/`)) await cache.delete(old);
+        }
+        return response;
+      }),
+    );
+    return;
+  }
 
   if (request.mode === 'navigate') {
     event.respondWith(
