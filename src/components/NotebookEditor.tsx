@@ -506,6 +506,7 @@ export function NotebookEditor({
         text: st.text ?? '',
         size: st.size,
         color: st.color,
+        style: { font: st.font, family: st.family, bold: st.bold, italic: st.italic },
       });
       return;
     }
@@ -540,6 +541,8 @@ export function NotebookEditor({
         size: e.size,
         input: 'mouse',
         ...(old?.angle ? { angle: old.angle } : {}),
+        // La police de la zone survit à la modification (avant, une zone « Mon écriture » repassait en police)
+        ...Object.fromEntries(Object.entries(e.style ?? {}).filter(([, v]) => v !== undefined && v !== false)),
       });
       if (old && old.text === next.text && old.color === next.color && old.size === next.size) return; // rien n'a changé
     } else if (!old) {
@@ -573,9 +576,21 @@ export function NotebookEditor({
   useEffect(() => {
     if (glyphs) setHandGlyphs(glyphs);
   }, [glyphs]);
-  const toggleHandFont = () => {
-    if (!glyphs?.length) return flash('Enregistre d’abord ton écriture : Bibliothèque → Mon écriture.');
-    replaceSelected((chosen) => chosen.map((st) => (st.tool === 'text' ? fitTextBox({ ...st, font: st.font === 'mine' ? undefined : 'mine' }) : st)));
+  /** Police, graisse ou inclinaison d'une zone de texte (barre de sélection) ; la hauteur suit les nouvelles lignes */
+  const setTextStyle = (style: Pick<Stroke, 'font' | 'family' | 'bold' | 'italic'>) => {
+    if (style.font === 'mine' && !glyphs?.length) {
+      flash('Enregistre d’abord ton écriture (Bibliothèque → Mon écriture) ; en attendant, retour à la police de l’appli.');
+      style = { font: undefined, family: undefined };
+    }
+    replaceSelected((chosen) =>
+      chosen.map((st) => {
+        if (st.tool !== 'text') return st;
+        const next: Stroke = { ...st, ...style };
+        // Un champ remis à zéro disparaît du trait (pas de « bold: false » stocké partout)
+        for (const k of ['font', 'family', 'bold', 'italic'] as const) if (!next[k]) delete next[k];
+        return fitTextBox(next);
+      }),
+    );
   };
 
   /** Page de la dernière zone tracée au lasso */
@@ -602,10 +617,11 @@ export function NotebookEditor({
       addStrokes(correction.patch ? [correction.patch, correction.text] : [correction.text]);
       select([]);
       onTextTarget({ pageId: target.id, stroke: correction.text });
+      const police = correction.font ? `Police reconnue : ${correction.font}, ${correction.text.size.toFixed(1).replace('.', ',')} mm. ` : '';
       flash(
         correction.patch
-          ? 'Corrige le texte, puis touche à côté pour valider. Le scan d’origine reste dessous : supprimer la rustine le fait réapparaître.'
-          : 'Aucune encre à effacer trouvée ; le texte lu est posé par-dessus, prêt à corriger.',
+          ? `${police}Corrige le texte, puis touche à côté pour valider. Le scan d’origine reste dessous.`
+          : `${police}Aucune encre à effacer trouvée ; le texte lu est posé par-dessus, prêt à corriger.`,
       );
     } catch (e) {
       flash(`Correction impossible : ${(e as Error)?.message ?? 'erreur inconnue'}`);
@@ -1274,7 +1290,7 @@ export function NotebookEditor({
                 select(ids, region && target && hasBackground(target) ? region : null);
               }}
               onCorrectRegion={() => void correctRegion()}
-              onToggleHandFont={toggleHandFont}
+              onTextStyle={setTextStyle}
               onUndo={undo}
               onPenDetected={() => update({ penSeen: true })}
               onPenSize={(px) => update({ penSizePx: px })}

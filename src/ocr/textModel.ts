@@ -15,6 +15,14 @@ export interface TextWord {
   h: number;
   /** Numéro de ligne dans la page (ordre de lecture) : sert à recoller le texte et à la sélection */
   line: number;
+  /** Ligne de base sous le mot (fraction de la page) : là où reposent les lettres, hors descendantes */
+  base?: number;
+  /**
+   * Hauteur des capitales et chiffres, et des minuscules sans montante, mesurée CARACTÈRE PAR CARACTÈRE jusqu'à
+   * la ligne de base (fractions de la page). Le cadre du mot entier, lui, monte avec les l, d, f et les accents.
+   */
+  cap?: number;
+  xh?: number;
 }
 
 export interface PageText {
@@ -33,7 +41,9 @@ interface Bbox {
 }
 /** Le strict nécessaire de la sortie « blocks » de Tesseract.js */
 export interface OcrBlocks {
-  blocks?: { paragraphs: { lines: { words: { text: string; confidence: number; bbox: Bbox }[] }[] }[] }[] | null;
+  blocks?: {
+    paragraphs: { lines: { words: { text: string; confidence: number; bbox: Bbox; symbols?: { text: string; bbox: Bbox }[] }[]; baseline?: Bbox }[] }[];
+  }[] | null;
 }
 
 /** Un mot lu avec moins de confiance que ça est presque toujours une tache, un trait, un bout de tampon */
@@ -49,7 +59,26 @@ export function fromTesseract(out: OcrBlocks, width: number, height: number): Te
         for (const w of l.words) {
           const text = w.text.trim();
           if (!text || w.confidence < MIN_CONFIDENCE) continue;
-          words.push({ text, x: w.bbox.x0 / width, y: w.bbox.y0 / height, w: (w.bbox.x1 - w.bbox.x0) / width, h: (w.bbox.y1 - w.bbox.y0) / height, line });
+          // Ligne de base de la ligne (droite, éventuellement penchée), prise au milieu du mot
+          const b = l.baseline;
+          const cx = (w.bbox.x0 + w.bbox.x1) / 2;
+          const baseY = b ? b.y0 + ((b.y1 - b.y0) * (cx - b.x0)) / (b.x1 - b.x0 || 1) : undefined;
+          const word: TextWord = { text, x: w.bbox.x0 / width, y: w.bbox.y0 / height, w: (w.bbox.x1 - w.bbox.x0) / width, h: (w.bbox.y1 - w.bbox.y0) / height, line };
+          if (baseY !== undefined && baseY > w.bbox.y0 && baseY <= w.bbox.y1 + 2) {
+            word.base = baseY / height;
+            const caps: number[] = [];
+            const xs: number[] = [];
+            for (const sym of w.symbols ?? []) {
+              const up = baseY - sym.bbox.y0;
+              if (up <= 0) continue;
+              if (/^[A-Z0-9]$/.test(sym.text)) caps.push(up);
+              else if (/^[acemnorsuvwxz]$/.test(sym.text)) xs.push(up);
+            }
+            const mid = (v: number[]) => v.sort((a, b) => a - b)[Math.floor(v.length / 2)];
+            if (caps.length) word.cap = mid(caps) / height;
+            if (xs.length) word.xh = mid(xs) / height;
+          }
+          words.push(word);
           kept = true;
         }
         if (kept) line++;
@@ -89,6 +118,7 @@ export function fromPdfItems(items: readonly PdfTextItem[], pageWidth: number, p
         y: top / pageHeight,
         w: (m[0].length * perChar) / pageWidth,
         h: (size * 1.1) / pageHeight,
+        base: (pageHeight - f) / pageHeight,
       });
     }
   }

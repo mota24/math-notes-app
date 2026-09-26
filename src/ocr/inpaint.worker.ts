@@ -1,5 +1,5 @@
 import { eraseText } from './inpaint';
-import type { Rect } from './inpaint';
+import type { Rect, StyleProbe } from './inpaint';
 
 /**
  * Worker de l'effacement : le remplissage parcourt des centaines de milliers de pixels, hors du fil de
@@ -13,6 +13,8 @@ export interface EraseJob {
   words: Rect[];
   patch: Rect;
   halo: number;
+  /** Les mots dont on mesure le style (cadre serré, ligne de base, hauteur des capitales) */
+  probes: StyleProbe[];
 }
 
 const scope = self as unknown as {
@@ -23,7 +25,7 @@ const scope = self as unknown as {
 scope.onmessage = (e) => {
   const job = e.data;
   try {
-    const result = eraseText(job.data, job.width, job.height, job.words, job.patch, job.halo);
+    const result = eraseText(job.data, job.width, job.height, job.words, job.patch, job.halo, job.probes);
     scope.postMessage({ id: job.id, ok: true, ...result }, [result.pixels.buffer]);
   } catch (err) {
     scope.postMessage({ id: job.id, ok: false, error: (err as Error)?.message ?? String(err) }, []);

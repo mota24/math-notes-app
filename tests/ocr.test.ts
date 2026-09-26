@@ -16,7 +16,13 @@ test('Tesseract : mots gardés en fractions de page, lignes numérotées, bruit 
           paragraphs: [
             {
               lines: [
-                { words: [{ text: 'Rivet', confidence: 92, bbox: bbox(100, 200, 300, 250) }, { text: '~', confidence: 12, bbox: bbox(310, 200, 320, 250) }] },
+                {
+                  words: [
+                    { text: 'Rivet', confidence: 92, bbox: bbox(100, 200, 300, 250), symbols: [{ text: 'R', bbox: bbox(100, 206, 130, 240) }, { text: 'i', bbox: bbox(135, 200, 145, 240) }, { text: 'v', bbox: bbox(150, 216, 175, 240) }, { text: 'e', bbox: bbox(180, 216, 205, 240) }] },
+                    { text: '~', confidence: 12, bbox: bbox(310, 200, 320, 250) },
+                  ],
+                  baseline: bbox(100, 240, 300, 240),
+                },
                 { words: [{ text: '·', confidence: 10, bbox: bbox(0, 0, 5, 5) }] },
                 { words: [{ text: 'A320', confidence: 88, bbox: bbox(100, 300, 260, 350) }] },
               ],
@@ -30,6 +36,10 @@ test('Tesseract : mots gardés en fractions de page, lignes numérotées, bruit 
   );
   assert.deepEqual(words.map((w) => [w.text, w.line]), [['Rivet', 0], ['A320', 1]], 'ligne de bruit seule : pas de numéro gaspillé');
   assert.deepEqual([words[0].x, words[0].y, words[0].w, words[0].h], [0.1, 0.1, 0.2, 0.025]);
+  assert.equal(words[0].base, 0.12, 'ligne de base gardée (fraction de page)');
+  assert.equal(words[0].cap, 34 / 2000, 'capitale R : 34 px au-dessus de la ligne de base (le point du i, plus haut, ne compte pas)');
+  assert.equal(words[0].xh, 24 / 2000, 'minuscules v, e : 24 px');
+  assert.equal(words[1].base, undefined, 'pas de ligne de base lue : absente');
   assert.deepEqual(fromTesseract({ blocks: null }, 10, 10), []);
 });
 

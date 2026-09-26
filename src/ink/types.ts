@@ -56,6 +56,10 @@ export interface Stroke {
   text?: string;
   /** tool === 'text' seulement : « mine » = écrit avec « Mon écriture » (caractères enregistrés) ; absent = police */
   font?: 'mine';
+  /** tool === 'text' : police assortie au document (serif, sans, mono), graisse et inclinaison ; absent = police de l'appli */
+  family?: 'serif' | 'sans' | 'mono';
+  bold?: boolean;
+  italic?: boolean;
   /** tool === 'shape' seulement : quelle forme dessiner (voir ShapeKind). */
   shape?: ShapeKind;
   /** Trait en pointillés (arêtes cachées, lignes de projection) : trait au stylo et formes. */

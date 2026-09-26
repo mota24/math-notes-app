@@ -3,6 +3,14 @@
  * texte de remplacement. Sans import de valeur : testé sous Node (tests/correction.test.ts).
  */
 import type { TextWord } from './textModel';
+import type { TextFamily } from '../ink/textLayout';
+
+/** Proportions des polices assorties (voir FAMILY_METRICS dans textLayout.ts, recopiées : ce module est testé seul) */
+export const MATCH_METRICS: Record<TextFamily, { cap: number; x: number }> = {
+  serif: { cap: 0.662, x: 0.448 },
+  sans: { cap: 0.716, x: 0.519 },
+  mono: { cap: 0.571, x: 0.423 },
+};
 
 const NEWLINE = String.fromCharCode(10);
 
@@ -111,3 +119,94 @@ export function correctionLayout(words: readonly TextWord[], page: { width: numb
 
 /** « #rrggbb » d'une couleur (r, g, b) */
 export const toHex = ([r, g, b]: readonly number[]) => `#${[r, g, b].map((v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join('')}`;
+
+// ------------------------------------------------------------------ police assortie (taille, famille, graisse, style)
+
+/** Hauteurs mesurées sur le scan (mm) : capitales, minuscules, et ligne de base de la première ligne */
+export interface LetterMetrics {
+  cap?: number;
+  x?: number;
+  base?: number;
+}
+
+/**
+ * Hauteur des capitales et des minuscules, du haut des lettres à la ligne de base lue. Les mots à capitales
+ * accentuées (l'accent dépasse) sont écartés de la mesure des capitales ; seuls les mots faits de minuscules
+ * sans montante ni point (a, c, e, m, n, o, r, s, u, v, w, x, z) servent à la hauteur des minuscules.
+ */
+export function measureLetters(words: readonly TextWord[], page: { width: number; height: number }): LetterMetrics {
+  const withBase = words.filter((w) => w.base !== undefined);
+  if (!withBase.length) return {};
+  const above = (w: TextWord) => ((w.base as number) - w.y) * page.height;
+  // Mesure caractère par caractère quand Tesseract l'a donnée (exacte) ; sinon, le cadre des mots qui s'y prêtent
+  const symbolCaps = withBase.filter((w) => w.cap !== undefined).map((w) => (w.cap as number) * page.height);
+  const symbolXs = withBase.filter((w) => w.xh !== undefined).map((w) => (w.xh as number) * page.height);
+  const caps = symbolCaps.length ? symbolCaps : withBase.filter((w) => /[A-Z0-9bdfhklt]/.test(w.text) && !/[À-ÖØ-Þ]/.test(w.text)).map(above);
+  const xs = symbolXs.length ? symbolXs : withBase.filter((w) => /^[acemnorsuvwxz]+$/.test(w.text)).map(above);
+  const firstLine = Math.min(...withBase.map((w) => w.line));
+  const bases = withBase.filter((w) => w.line === firstLine).map((w) => (w.base as number) * page.height);
+  return { cap: caps.length ? median(caps) : undefined, x: xs.length ? median(xs) : undefined, base: bases.length ? median(bases) : undefined };
+}
+
+/** Corps (mm) qui donne à cette famille exactement la hauteur mesurée ; undefined sans mesure */
+export function matchedSize(letters: LetterMetrics, family: TextFamily): number | undefined {
+  const m = MATCH_METRICS[family];
+  if (letters.cap) return letters.cap / m.cap;
+  if (letters.x) return letters.x / m.x;
+  return undefined;
+}
+
+/** Mesures de l'encre, converties en mm (voir InkStyle dans inpaint.ts) */
+export interface InkStyleMm {
+  stem: number;
+  thin: number;
+  foot: number;
+  slant: number;
+}
+
+export interface FontCandidate {
+  family: TextFamily;
+  bold: boolean;
+  /** Écart relatif médian entre la largeur des mots dans cette police et leur largeur sur le scan (0 = parfait) */
+  widthError: number;
+}
+
+export interface FontChoice {
+  family: TextFamily;
+  bold: boolean;
+  italic: boolean;
+}
+
+/** À partir de cette inclinaison (décalage par unité de hauteur, ~7°), le texte est en italique */
+export const ITALIC_SLANT = 0.12;
+
+/**
+ * Le choix de la police : la LARGEUR des mots décide d'abord (les polices ont les dimensions exactes de Times,
+ * Arial et Courier : à hauteur égale, chacune donne une largeur bien à elle), et les indices de l'encre départagent
+ * — épaisseur des fûts (graisse), empattements et contraste plein / délié (serif ou sans), inclinaison (italique).
+ */
+export function chooseFont(ink: InkStyleMm | null, cap: number | undefined, candidates: readonly FontCandidate[]): FontChoice {
+  const italic = !!ink && ink.slant >= ITALIC_SLANT;
+  const stemRatio = ink && cap ? ink.stem / cap : undefined;
+  // > 0 : plutôt à empattements ; < 0 : plutôt sans. Le contraste plein / délié est l'indice fiable : les pleins et
+  // les déliés de Times diffèrent nettement (~0,45), ceux d'Arial presque pas (~0,8) ; les « pieds » mesurés, eux,
+  // se sont révélés trompeurs (bas arrondis des e, s, a) et ne servent plus que d'appoint
+  const contrast = ink && ink.stem ? ink.thin / ink.stem : 0.62;
+  const serifEvidence = ink ? Math.max(-0.1, Math.min(0.1, (0.62 - contrast) * 0.6 + (ink.foot - 1.5) * 0.02)) : 0;
+  let best: FontChoice = { family: 'sans', bold: false, italic };
+  let bestScore = Infinity;
+  for (const c of candidates) {
+    let score = Math.abs(c.widthError);
+    if (stemRatio !== undefined) {
+      if (c.bold && stemRatio < 0.15) score += 0.12;
+      if (!c.bold && stemRatio > 0.2) score += 0.12;
+    }
+    if (c.family === 'serif') score -= serifEvidence;
+    if (c.family === 'sans') score += serifEvidence;
+    if (score < bestScore) {
+      bestScore = score;
+      best = { family: c.family, bold: c.bold, italic };
+    }
+  }
+  return best;
+}

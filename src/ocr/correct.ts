@@ -1,12 +1,14 @@
 import { db } from '../db/db';
 import type { Page } from '../db/schema';
-import { fitTextBox } from '../ink/draw';
-import { TEXT_LINE_HEIGHT, textPadding } from '../ink/textLayout';
+import { fitTextBox, measureStyled } from '../ink/draw';
+import { MATCHED_BASELINE, TEXT_LINE_HEIGHT, fontCss, textPadding } from '../ink/textLayout';
+import type { TextFamily, TextStyle } from '../ink/textLayout';
 import { newId } from '../ink/types';
 import type { BBox, Stroke } from '../ink/types';
 import { renderPdfRegion } from '../pdf/pdfjs';
-import { correctionLayout, toHex, wordsInRegion } from './correctionModel';
-import type { EraseResult, Rect } from './inpaint';
+import { chooseFont, correctionLayout, matchedSize, measureLetters, toHex, wordsInRegion } from './correctionModel';
+import type { FontCandidate, FontChoice } from './correctionModel';
+import type { EraseResult, Rect, StyleProbe } from './inpaint';
 import type { EraseJob } from './inpaint.worker';
 import { pageText } from './pageText';
 
@@ -80,14 +82,45 @@ export interface Correction {
   patch: Stroke | null;
   /** Zone de texte pré-remplie */
   text: Stroke;
+  /** Police reconnue, en clair (« Arial gras », « Times italique »…) ; null : police de l'appli */
+  font: string | null;
+}
+
+const FAMILIES: TextFamily[] = ['serif', 'sans', 'mono'];
+/** L'équivalent de bureau de chaque famille servie (mêmes dimensions) */
+const OFFICE_NAME: Record<TextFamily, string> = { serif: 'Times New Roman', sans: 'Arial', mono: 'Courier New' };
+
+/** Les polices assorties, chargées avant de mesurer (sinon la mesure se ferait avec une police de secours) */
+async function loadFonts(styles: TextStyle[]): Promise<boolean> {
+  if (typeof document === 'undefined' || !document.fonts) return false;
+  try {
+    const loaded = await Promise.all(styles.map((st) => document.fonts.load(fontCss(st, 100), 'Aa')));
+    return loaded.every((faces) => faces.length > 0);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Écart relatif médian entre la largeur des mots écrits dans ce style (à la taille qui donne la bonne hauteur) et
+ * leur largeur sur le scan. Les mots d'une lettre (ponctuation, « a ») n'y comptent pas : trop peu fiables.
+ */
+function widthError(words: { text: string; width: number }[], size: number, style: TextStyle): number {
+  const errors = words.filter((w) => w.text.length >= 2 && w.width > 0).map((w) => measureStyled(w.text, size, style) / w.width - 1);
+  if (!errors.length) return 0;
+  errors.sort((a, b) => a - b);
+  return errors[Math.floor(errors.length / 2)];
 }
 
 /** Prépare la correction de la zone `region` (mm) de `page`. null : aucun texte lu dans la zone. */
 export async function prepareCorrection(page: Page, region: BBox, progress: (message: string) => void): Promise<Correction | null> {
   progress('Lecture du texte de la zone…');
   const read = await pageText(page);
-  const layout = read ? correctionLayout(wordsInRegion(read.words, page, region), page, read.words) : null;
+  const picked = read ? wordsInRegion(read.words, page, region) : [];
+  const layout = read ? correctionLayout(picked, page, read.words) : null;
   if (!layout) return null;
+  // Hauteurs exactes des lettres, mesurées jusqu'à la ligne de base lue par Tesseract
+  const letters = measureLetters(picked, page);
 
   progress('Effacement du texte d’origine…');
   const { box } = layout;
@@ -101,7 +134,16 @@ export async function prepareCorrection(page: Page, region: BBox, progress: (mes
   canvas.width = 0; // mémoire rendue tout de suite
   const toPx = (r: Rect): Rect => ({ x: (r.x - crop.x) * px, y: (r.y - crop.y) * px, w: r.w * px, h: r.h * px });
   const patchPx = toPx(box);
-  const result = await erase({ data, width, height, words: layout.wordBoxes.map(toPx), patch: patchPx, halo: Math.max(1, Math.round(0.12 * px)) });
+  // Les mots à mesurer : leur cadre serré, leur ligne de base et la hauteur des capitales, en pixels du morceau
+  const probes: StyleProbe[] = picked.map((w) => ({
+    ...toPx({ x: w.x * page.width, y: w.y * page.height, w: w.w * page.width, h: w.h * page.height }),
+    base: w.base !== undefined ? (w.base * page.height - crop.y) * px : undefined,
+    cap: (letters.cap ?? (letters.x ? letters.x * 1.4 : undefined) ?? w.h * page.height * 0.75) * px,
+  }));
+  const [result, fontsReady] = await Promise.all([
+    erase({ data, width, height, words: layout.wordBoxes.map(toPx), patch: patchPx, halo: Math.max(1, Math.round(0.12 * px)), probes }),
+    loadFonts(FAMILIES.flatMap((family) => [false, true].flatMap((bold) => [false, true].map((italic) => ({ family, bold, italic }))))),
+  ]);
 
   let patch: Stroke | null = null;
   if (result.inkPixels > 0) {
@@ -119,11 +161,34 @@ export async function prepareCorrection(page: Page, region: BBox, progress: (mes
     patch = { id: newId(), tool: 'image', image, points: [[x, y, 1], [x + pw / px, y + ph / px, 1]], color: '#000000', size: 0, input: 'mouse' };
   }
 
-  const size = layout.size;
+  // ---- La police la plus proche : largeur des mots à hauteur égale, puis indices de l'encre
+  let choice: FontChoice | null = null;
+  /** Écart de largeur restant pour la police choisie : il affine la taille (voir plus bas) */
+  let residual = 0;
+  if (fontsReady && (letters.cap || letters.x)) {
+    const ink = result.style && { stem: result.style.stem / px, thin: result.style.thin / px, foot: result.style.foot, slant: result.style.slant };
+    const italic = !!ink && ink.slant >= 0.12;
+    const widths = picked.map((w) => ({ text: w.text, width: w.w * page.width }));
+    const candidates: FontCandidate[] = FAMILIES.flatMap((family) =>
+      [false, true].map((bold) => ({ family, bold, widthError: widthError(widths, matchedSize(letters, family)!, { family, bold, italic }) })),
+    );
+    choice = chooseFont(ink, letters.cap, candidates);
+    const chosen = choice;
+    residual = candidates.find((c) => c.family === chosen.family && c.bold === chosen.bold)?.widthError ?? 0;
+  }
+
+  const style: TextStyle = choice ? { family: choice.family, ...(choice.bold ? { bold: true } : {}), ...(choice.italic ? { italic: true } : {}) } : {};
+  // Taille : d'abord la hauteur mesurée des lettres, puis affinée par la largeur des mots (à ±25 % près) — les
+  // chiffres et capitales de Courier, par exemple, ne suivent pas exactement ses proportions officielles
+  const heightSize = choice && matchedSize(letters, choice.family);
+  const size = heightSize ? heightSize / (1 + Math.max(-0.25, Math.min(0.25, residual))) : layout.size;
   const pad = textPadding(size);
-  // Le haut des lettres de la première ligne tombe là où étaient les lettres d'origine ; la zone garde sa marge
-  // intérieure au-dessus et au-dessous (accents, lettres montantes et descendantes ont la place de respirer)
-  const top = Math.max(0, layout.firstLineTop - pad - ((TEXT_LINE_HEIGHT - 1) / 2) * size);
+  // Police assortie : la ligne de base du texte tapé tombe EXACTEMENT sur celle du scan. Sinon, le haut des
+  // lettres de la première ligne tombe là où étaient les lettres d'origine.
+  const top = Math.max(
+    0,
+    choice && letters.base !== undefined ? letters.base - pad - MATCHED_BASELINE * size : layout.firstLineTop - pad - ((TEXT_LINE_HEIGHT - 1) / 2) * size,
+  );
   const left = Math.max(0, layout.left - pad);
   // Nettement plus large que le texte lu : une correction un peu plus longue tient encore sur la même ligne
   const textWidth = Math.min(page.width - left, Math.max(15, layout.width * 1.35 + 2 * pad + size));
@@ -135,6 +200,8 @@ export async function prepareCorrection(page: Page, region: BBox, progress: (mes
     color: result.inkPixels > 0 ? toHex(result.ink) : '#1d2433',
     size,
     input: 'mouse',
+    ...style,
   });
-  return { patch, text };
+  const font = choice ? `${OFFICE_NAME[choice.family]}${choice.bold ? ' gras' : ''}${choice.italic ? ' italique' : ''}` : null;
+  return { patch, text, font };
 }

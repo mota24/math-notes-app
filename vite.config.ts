@@ -51,7 +51,13 @@ function precacheManifest(): Plugin {
     generateBundle(_options, bundle) {
       // Les fichiers de lecture des scans (~8 Mo) ne sont pas pré-chargés : le service worker les garde à part
       // dès leur premier usage (voir public/sw.js)
-      const files = Object.keys(bundle).filter((file) => !file.endsWith('.map') && !file.startsWith('ocr/'));
+      // Polices assorties aux scans (Tinos, Arimo, Cousine) : seul l'alphabet latin en woff2 est pré-chargé (12 petits
+      // fichiers) ; les autres alphabets et l'ancien format woff (~4 Mo) ne viennent que si une page en a besoin
+      const matchedFont = /(tinos|arimo|cousine)-/;
+      const latinWoff2 = /-latin-\d+-(normal|italic)-[\w-]+\.woff2$/;
+      const files = Object.keys(bundle).filter(
+        (file) => !file.endsWith('.map') && !file.startsWith('ocr/') && (!matchedFont.test(file) || latinWoff2.test(file)),
+      );
       this.emitFile({ type: 'asset', fileName: 'precache.json', source: JSON.stringify({ builtAt: Date.now(), files }) });
     },
   };

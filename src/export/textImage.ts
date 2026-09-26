@@ -1,5 +1,5 @@
 import { drawStroke } from '../ink/draw';
-import { TEXT_FONT } from '../ink/textLayout';
+import { TEXT_FONT, fontCss } from '../ink/textLayout';
 import type { Stroke } from '../ink/types';
 
 /** ~300 dpi : net à l'impression */
@@ -15,6 +15,8 @@ export async function textStrokePng(s: Stroke): Promise<Uint8Array | null> {
   if (s.tool !== 'text' || !s.text || s.points.length < 2) return null;
   // La vraie police, pas celle de secours (un canevas ne la fait pas charger tout seul)
   await document.fonts?.load(`100px ${TEXT_FONT}`).catch(() => undefined);
+  // …et la police assortie au document (Tinos, Arimo, Cousine), si la zone en a une
+  if (s.family) await document.fonts?.load(fontCss(s, 100)).catch(() => undefined);
   const [a, b] = s.points;
   const x0 = Math.min(a[0], b[0]);
   const y0 = Math.min(a[1], b[1]);

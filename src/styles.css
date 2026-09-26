@@ -3052,3 +3052,14 @@ code {
   color: var(--accent);
   font-weight: 600;
 }
+
+/* Gras / italique d'une zone de texte sélectionnée */
+.selection-actions .sel-style {
+  min-width: 36px;
+  font-family: Georgia, serif;
+}
+
+.selection-actions .sel-style[aria-pressed='true'] {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+}

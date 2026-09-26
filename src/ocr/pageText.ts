@@ -14,7 +14,7 @@ import type { PageText } from './textModel';
 
 const CACHE = 'notes-maths-texte';
 /** À changer si l'extraction change : les pages seront relues */
-const VERSION = 1;
+const VERSION = 3;
 /** Résolution de lecture d'un scan : 200 points par pouce, le bon compromis précision / mémoire de Tesseract */
 const OCR_PX_PER_MM = 200 / 25.4;
 /** Photo trop grande : réduite (la lecture d'une image de 48 Mpx saturerait la mémoire de la tablette) */
