@@ -47,6 +47,22 @@ test('mise en page : texte lu, cadre à effacer, taille tirée de la hauteur des
   assert.equal(correctionLayout([], page), null);
 });
 
+test('marges : généreuses en haut (accents, montantes), sans jamais toucher les lignes voisines', () => {
+  const seul = correctionLayout([word('Égal', 0, 20, 40, 15, 4)], page)!;
+  assert.ok(40 - seul.box.y >= 1.5, `marge du haut sans voisin : ${40 - seul.box.y} mm`);
+  assert.ok(seul.box.y + seul.box.h - 44 >= 1, 'marge du bas');
+  // Ligne du dessus très proche (bas de ses lettres à 39 mm), ligne du dessous à 45,5 mm
+  const dessus = word('grippe', 0, 18, 35, 20, 4);
+  const cible = word('Égal', 1, 20, 40, 15, 4);
+  const dessous = word('lit', 2, 22, 45.5, 8, 3);
+  const serre = correctionLayout([cible], page, [dessus, cible, dessous])!;
+  assert.ok(serre.box.y >= 39, `le haut s’arrête avant la ligne du dessus : ${serre.box.y}`);
+  assert.ok(serre.box.y + serre.box.h <= 45.5, `le bas s’arrête avant la ligne du dessous : ${serre.box.y + serre.box.h}`);
+  // Un mot voisin ailleurs sur la page (autre colonne) ne réduit rien
+  const loin = correctionLayout([cible], page, [word('colonne', 0, 120, 38, 30, 4), cible])!;
+  assert.equal(loin.box.y, seul.box.y);
+});
+
 test('taille bornée, cadre gardé dans la page', () => {
   const tiny = correctionLayout([word('x', 0, 0, 0, 1, 0.3)], page)!;
   assert.equal(tiny.size, 1.5);

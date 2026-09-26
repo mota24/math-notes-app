@@ -12,6 +12,8 @@ export const ICONS = {
   highlighter: icon(<path d="M9 15l-3 5h6l1-2M9 15l7-11 4 3-7 11zM4 22h16" />),
   eraser: icon(<path d="M8 20h12M5 15l8-9 6 6-7 8H9l-4-5z" />),
   lasso: icon(<path d="M12 4c5 0 8 2.5 8 5.5S16.5 15 12 15 4 12.5 4 9.5 7 4 12 4zM7 14c-1 2 0 4 2 5" strokeDasharray="3 2.5" />),
+  /** Le même lasso, en cadre rectangulaire : l'outil actif montre la forme choisie */
+  lassoRect: icon(<path d="M4.5 4.5h15v10h-15zM7 14.5c-1 2 0 4 2 5" strokeDasharray="3 2.5" />),
   hand: icon(<path d="M8 12V6a1.5 1.5 0 013 0v5m0-6.5a1.5 1.5 0 013 0V11m0-4.5a1.5 1.5 0 013 0V12m0-3a1.5 1.5 0 013 0v5c0 4-3 7-7 7-3 0-5-2-7-5l-2-3a1.5 1.5 0 012.5-1.6L8 13" />),
   undo: icon(<path d="M9 14L4 9l5-5M4 9h10.5a5.5 5.5 0 010 11H11" />),
   redo: icon(<path d="M15 14l5-5-5-5M20 9H9.5a5.5 5.5 0 000 11H13" />),
@@ -44,7 +46,8 @@ export const ICONS = {
     </>,
   ),
   /** Lasso de capture rectangulaire */
-  capture: icon(<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />),
+  /** Lasso de capture : un cadre de visée et l'objectif (il « photographie » une zone), pas un rectangle de sélection */
+  capture: icon(<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5M12 9.2a2.8 2.8 0 1 1 0 5.6 2.8 2.8 0 0 1 0-5.6z" />),
   /** Zone de texte (taper au clavier sur la page) */
   text: icon(<path d="M5 7V5h14v2M12 5v14M9 19h6" />),
   /** Lien de partage (lecture seule) */

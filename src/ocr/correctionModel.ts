@@ -60,9 +60,16 @@ export function lineBodyRatio(text: string): number {
   return top + bottom;
 }
 
-export function correctionLayout(words: readonly TextWord[], page: { width: number; height: number }): CorrectionLayout | null {
+/**
+ * `others` : les autres mots lus sur la page. Les marges du haut et du bas s'arrêtent avant eux : une marge
+ * généreuse ne doit jamais atteindre les lettres descendantes de la ligne du dessus (ni les montantes de celle
+ * du dessous), qui seraient effacées avec le reste.
+ */
+export function correctionLayout(words: readonly TextWord[], page: { width: number; height: number }, others: readonly TextWord[] = []): CorrectionLayout | null {
   if (!words.length) return null;
-  const mm = words.map((w) => ({ x: w.x * page.width, y: w.y * page.height, w: w.w * page.width, h: w.h * page.height, line: w.line }));
+  const toMm = (w: TextWord) => ({ x: w.x * page.width, y: w.y * page.height, w: w.w * page.width, h: w.h * page.height, line: w.line });
+  const mm = words.map(toMm);
+  const around = others.filter((o) => !words.includes(o)).map(toMm);
   const lines = new Map<number, { top: number; bottom: number; text: string }>();
   for (const [i, w] of mm.entries()) {
     const l = lines.get(w.line);
@@ -71,17 +78,30 @@ export function correctionLayout(words: readonly TextWord[], page: { width: numb
   }
   const lineHeight = median([...lines.values()].map((l) => l.bottom - l.top));
   const size = Math.min(40, Math.max(1.5, median([...lines.values()].map((l) => (l.bottom - l.top) / lineBodyRatio(l.text)))));
-  // Marge autour des lettres : les bords adoucis par la numérisation dépassent un peu du cadre lu
-  const pad = Math.min(1.5, Math.max(0.3, lineHeight * 0.18));
-  const x0 = Math.min(...mm.map((w) => w.x)) - pad;
-  const y0 = Math.min(...mm.map((w) => w.y)) - pad;
-  const x1 = Math.max(...mm.map((w) => w.x + w.w)) + pad;
-  const y1 = Math.max(...mm.map((w) => w.y + w.h)) + pad;
+  // Marges autour des lettres : les bords adoucis par la numérisation dépassent un peu du cadre lu, et surtout,
+  // en hauteur, les accents (É, è, ô) et le haut des lettres montantes sortent souvent du cadre de Tesseract :
+  // on en garde nettement plus au-dessus et au-dessous que sur les côtés, sinon ils restaient à moitié effacés
+  const padX = Math.min(1.5, Math.max(0.3, lineHeight * 0.15));
+  const padTop = Math.min(3, Math.max(0.6, lineHeight * 0.4));
+  const padBottom = Math.min(2, Math.max(0.4, lineHeight * 0.28));
+  const wordBoxes = mm.map((w) => {
+    const overlapX = (o: { x: number; w: number }) => o.x < w.x + w.w + padX && o.x + o.w > w.x - padX;
+    // Le mot voisin le plus bas au-dessus, le plus haut au-dessous : on s'arrête à mi-chemin
+    const above = Math.max(-Infinity, ...around.filter((o) => overlapX(o) && o.y + o.h <= w.y + w.h * 0.3).map((o) => o.y + o.h));
+    const below = Math.min(Infinity, ...around.filter((o) => overlapX(o) && o.y >= w.y + w.h * 0.7).map((o) => o.y));
+    const top = Math.min(padTop, Math.max(0.15, (w.y - above) / 2));
+    const bottom = Math.min(padBottom, Math.max(0.15, (below - (w.y + w.h)) / 2));
+    return { x: w.x - padX, y: w.y - top, w: w.w + 2 * padX, h: w.h + top + bottom };
+  });
+  const x0 = Math.min(...wordBoxes.map((b) => b.x));
+  const y0 = Math.min(...wordBoxes.map((b) => b.y));
+  const x1 = Math.max(...wordBoxes.map((b) => b.x + b.w));
+  const y1 = Math.max(...wordBoxes.map((b) => b.y + b.h));
   const box = { x: Math.max(0, x0), y: Math.max(0, y0), w: Math.min(page.width, x1) - Math.max(0, x0), h: Math.min(page.height, y1) - Math.max(0, y0) };
   return {
     text: joinWords(words),
     box,
-    wordBoxes: mm.map((w) => ({ x: w.x - pad, y: w.y - pad, w: w.w + 2 * pad, h: w.h + 2 * pad })),
+    wordBoxes,
     size,
     firstLineTop: Math.min(...mm.map((w) => w.y)),
     left: Math.min(...mm.map((w) => w.x)),

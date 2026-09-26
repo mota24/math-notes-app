@@ -120,10 +120,25 @@ export function NotebookEditor({
   const [version, setVersion] = useState(0);
   const saveTimer = useRef(0);
 
+  /**
+   * L'historique de CHAQUE page, gardé pour toute la session du cahier. Avant, il était remis à zéro à chaque
+   * rechargement de la page — y compris quand la même page revenait de la base (écho de la sauvegarde
+   * automatique, version reçue par la synchronisation) ou qu'on défilait jusqu'à la page suivante et revenait :
+   * « Annuler » ne pouvait plus rien. Les actions désignent les traits par leur identifiant : elles restent
+   * valables sur une version plus récente de la même page.
+   */
+  const histories = useRef(new Map<string, { undo: Action[]; redo: Action[] }>());
   const loadPage = useCallback((p: Page) => {
+    if (pageRef.current?.id !== p.id) {
+      let h = histories.current.get(p.id);
+      if (!h) {
+        h = { undo: [], redo: [] };
+        histories.current.set(p.id, h);
+      }
+      history.current = h;
+    }
     pageRef.current = p;
     strokesRef.current = p.strokes;
-    history.current = { undo: [], redo: [] };
     setPage(p);
     setStrokes(p.strokes);
   }, []);
