@@ -5,6 +5,7 @@ import { db } from '../db/db';
 import { auth } from '../firebase';
 import { UNVERIFIED_REASON, decideAccess, parseAllowlist } from './access';
 import type { Account } from './access';
+import { signupFlow } from './signupFlow';
 
 /** Liste blanche facultative, lue au build par Vite (vide si la variable n'est pas définie dans Vercel). */
 const ALLOWLIST = parseAllowlist(import.meta.env.VITE_ALLOWED_EMAILS);
@@ -42,6 +43,12 @@ export function useAccess(user: User | null | undefined): Gate {
       return;
     }
     if (user === null) {
+      setStatus('locked');
+      return;
+    }
+    // Compte tout juste créé par l'inscription : l'écran de connexion reste affiché (il va montrer « Compte
+    // créé ») et c'est l'inscription qui envoie le lien puis déconnecte. Ni refus, ni second e-mail ici.
+    if (signupFlow.isActive() && !user.emailVerified) {
       setStatus('locked');
       return;
     }
