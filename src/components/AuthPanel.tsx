@@ -39,11 +39,50 @@ import { auth, authMemeOrigine } from '../firebase';
 type Mode = 'connexion' | 'inscription' | 'oubli';
 type Methode = 'google' | 'email' | 'inscription' | 'oubli' | 'liaison';
 
+/** Anneau de focus au clavier, visible sur le fond sombre */
+const anneau = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950';
+/**
+ * Champ de saisie : texte à 16 px — en dessous, Safari (iPhone, iPad) zoome sur toute la page quand on touche le
+ * champ — et contour franc ; le focus prend l'accent de l'appli. Indication (« 6 caractères minimum ») lisible
+ * (contraste ≈ 7:1) mais plus terne que le texte saisi, pour ne pas la prendre pour une valeur déjà tapée.
+ */
 const champ =
-  'h-12 w-full rounded-xl border border-white/10 bg-white/5 px-4 text-[15px] text-white outline-none transition-colors placeholder:text-zinc-600 focus:border-white/40 focus:bg-white/10';
-const etiquette = 'mb-1.5 block text-[11px] font-bold uppercase tracking-[0.14em] text-zinc-500';
-const lien =
-  'min-h-0 border-0 bg-transparent p-0 text-[13px] font-semibold text-zinc-400 underline-offset-4 transition-colors hover:text-white hover:underline';
+  'h-12 w-full rounded-xl border border-white/15 bg-white/[0.06] px-4 text-base text-white outline-none transition-colors placeholder:text-zinc-400 focus:border-accent focus:bg-white/[0.08] focus:ring-2 focus:ring-accent/35';
+/** Libellé d'un champ : taille normale et contraste net (fini les petites capitales espacées, illisibles) */
+const etiquette = 'mb-2 block text-sm font-medium text-zinc-200';
+/** Lien : souligné, donc reconnaissable sans compter sur la couleur seule */
+const lien = `min-h-0 rounded border-0 bg-transparent p-0 text-sm font-medium text-zinc-300 underline decoration-zinc-600 underline-offset-4 transition-colors hover:text-white hover:decoration-zinc-300 ${anneau}`;
+/**
+ * Bouton principal : l'accent de l'appli (celui du thème sombre, voir .auth-panel dans styles.css), texte foncé,
+ * en casse normale — plus d'aplat blanc en capitales espacées qui « criait » sur le fond noir. Désactivé : gris
+ * franc et texte lisible (couleurs explicites ; l'ancienne feuille mettait TOUT bouton désactivé à 40 % d'opacité).
+ */
+const boutonPrincipal = `h-12 w-full rounded-xl border-0 bg-accent px-4 py-0 text-base font-semibold text-zinc-950 transition-colors duration-150 hover:bg-accent-ink active:scale-[0.99] disabled:cursor-not-allowed disabled:bg-zinc-800 disabled:text-zinc-400 disabled:opacity-100 disabled:hover:bg-zinc-800 disabled:active:scale-100 ${anneau}`;
+/** Bouton secondaire : contour et fond à peine teinté ; désactivé, même règle que le principal */
+const boutonSecondaire = `flex min-h-12 w-full items-center justify-center gap-3 rounded-xl border border-white/20 bg-white/[0.05] px-4 py-2 text-base font-medium text-zinc-100 transition-colors duration-150 hover:bg-white/[0.1] disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-transparent disabled:text-zinc-400 disabled:opacity-100 disabled:hover:bg-transparent ${anneau}`;
+/** Messages (erreur, information) : texte à taille normale */
+const message = 'm-0 rounded-xl border px-4 py-3 text-sm leading-relaxed';
+
+/** L'œil du mot de passe : ouvert (« afficher ») ou barré (« masquer ») */
+function Oeil({ barre }: { barre: boolean }) {
+  return (
+    <svg viewBox="0 0 24 24" className="size-[22px]" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {barre ? (
+        <>
+          <path d="M10.6 5.1A10.4 10.4 0 0 1 12 5c6.5 0 10 7 10 7a17.6 17.6 0 0 1-2.2 3.2" />
+          <path d="M6.6 6.6C3.6 8.5 2 12 2 12s3.5 7 10 7a9.6 9.6 0 0 0 5.4-1.6" />
+          <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" />
+          <path d="m3 3 18 18" />
+        </>
+      ) : (
+        <>
+          <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" />
+          <circle cx="12" cy="12" r="3" />
+        </>
+      )}
+    </svg>
+  );
+}
 
 const COMPTE_GOOGLE =
   'Compte créé avec Google ? Le bouton ci-dessous t’y connecte et lui ajoute ce mot de passe : ensuite, l’un ou l’autre suffira.';
@@ -269,11 +308,11 @@ export function AuthPanel({ refus = null }: { refus?: string | null }) {
             </svg>
           </div>
           <h1 className="m-0 text-[26px] font-bold tracking-tight text-white">Compte créé avec succès !</h1>
-          <p className="m-0 mt-4 text-[15px] leading-relaxed text-zinc-300">
+          <p className="m-0 mt-4 text-base leading-relaxed text-zinc-200">
             Un lien de vérification a été envoyé à <strong className="text-white">{inscrit.email}</strong>. Ouvre-le pour valider ton adresse, puis
             connecte-toi.
           </p>
-          <p className="m-0 mt-3 text-[13px] leading-relaxed text-zinc-500">
+          <p className="m-0 mt-3 text-sm leading-relaxed text-zinc-300">
             {inscrit.mailFailed
               ? 'L’e-mail n’a pas pu partir tout de suite : il repartira automatiquement à ta première tentative de connexion.'
               : 'Rien reçu d’ici quelques minutes ? Regarde dans les indésirables. Une tentative de connexion renvoie aussi le lien.'}
@@ -285,7 +324,7 @@ export function AuthPanel({ refus = null }: { refus?: string | null }) {
               changerMode('connexion');
               setEmail(inscrit.email);
             }}
-            className="mt-8 h-14 w-full rounded-xl border-0 bg-white p-0 text-[15px] font-bold uppercase tracking-[0.12em] text-zinc-900 transition-all duration-200 hover:bg-zinc-200 active:scale-[0.98]"
+            className={`${boutonPrincipal} mt-8`}
           >
             Aller à la page de connexion
           </button>
@@ -321,7 +360,7 @@ export function AuthPanel({ refus = null }: { refus?: string | null }) {
         </div>
 
         <h1 className="m-0 text-center text-[28px] font-bold tracking-tight text-white">{titre}</h1>
-        <p className="m-0 mb-8 mt-1.5 text-center text-sm text-zinc-500">{sousTitre}</p>
+        <p className="m-0 mb-8 mt-2 text-center text-base text-zinc-300">{sousTitre}</p>
 
         {mode !== 'oubli' && (
           <>
@@ -329,9 +368,9 @@ export function AuthPanel({ refus = null }: { refus?: string | null }) {
               type="button"
               onClick={parGoogle}
               disabled={busy !== null}
-              className="flex h-12 w-full items-center justify-center gap-3 rounded-xl border border-white/15 bg-white/[0.04] p-0 text-sm font-semibold text-white transition-colors duration-200 hover:bg-white/10 disabled:opacity-40"
+              className={boutonSecondaire}
             >
-              <svg viewBox="0 0 24 24" className="size-5" aria-hidden="true">
+              <svg viewBox="0 0 24 24" className="size-5 shrink-0" aria-hidden="true">
                 <path fill="#4285F4" d="M23 12.3c0-.8-.1-1.6-.2-2.3H12v4.4h6.2a5.3 5.3 0 0 1-2.3 3.5v2.9h3.7c2.2-2 3.4-5 3.4-8.5z" />
                 <path fill="#34A853" d="M12 23.5c3.1 0 5.7-1 7.6-2.8l-3.7-2.9c-1 .7-2.3 1.1-3.9 1.1-3 0-5.5-2-6.4-4.7H1.8v3A11.5 11.5 0 0 0 12 23.5z" />
                 <path fill="#FBBC05" d="M5.6 14.2a6.9 6.9 0 0 1 0-4.4v-3H1.8a11.5 11.5 0 0 0 0 10.4l3.8-3z" />
@@ -340,10 +379,10 @@ export function AuthPanel({ refus = null }: { refus?: string | null }) {
               {busy === 'google' ? 'Fenêtre Google ouverte…' : 'Continuer avec Google'}
             </button>
 
-            <div className="my-6 flex items-center gap-3 text-[11px] uppercase tracking-widest text-zinc-600">
-              <span className="h-px flex-1 bg-white/10" />
+            <div className="my-6 flex items-center gap-3 text-sm text-zinc-300">
+              <span className="h-px flex-1 bg-white/15" />
               ou avec ton e-mail
-              <span className="h-px flex-1 bg-white/10" />
+              <span className="h-px flex-1 bg-white/15" />
             </div>
           </>
         )}
@@ -374,7 +413,7 @@ export function AuthPanel({ refus = null }: { refus?: string | null }) {
                   Mot de passe
                 </label>
                 {mode === 'connexion' && (
-                  <button type="button" className={`${lien} mb-1.5 text-[12px]`} onClick={() => changerMode('oubli')}>
+                  <button type="button" className={`${lien} mb-2`} onClick={() => changerMode('oubli')}>
                     Mot de passe oublié ?
                   </button>
                 )}
@@ -382,20 +421,23 @@ export function AuthPanel({ refus = null }: { refus?: string | null }) {
               <div className="relative">
                 <input
                   id="auth-pw"
-                  className={`${champ} pr-20`}
+                  className={`${champ} pr-14`}
                   value={motDePasse}
                   onChange={(e) => setMotDePasse(e.target.value)}
                   type={voirMotDePasse ? 'text' : 'password'}
                   autoComplete={mode === 'inscription' ? 'new-password' : 'current-password'}
                   placeholder={mode === 'inscription' ? '6 caractères minimum' : '••••••••'}
                 />
+                {/* L'œil : toute la hauteur du champ sur 48 px de large (plus que les 44 px recommandés au doigt) */}
                 <button
                   type="button"
                   onClick={() => setVoirMotDePasse((v) => !v)}
-                  className="absolute inset-y-0 right-1 my-auto h-10 min-h-0 rounded-lg border-0 bg-transparent px-3 py-0 text-[12px] font-semibold text-zinc-500 hover:text-white"
+                  className={`absolute inset-y-0 right-0 grid w-12 min-h-0 place-items-center rounded-r-xl border-0 bg-transparent p-0 text-zinc-300 transition-colors hover:text-white ${anneau}`}
                   aria-label={voirMotDePasse ? 'Masquer le mot de passe' : 'Afficher le mot de passe'}
+                  aria-pressed={voirMotDePasse}
+                  title={voirMotDePasse ? 'Masquer le mot de passe' : 'Afficher le mot de passe'}
                 >
-                  {voirMotDePasse ? 'Masquer' : 'Afficher'}
+                  <Oeil barre={voirMotDePasse} />
                 </button>
               </div>
             </div>
@@ -419,14 +461,14 @@ export function AuthPanel({ refus = null }: { refus?: string | null }) {
           )}
 
           {mode === 'oubli' && (
-            <p className="m-0 text-[13px] leading-relaxed text-zinc-500">
+            <p className="m-0 text-sm leading-relaxed text-zinc-300">
               Compte créé avec Google ? Ce lien lui ajoute un mot de passe : tu pourras ensuite entrer avec l’un ou
               l’autre.
             </p>
           )}
 
           {erreur && (
-            <p role="alert" className="m-0 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-[13px] leading-relaxed text-red-300">
+            <p role="alert" className={`${message} border-red-500/30 bg-red-500/10 text-red-200`}>
               {erreur}
             </p>
           )}
@@ -435,19 +477,19 @@ export function AuthPanel({ refus = null }: { refus?: string | null }) {
               type="button"
               onClick={googleEtMotDePasse}
               disabled={busy !== null}
-              className="flex min-h-12 w-full items-center justify-center gap-3 rounded-xl border border-white/20 bg-white/[0.07] px-4 py-2 text-sm font-semibold text-white transition-colors duration-200 hover:bg-white/[0.12] disabled:opacity-40"
+              className={boutonSecondaire}
             >
               {busy === 'liaison' ? 'Fenêtre Google ouverte…' : 'Continuer avec Google et ajouter ce mot de passe'}
             </button>
           )}
           {googleEnAttente && mode === 'connexion' && !erreur && (
-            <p role="status" className="m-0 rounded-xl border border-sky-500/30 bg-sky-500/10 px-4 py-3 text-[13px] leading-relaxed text-sky-200">
+            <p role="status" className={`${message} border-sky-500/30 bg-sky-500/10 text-sky-100`}>
               Un compte e-mail existe déjà pour cette adresse. Entre son mot de passe : Google y sera relié, et tu pourras
               ensuite entrer avec l’un ou l’autre.
             </p>
           )}
           {info && (
-            <p role="status" className="m-0 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-[13px] leading-relaxed text-emerald-300">
+            <p role="status" className={`${message} border-emerald-500/30 bg-emerald-500/10 text-emerald-200`}>
               {info}
             </p>
           )}
@@ -455,7 +497,7 @@ export function AuthPanel({ refus = null }: { refus?: string | null }) {
           <button
             type="submit"
             disabled={busy !== null || formulaireIncomplet}
-            className="mt-2 h-14 w-full rounded-xl border-0 bg-white p-0 text-[15px] font-bold uppercase tracking-[0.12em] text-zinc-900 transition-all duration-200 hover:bg-zinc-200 active:scale-[0.98] disabled:opacity-40"
+            className={`${boutonPrincipal} mt-2`}
           >
             {libelleEnvoi}
           </button>
@@ -465,12 +507,8 @@ export function AuthPanel({ refus = null }: { refus?: string | null }) {
           {mode === 'connexion' ? (
             SIGNUP_OPEN && (
               <>
-                <span className="text-[13px] text-zinc-500">Pas encore de compte ?</span>
-                <button
-                  type="button"
-                  onClick={() => changerMode('inscription')}
-                  className="h-11 w-full rounded-xl border border-white/15 bg-transparent p-0 text-sm font-semibold text-white transition-colors hover:bg-white/10"
-                >
+                <span className="text-sm text-zinc-300">Pas encore de compte ?</span>
+                <button type="button" onClick={() => changerMode('inscription')} className={boutonSecondaire}>
                   Créer un compte
                 </button>
               </>
@@ -482,7 +520,7 @@ export function AuthPanel({ refus = null }: { refus?: string | null }) {
           )}
         </div>
 
-        <p className="mt-8 text-center text-[11px] leading-relaxed text-zinc-600">
+        <p className="m-0 mt-10 border-t border-white/10 pt-6 text-center text-sm leading-relaxed text-zinc-300">
           Ce verrou protège l’écran, pas le disque : tes notes restent dans ce navigateur. Le premier compte connecté
           sur cet appareil en devient le propriétaire.
         </p>
