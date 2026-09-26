@@ -56,7 +56,7 @@ hors-ligne ; la synchronisation Firestore garde une copie de tes cahiers ET de t
 - **Canevas infini vers le bas** : sur une page d'écriture (pas sur un PDF ou une photo importés), on peut **défiler sans limite** — deux doigts, molette, ou en glissant dans la marge — et le papier se déroule par **feuilles A4 entières**, tout seul, quand on approche du bas ou qu'on écrit près du bord. Un trait pointillé « Feuille 2 », « Feuille 3 »… marque où la page se coupe à l'impression. La hauteur enregistrée ne suit que ce qui est écrit (défiler ne crée pas de feuilles vides gardées) et redescend si on efface le bas. Jusqu'à 30 feuilles (~9 m). L'**export PDF** (avec ou sans Mode impression) coupe une longue page en pages A4, réglures comprises ; la vignette montre la première feuille avec le nombre de feuilles.
 - **Papier sombre** (par défaut pour les nouveaux cahiers) : fond noir avec quadrillage adapté, pour écrire en encre claire (blanc dans la palette) ; l'export « PDF de mes notes » garde ce fond sombre pour que l'encre claire reste lisible (ou passe en Mode impression pour un fond blanc).
 - **Hors-ligne** : tout est stocké sur l'appareil (IndexedDB) ; l'appli installée s'ouvre sans réseau.
-- **Sauvegardes** : fichier `.json` à télécharger / restaurer (sans compte), ou synchronisation automatique Google Drive.
+- **Sauvegardes** : fichier `.json` à télécharger / restaurer (sans compte), copie quotidienne en un seul fichier sur Google Drive depuis l'appareil, et sauvegarde hebdomadaire par le serveur.
 - **Guide de démarrage** au premier lancement, écran d'erreur qui n'efface rien si un écran plante.
 
 ## Lancer l'appli
@@ -209,9 +209,14 @@ plus de 50 Mo (non synchronisé) non plus.
    `https://math-notes-app-indol.vercel.app` (et `http://localhost:5173` pour le PC).
 5. Dans l'appli : Réglages → Sauvegarde Google Drive → colle l'ID client → **Se connecter**.
 
-L'appli n'a accès qu'aux fichiers qu'elle crée (portée `drive.file`), rangés dans le dossier
-« Notes Maths (synchronisation) » de ton Drive. Si deux appareils modifient la même page, la version la plus
-récente gagne.
+L'appli n'a accès qu'aux fichiers qu'elle crée (portée `drive.file`). **« Sauvegarder maintenant »** (et la copie
+automatique, au plus une fois par jour) envoie **un seul fichier JSON** — l'export complet de la base, PDF compris —
+d'un bloc, dans le dossier « Notes Maths (copies de l'appareil) » : `notes-maths-sauvegarde-AAAA-MM-JJ.json`, la
+copie du jour remplaçant celle du matin, les 8 dernières gardées. Jusqu'à 5 Mo, une seule requête multipart
+(métadonnées + contenu) ; au-delà (limite de Google pour ce mode), une session reprenable : une courte requête
+d'ouverture, puis tout le contenu dans une seule requête. La barre de progression suit l'envoi du fichier. La
+synchronisation entre appareils, elle, passe par Firestore (l'ancienne synchronisation Drive page par page — « Envoi
+des pages (49/196) » — a été retirée).
 
 ## Organisation du code
 
@@ -224,7 +229,7 @@ récente gagne.
 | `src/export/` | PDF vectoriel, PDF manuscrit |
 | `src/pdf/` | Lecture des PDF importés (pdf.js) et couvertures des cahiers (`cover.ts` : miniature de la première page, gardée dans le Cache Storage) |
 | `src/ocr/` | Texte des PDF et des scans : moteur Tesseract.js à la demande dans un Web Worker (`engine.ts`), texte d'une page — natif ou lu — mis en cache (`pageText.ts`), mots, recherche et copie (`textModel.ts`, testé), couche sélectionnable (`TextLayer.tsx`), correction au lasso (`correct.ts` ; effacement `inpaint.ts` dans `inpaint.worker.ts`, et mise en page `correctionModel.ts`, testés). Fichiers du moteur servis sous `ocr/<version>/` (plugin dans `vite.config.ts`) |
-| `src/sync/` | Synchronisation : temps réel Firestore (`firestore.ts` : envois groupés, reprises après coupure, PDF et pages lourdes découpés en morceaux vérifiés par SHA-256 via `chunks.ts`) et Google Drive ; même fusion « le plus récent gagne » (`merge.ts`) |
+| `src/sync/` | Synchronisation : temps réel Firestore (`firestore.ts` : envois groupés, reprises après coupure, PDF et pages lourdes découpés en morceaux vérifiés par SHA-256 via `chunks.ts`) et copie en un seul fichier sur Google Drive (`drive.ts`, `driveUpload.ts` testé, `useSync.ts`) ; fusion « le plus récent gagne » (`merge.ts`) |
 | `api/` | Serveur (fonctions Vercel) : sauvegarde hebdomadaire sur Drive (`backup.ts`, planifiée dans `vercel.json`), connexion de Drive (`drive-auth.ts`) ; `_lib/backupCollect.ts` refait l'export manuel à partir de Firestore, `_lib/drive.ts` l'envoi reprenable vérifié (tous deux testés sans réseau) |
 | `src/share/` | Partage en lecture seule par lien secret `/share/<id>` (publication incrémentale, lecteur public) |
 | `src/auth/` | Accès réservé : qui a le droit d'entrer (`access.ts`, testé), la porte d'entrée (`useAccess.ts`), la déconnexion complète, la liaison Google / mot de passe (`linking.ts`) et la suppression du compte (`deleteAccount.ts`, logique testée dans `accountModel.ts`) |

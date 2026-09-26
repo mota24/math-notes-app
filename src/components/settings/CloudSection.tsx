@@ -4,7 +4,7 @@ import { downloadBlob } from '../../export/download';
 import { seDeconnecter } from '../../auth/session';
 import { useAuthUser } from '../../firebase';
 import type { Settings } from '../../settings';
-import { canUseDrive, currentToken, ensureFolder, signIn, uploadFile } from '../../sync/drive';
+import { canUseDrive } from '../../sync/drive';
 import { useFirestoreState } from '../../sync/useFirestore';
 import { syncController, useSyncState } from '../../sync/useSync';
 import { Carte, Etat, Interrupteur, Ligne, bouton, boutonDanger, boutonPrincipal, champ, discret, texte } from './ui';
@@ -170,7 +170,7 @@ export function CloudSection({ settings, update }: { settings: Settings; update(
             {driveConnecte ? (
               <>
                 <button type="button" className={boutonPrincipal} disabled={drive.status === 'syncing'} onClick={() => void syncController.syncNow()}>
-                  Synchroniser
+                  Sauvegarder maintenant
                 </button>
                 <button type="button" className={bouton} onClick={() => syncController.disconnect()}>
                   Déconnecter
@@ -181,30 +181,19 @@ export function CloudSection({ settings, update }: { settings: Settings; update(
                 Connecter
               </button>
             )}
-            <button
-              type="button"
-              className={bouton}
-              disabled={occupe || !driveDispo.ok || !settings.driveClientId}
-              onClick={() =>
-                void lancer(async () => {
-                  // Envoi seul : ce bouton ne supprime ni ne remplace jamais rien, ni ici ni sur Drive
-                  const token = currentToken() ?? (await signIn(settings.driveClientId));
-                  const dossier = await ensureFolder(token);
-                  const blob = await createBackup();
-                  const tampon = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 16);
-                  await uploadFile(token, dossier, `sauvegarde-${tampon}.json`, blob);
-                  return `Copie envoyée sur Drive (${(blob.size / 1024 / 1024).toFixed(1)} Mo).`;
-                })
-              }
-            >
-              Envoyer une copie
-            </button>
           </div>
-          <Ligne libelle="Synchroniser Drive automatiquement">
-            <Interrupteur actif={settings.driveAutoSync} onChange={(v) => update({ driveAutoSync: v })} libelle="Synchroniser Drive automatiquement" />
+          <Ligne libelle="Copie automatique quotidienne" precision="Toute la base en un seul fichier JSON, au plus une fois par jour ; les 8 dernières sont gardées.">
+            <Interrupteur actif={settings.driveAutoSync} onChange={(v) => update({ driveAutoSync: v })} libelle="Copie automatique quotidienne" />
           </Ligne>
-          {drive.status === 'syncing' && <Etat message={drive.progress || 'Synchronisation…'} />}
-          {drive.lastSyncAt && drive.status !== 'syncing' && <Etat message={`Dernière synchronisation Drive : ${new Date(drive.lastSyncAt).toLocaleString('fr-FR')}`} />}
+          {drive.status === 'syncing' && (
+            <div className="flex flex-col gap-1.5">
+              <Etat message={drive.progress || 'Préparation de la sauvegarde…'} />
+              <span className="block h-1.5 overflow-hidden rounded-full bg-[color:var(--sunken)]">
+                <span className="block h-full rounded-full bg-accent transition-[width] duration-200" style={{ width: `${Math.round((drive.percent ?? 0) * 100)}%` }} />
+              </span>
+            </div>
+          )}
+          {drive.lastSyncAt && drive.status !== 'syncing' && <Etat message={`Dernière copie sur Drive : ${new Date(drive.lastSyncAt).toLocaleString('fr-FR')}`} />}
           {drive.error && <Etat message={drive.error} erreur />}
         </div>
       </details>
