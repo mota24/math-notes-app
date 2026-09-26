@@ -51,6 +51,8 @@ export const ICONS = {
   share: icon(<path d="M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1M14 10a4 4 0 00-5.7 0l-3 3a4 4 0 005.7 5.7l1-1" />),
   /** Écran partagé : deux colonnes */
   split: icon(<path d="M4 5h16v14H4zM12 5v14" />),
+  /** Texte d'un scan : cadre de lecture et lettre T */
+  scanText: icon(<path d="M4 8V5.5A1.5 1.5 0 015.5 4H8M16 4h2.5A1.5 1.5 0 0120 5.5V8M20 16v2.5a1.5 1.5 0 01-1.5 1.5H16M8 20H5.5A1.5 1.5 0 014 18.5V16M8.5 9h7M12 9v7" />),
   /** Télécharger (export PDF) */
   download: icon(<path d="M12 4v11M7 10l5 5 5-5M5 20h14" />),
   /** Inverser les deux côtés de l'écran partagé */

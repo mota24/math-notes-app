@@ -18,6 +18,9 @@ import { BAR_WIDTH, BAR_WIDTH_REGION, CAPTURE_HANDLES, HANDLE_SIZE, ROTATE_GAP, 
 import type { Corner, TransformDrag } from './handles';
 import { PAGE_GAP, docH, docW, findSheet, getSheets } from './sheets';
 import type { CanvasPage, Sheet } from './sheets';
+import { SheetHighlights, SheetText, UNIT, useLayerCopy } from '../ocr/TextLayer';
+import type { Highlight } from '../ocr/TextLayer';
+import type { TextWord } from '../ocr/textModel';
 
 export type { CanvasPage, Sheet } from './sheets';
 
@@ -123,6 +126,15 @@ interface Props {
   onTextChange(text: string): void;
   /** Fin de la frappe (tap ailleurs, Échap, champ quitté) : le parent enregistre la zone */
   onTextDone(): void;
+  /**
+   * Mode « Texte » : les mots lus sur le fond de chaque page (identifiant de page → mots), posés en couche
+   * sélectionnable par-dessus. Absent : pas de couche.
+   */
+  textLayer?: ReadonlyMap<string, readonly TextWord[]> | null;
+  /** Occurrences de la recherche à surligner (fractions de page) */
+  highlights?: readonly Highlight[] | null;
+  /** Amène à l'écran un point d'une page (résultat de recherche) : `y` en fraction de la page, `nonce` relance */
+  reveal?: { pageId: string; y: number; nonce: number } | null;
 }
 
 /**
@@ -289,9 +301,28 @@ export function InkCanvas(props: Props) {
         const targetTy = TOP_GAP - targetSheet.top * viewRef.current.scale;
         viewRef.current = clampViewRef.current({ ...viewRef.current, ty: targetTy }, false);
         redrawRef.current();
+        setViewTick((t) => t + 1); // cadres, poignées et couche de texte suivent la nouvelle vue
       }
     }
   }, [props.currentPageIndex]);
+
+  // Un résultat de recherche : le point visé arrive au tiers haut de l'écran, et sa page devient la courante
+  const revealNonce = props.reveal?.nonce;
+  useEffect(() => {
+    const r = propsRef.current.reveal;
+    if (!r) return;
+    const sheet = getSheets(propsRef.current, minHeightRef.current).find((sh) => sh.id === r.pageId);
+    if (!sheet) return;
+    const v = viewRef.current;
+    const h = containerRef.current?.clientHeight ?? 0;
+    viewRef.current = clampViewRef.current({ ...v, ty: h / 3 - (sheet.top + r.y * sheet.height) * v.scale }, false);
+    if (sheet.index !== activePageIndexRef.current) {
+      activePageIndexRef.current = sheet.index;
+      propsRef.current.onPageIndexChange?.(sheet.index);
+    }
+    redrawRef.current();
+    setViewTick((t) => t + 1);
+  }, [revealNonce]);
 
   useEffect(() => {
     const container = containerRef.current!;
@@ -1517,9 +1548,57 @@ export function InkCanvas(props: Props) {
     };
   })();
 
+  // ---- Couche de texte (mode « Texte ») : seulement les feuilles à l'écran
+  const { textLayer, highlights } = props;
+  const ocrSheets = (() => {
+    if (!textLayer && !highlights?.length) return [];
+    const v = viewRef.current;
+    const h = containerRef.current?.clientHeight ?? 0;
+    return getSheets(props, minHeightRef.current).filter((sh) => sh.bottom * v.scale + v.ty > -50 && sh.top * v.scale + v.ty < h + 50);
+  })();
+  useLayerCopy(!!textLayer);
+  /** Un doigt qui glisse vite depuis un mot fait défiler la page ; un appui long, lui, sélectionne */
+  const swipe = useRef<{ id: number; x: number; y: number; t: number; panning: boolean } | null>(null);
+  const ocrDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    swipe.current = e.pointerType === 'touch' ? { id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp, panning: false } : null;
+  };
+  const ocrMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const s = swipe.current;
+    if (!s || s.id !== e.pointerId) return;
+    if (!s.panning) {
+      if (e.timeStamp - s.t > 350) {
+        swipe.current = null; // appui long en cours : c'est une sélection, on ne touche à rien
+        return;
+      }
+      if (Math.hypot(e.clientX - s.x, e.clientY - s.y) < 10) return;
+      s.panning = true;
+    }
+    panByRef.current(e.clientX - s.x, e.clientY - s.y);
+    s.x = e.clientX;
+    s.y = e.clientY;
+  };
+  const ocrUp = () => {
+    swipe.current = null;
+  };
+
   return (
     <div className="ink-area" ref={containerRef}>
       <canvas ref={displayRef} className="ink-layer" />
+      {ocrSheets.length > 0 && (
+        <div className="ocr-layer" onPointerDown={ocrDown} onPointerMove={ocrMove} onPointerUp={ocrUp} onPointerCancel={ocrUp}>
+          {ocrSheets.map((sh) => {
+            const v = viewRef.current;
+            const words = textLayer?.get(sh.id);
+            const marks = highlights?.filter((b) => b.pageId === sh.id);
+            return (
+              <div key={sh.id} className="ocr-place" style={{ transform: `translate(${v.tx}px, ${sh.top * v.scale + v.ty}px) scale(${v.scale / UNIT})` }}>
+                {marks && marks.length > 0 && <SheetHighlights boxes={marks} width={sh.width} height={sh.height} />}
+                {words && <SheetText words={words} width={sh.width} height={sh.height} />}
+              </div>
+            );
+          })}
+        </div>
+      )}
       <textarea
         ref={textArea}
         className={`text-edit ${textEdit && textBox ? '' : 'text-edit-idle'}`}
