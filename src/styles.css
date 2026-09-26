@@ -3106,3 +3106,11 @@ code {
   height: 34px;
   color: var(--ink);
 }
+
+/* Écran de connexion : toujours sombre, il prend donc l'accent du thème sombre de l'appli (celui de la
+   bibliothèque) — le bouton principal s'accorde au reste du site au lieu d'un aplat blanc. */
+.auth-panel {
+  --accent: #7c9cf0;
+  --accent-ink: #a0bcf5;
+  color-scheme: dark;
+}
