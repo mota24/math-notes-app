@@ -3046,3 +3046,9 @@ code {
   user-select: text;
   -webkit-user-select: text;
 }
+
+/* « Corriger le texte » (zone du lasso sur un scan) : l'action principale de la barre */
+.selection-actions .sel-correct {
+  color: var(--accent);
+  font-weight: 600;
+}

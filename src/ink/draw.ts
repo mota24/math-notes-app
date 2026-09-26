@@ -242,6 +242,39 @@ function ensureTextFont() {
     .catch(() => undefined);
 }
 
+/**
+ * « Mon écriture » : les caractères enregistrés dans l'écran du même nom (coordonnées en em, x depuis le début
+ * du tracé, y depuis la ligne de base, `advance` = largeur occupée). Fournis par l'appli (setHandGlyphs) : ce
+ * module ne lit pas la base. Un caractère pas encore enregistré s'écrit avec la police.
+ */
+export interface HandGlyph {
+  char: string;
+  strokes: InkPoint[][];
+  advance: number;
+}
+let handGlyphs = new Map<string, HandGlyph>();
+/** Espace entre deux mots écrits à la main (em) */
+const HAND_SPACE = 0.35;
+
+export function setHandGlyphs(glyphs: readonly HandGlyph[]) {
+  handGlyphs = new Map(glyphs.map((g) => [g.char, g]));
+  linesCache = new WeakMap(); // les largeurs changent : on refait les retours à la ligne
+  imageListeners.forEach((cb) => cb());
+}
+
+/** Mesure d'un texte écrit avec « Mon écriture » (repli sur la police pour ce qui manque) */
+function handMeasure(size: number): (s: string) => number {
+  const font = textMeasure(size);
+  return (s) => {
+    let w = 0;
+    for (const ch of s) {
+      const g = handGlyphs.get(ch);
+      w += ch === ' ' ? HAND_SPACE * size : g ? g.advance * size : font(ch);
+    }
+    return w;
+  };
+}
+
 /** Mesure (en unités de la taille `size`) d'un bout de texte */
 function textMeasure(size: number): (s: string) => number {
   measureCtx ??= document.createElement('canvas').getContext('2d');
@@ -252,11 +285,11 @@ function textMeasure(size: number): (s: string) => number {
 }
 
 /** Les lignes d'une zone de texte, telles qu'elles s'affichent */
-export function textLines(s: Pick<Stroke, 'text' | 'size' | 'points'>): string[] {
+export function textLines(s: Pick<Stroke, 'text' | 'size' | 'points' | 'font'>): string[] {
   ensureTextFont();
   const [a, b] = s.points;
   const width = Math.abs((b?.[0] ?? a[0]) - a[0]);
-  return wrapText(s.text ?? '', textInnerWidth(width, s.size), textMeasure(s.size));
+  return wrapText(s.text ?? '', textInnerWidth(width, s.size), s.font === 'mine' ? handMeasure(s.size) : textMeasure(s.size));
 }
 
 /**
@@ -273,11 +306,53 @@ export function fitTextBox(s: Stroke): Stroke {
   return { ...s, points: [[left, top, 0.5], [right, top + height, 0.5]] };
 }
 
+/** Une zone de texte écrite avec « Mon écriture » : chaque caractère enregistré, posé sur la ligne de base */
+function drawHandText(ctx: CanvasRenderingContext2D, s: Stroke, lines: string[], left: number, top: number) {
+  const size = s.size;
+  const fallback = textMeasure(size);
+  ctx.save();
+  ctx.translate(left, top);
+  ctx.fillStyle = s.color;
+  ctx.font = `${size}px ${TEXT_FONT}`;
+  ctx.textBaseline = 'alphabetic';
+  lines.forEach((line, i) => {
+    // Même hauteur de ligne que la police : la ligne de base tombe aux ~4/5 du corps
+    const baseline = ((TEXT_LINE_HEIGHT - 1) / 2 + 0.8) * size + i * size * TEXT_LINE_HEIGHT;
+    let x = 0;
+    for (const ch of line) {
+      if (ch === ' ') {
+        x += HAND_SPACE * size;
+        continue;
+      }
+      const g = handGlyphs.get(ch);
+      if (!g) {
+        ctx.fillText(ch, x, baseline);
+        x += fallback(ch);
+        continue;
+      }
+      for (const st of g.strokes) {
+        if (st.length) ctx.fill(buildPath(st.map(([gx, gy, p]): InkPoint => [x + gx * size, baseline + gy * size, p]), 'touch', size * 0.075, true));
+      }
+      x += g.advance * size;
+    }
+  });
+  ctx.restore();
+}
+
 function drawTextBox(ctx: CanvasRenderingContext2D, s: Stroke) {
   const [a, b] = s.points;
   const left = Math.min(a[0], b[0]);
   const top = Math.min(a[1], b[1]);
   const pad = textPadding(s.size);
+  if (s.font === 'mine') {
+    let hand = linesCache.get(s);
+    if (!hand) {
+      hand = textLines(s);
+      linesCache.set(s, hand);
+    }
+    drawHandText(ctx, s, hand, left + pad, top + pad);
+    return;
+  }
   const k = s.size / TEXT_REF;
   ctx.save();
   ctx.translate(left + pad, top + pad);

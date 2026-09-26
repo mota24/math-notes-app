@@ -141,3 +141,29 @@ export async function pdfTextItems(
     page.cleanup();
   }
 }
+
+/**
+ * Un morceau d'une page (fractions de la page : x, y, largeur, hauteur) rendu à `pxPerMm` : pour effacer un mot,
+ * inutile de rendre la page entière (et 12 px/mm d'une page A4 dépasseraient la mémoire d'une tablette).
+ */
+export async function renderPdfRegion(
+  fileId: string,
+  pageIndex: number,
+  pxPerMm: number,
+  part: { x: number; y: number; w: number; h: number },
+): Promise<HTMLCanvasElement> {
+  const doc = await pdfForFile(fileId);
+  const page = await doc.getPage(pageIndex + 1);
+  try {
+    const scale = pxPerMm / PT_PER_MM;
+    const full = page.getViewport({ scale });
+    const viewport = page.getViewport({ scale, offsetX: -part.x * full.width, offsetY: -part.y * full.height });
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(part.w * full.width));
+    canvas.height = Math.max(1, Math.round(part.h * full.height));
+    await page.render({ canvas, viewport }).promise;
+    return canvas;
+  } finally {
+    page.cleanup();
+  }
+}
