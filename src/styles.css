@@ -3063,3 +3063,46 @@ code {
   background: color-mix(in srgb, var(--accent) 18%, transparent);
   color: var(--accent);
 }
+
+/* ------------------------------------------------------------------ signatures enregistrées */
+
+.sig-pad {
+  display: block;
+  width: 100%;
+  border: 1.5px dashed var(--line-strong, rgba(0, 0, 0, 0.2));
+  border-radius: 14px;
+  background: #fff;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.sig-item {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-width: 120px;
+  min-height: 64px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+}
+
+.sig-item .sig-remove {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  width: 24px;
+  height: 24px;
+  min-height: 0;
+  padding: 0;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.stamp-btn.sig-btn .sig-glyph {
+  width: 100%;
+  height: 34px;
+  color: var(--ink);
+}

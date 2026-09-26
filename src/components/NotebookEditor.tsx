@@ -20,6 +20,9 @@ import { ShareDialog } from './ShareDialog';
 import { SplitViewer } from './SplitViewer';
 import { lruGet, lruSet } from '../lru';
 import { TextPanel } from './TextPanel';
+import { SignatureDialog } from './SignatureDialog';
+import { SIGNATURES_KEY, placedAt, placedSize, readSignatures } from '../ink/signature';
+import { signatureImage } from '../ink/signatureRender';
 import type { Highlight } from '../ocr/TextLayer';
 import type { TextWord } from '../ocr/textModel';
 import { readSplits, writeSplits } from './splitStore';
@@ -570,6 +573,34 @@ export function NotebookEditor({
   };
   const commitTextRef = useRef(commitText);
   commitTextRef.current = commitText;
+
+  // ------------------------------------------------------------ signatures enregistrées
+  const signatures = useQuery(() => db.getMeta(SIGNATURES_KEY).then(readSignatures), [], ['meta']) ?? [];
+  const [signaturesOpen, setSignaturesOpen] = useState(false);
+  /** Pose une signature en bas à droite de la page, à la couleur du stylo, sélectionnée pour la placer d'un geste */
+  const placeSignature = (id: string) => {
+    const sig = signatures.find((s) => s.id === id);
+    const p = pageRef.current;
+    if (!sig || !p) return;
+    const size = placedSize(sig, p);
+    const at = placedAt(size, p);
+    const stroke: Stroke = {
+      id: newId(),
+      tool: 'image',
+      image: signatureImage(sig, size.w, settingsRef.current.color),
+      points: [
+        [at.x, at.y, 1],
+        [at.x + size.w, at.y + size.h, 1],
+      ],
+      color: settingsRef.current.color,
+      size: 0,
+      input: 'mouse',
+    };
+    addStrokes([stroke]);
+    setTool('lasso');
+    select([stroke.id]);
+    flash('Signature posée en bas à droite : glisse-la à sa place, tire un coin pour l’ajuster.');
+  };
 
   // ------------------------------------------------------------ « Mon écriture » et correction des scans
   const glyphs = useQuery(() => db.glyphs(), [], ['glyphs']);
@@ -1229,6 +1260,9 @@ export function NotebookEditor({
             onShapeColor={(color) => update({ shapeColor: color })}
             onHighlight={(patch) => update(patch)}
             onShapeKind={setShapeKind}
+            signatures={signatures}
+            onPlaceSignature={placeSignature}
+            onManageSignatures={() => setSignaturesOpen(true)}
             onDashed={(dashed) => update({ dashed })}
             onEraser={(patch) => update(patch)}
             onUndo={undo}
@@ -1330,6 +1364,7 @@ export function NotebookEditor({
           ) : (
             <p className="center-message">Chargement de la page…</p>
           )}
+          {signaturesOpen && <SignatureDialog signatures={signatures} onClose={() => setSignaturesOpen(false)} />}
           {textOpen && (
             <TextPanel
               pages={orderedPages}
