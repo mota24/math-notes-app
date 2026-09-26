@@ -1,10 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import type { FormEvent } from 'react';
 import {
   createUserWithEmailAndPassword,
   fetchSignInMethodsForEmail,
   getRedirectResult,
+  sendEmailVerification,
   sendPasswordResetEmail,
+  signOut,
   signInWithEmailAndPassword,
   signInWithPopup,
   signInWithRedirect,
@@ -13,6 +15,7 @@ import type { AuthCredential } from 'firebase/auth';
 import { sameEmail } from '../auth/accountModel';
 import { googleProvider, linkPendingCredential, pendingGoogle, signInWithGoogleAddingPassword } from '../auth/linking';
 import { SIGNUP_OPEN } from '../auth/useAccess';
+import { signupFlow } from '../auth/signupFlow';
 import { auth, authMemeOrigine } from '../firebase';
 
 /**
@@ -189,7 +192,28 @@ export function AuthPanel({ refus = null }: { refus?: string | null }) {
       if (!adresse || !motDePasse) return;
       if (motDePasse.length < 6) return setErreur('Mot de passe trop court : 6 caractères minimum.');
       if (motDePasse !== confirmation) return setErreur('Les deux mots de passe ne sont pas identiques.');
-      void lancer('inscription', () => createUserWithEmailAndPassword(auth, adresse, motDePasse));
+      void lancer('inscription', async () => {
+        // Créer le compte, envoyer le lien de vérification, puis déconnecter sans bruit : l'écran affiche ensuite
+        // « Compte créé », au lieu d'un refus (« adresse pas encore validée ») qui faisait croire à une erreur
+        signupFlow.start();
+        let created = false;
+        try {
+          const { user } = await createUserWithEmailAndPassword(auth, adresse, motDePasse);
+          created = true;
+          let mailFailed = false;
+          try {
+            await sendEmailVerification(user);
+          } catch {
+            mailFailed = true; // il repartira tout seul à la première tentative de connexion
+          }
+          await signOut(auth);
+          signupFlow.finish({ email: user.email ?? adresse, mailFailed });
+        } catch (e) {
+          if (created) await signOut(auth).catch(() => undefined);
+          signupFlow.fail();
+          throw e;
+        }
+      });
     } else {
       if (!adresse) return;
       void lancer('oubli', async () => {
@@ -232,7 +256,43 @@ export function AuthPanel({ refus = null }: { refus?: string | null }) {
     void lancer('liaison', () => signInWithGoogleAddingPassword(adresse, motDePasse));
   };
 
+  const inscrit = useSyncExternalStore(signupFlow.subscribe, signupFlow.result);
   const [titre, sousTitre] = TITRES[mode];
+
+  if (inscrit) {
+    return (
+      <div className="auth-panel fixed inset-0 z-[100] grid place-items-center overflow-auto bg-zinc-950 px-5 py-10">
+        <div className="w-full max-w-[380px] text-center" role="status" aria-live="polite">
+          <div className="mx-auto mb-6 grid size-16 place-items-center rounded-2xl border border-emerald-400/30 bg-emerald-400/10">
+            <svg viewBox="0 0 24 24" className="size-8 text-emerald-300" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="m5 12.5 4.5 4.5L19 7.5" />
+            </svg>
+          </div>
+          <h1 className="m-0 text-[26px] font-bold tracking-tight text-white">Compte créé avec succès !</h1>
+          <p className="m-0 mt-4 text-[15px] leading-relaxed text-zinc-300">
+            Un lien de vérification a été envoyé à <strong className="text-white">{inscrit.email}</strong>. Ouvre-le pour valider ton adresse, puis
+            connecte-toi.
+          </p>
+          <p className="m-0 mt-3 text-[13px] leading-relaxed text-zinc-500">
+            {inscrit.mailFailed
+              ? 'L’e-mail n’a pas pu partir tout de suite : il repartira automatiquement à ta première tentative de connexion.'
+              : 'Rien reçu d’ici quelques minutes ? Regarde dans les indésirables. Une tentative de connexion renvoie aussi le lien.'}
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              signupFlow.clear();
+              changerMode('connexion');
+              setEmail(inscrit.email);
+            }}
+            className="mt-8 h-14 w-full rounded-xl border-0 bg-white p-0 text-[15px] font-bold uppercase tracking-[0.12em] text-zinc-900 transition-all duration-200 hover:bg-zinc-200 active:scale-[0.98]"
+          >
+            Aller à la page de connexion
+          </button>
+        </div>
+      </div>
+    );
+  }
   const formulaireIncomplet =
     !adresse || (mode !== 'oubli' && !motDePasse) || (mode === 'inscription' && !confirmation);
   const libelleEnvoi =
