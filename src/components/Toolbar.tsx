@@ -199,7 +199,7 @@ export function Toolbar(p: Props) {
       aria-label={label}
       aria-pressed={p.tool === t}
     >
-      {ICONS[t]}
+      {t === 'lasso' && p.lassoShape === 'rect' ? ICONS.lassoRect : ICONS[t]}
     </button>
   );
   const currentStamp = ALL_STAMPS.find((s) => s.kind === p.shapeKind);
@@ -381,7 +381,10 @@ export function Toolbar(p: Props) {
           <div className="eraser-modes" role="group" aria-label="Forme du lasso">
             <button
               className={`eraser-mode ${p.lassoShape === 'free' ? 'active' : ''}`}
-              onClick={() => p.onLassoShape('free')}
+              onClick={() => {
+                p.onLassoShape('free');
+                setPop(null); // le choix fait, le menu se ferme : on voit le lasso toujours actif
+              }}
               aria-pressed={p.lassoShape === 'free'}
             >
               <svg viewBox="0 0 48 28" width="48" height="28" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">
@@ -393,7 +396,10 @@ export function Toolbar(p: Props) {
             </button>
             <button
               className={`eraser-mode ${p.lassoShape === 'rect' ? 'active' : ''}`}
-              onClick={() => p.onLassoShape('rect')}
+              onClick={() => {
+                p.onLassoShape('rect');
+                setPop(null);
+              }}
               aria-pressed={p.lassoShape === 'rect'}
             >
               <svg viewBox="0 0 48 28" width="48" height="28" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">

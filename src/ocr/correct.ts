@@ -86,7 +86,7 @@ export interface Correction {
 export async function prepareCorrection(page: Page, region: BBox, progress: (message: string) => void): Promise<Correction | null> {
   progress('Lecture du texte de la zone…');
   const read = await pageText(page);
-  const layout = read ? correctionLayout(wordsInRegion(read.words, page, region), page) : null;
+  const layout = read ? correctionLayout(wordsInRegion(read.words, page, region), page, read.words) : null;
   if (!layout) return null;
 
   progress('Effacement du texte d’origine…');
@@ -121,11 +121,12 @@ export async function prepareCorrection(page: Page, region: BBox, progress: (mes
 
   const size = layout.size;
   const pad = textPadding(size);
-  // Le haut des lettres de la première ligne tombe là où étaient les lettres d'origine
+  // Le haut des lettres de la première ligne tombe là où étaient les lettres d'origine ; la zone garde sa marge
+  // intérieure au-dessus et au-dessous (accents, lettres montantes et descendantes ont la place de respirer)
   const top = Math.max(0, layout.firstLineTop - pad - ((TEXT_LINE_HEIGHT - 1) / 2) * size);
   const left = Math.max(0, layout.left - pad);
-  // Un peu plus large que le texte lu : une correction un peu plus longue tient encore sur la ligne
-  const textWidth = Math.min(page.width - left, Math.max(12, layout.width * 1.15 + 2 * pad));
+  // Nettement plus large que le texte lu : une correction un peu plus longue tient encore sur la même ligne
+  const textWidth = Math.min(page.width - left, Math.max(15, layout.width * 1.35 + 2 * pad + size));
   const text = fitTextBox({
     id: newId(),
     tool: 'text',

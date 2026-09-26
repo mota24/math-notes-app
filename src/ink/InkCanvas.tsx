@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { InputClassifier } from './palm';
 import type { ClassifierConfig, ClassifierListener, Sample } from './palm';
-import { HIGHLIGHT_ALPHA, PAPER_BACKGROUND, buildPath, drawPaper, drawShapeOn, drawStroke, onImageReady } from './draw';
+import { HIGHLIGHT_ALPHA, PAPER_BACKGROUND, buildPath, drawPaper, drawShapeOn, drawStroke, onImageReady, textLines } from './draw';
 import {
   cornerScale, eraseFromPolyline, fitShift, isErasable, normalizeAngle, orientation, resizedPoints, rotationDelta,
   shapePolylines, strokeBBox, strokeHit, strokesInLasso, transformStroke, unionBBox,
@@ -1542,12 +1542,16 @@ export function InkCanvas(props: Props) {
     const v = viewRef.current;
     const sheet = getSheets(props, minHeightRef.current).find((sh) => sh.id === textEdit.pageId);
     if (!sheet) return null;
-    const lines = Math.max(1, textEdit.text.split('\n').length);
+    // Autant de lignes que sur la page (retours à la ligne automatiques compris) : avant, seules les lignes
+    // tapées comptaient, et un texte qui passait à la ligne tout seul était rogné pendant la frappe
+    const lines = textLines({ text: textEdit.text, size: textEdit.size, points: [[0, 0, 0.5], [textEdit.width, 0, 0.5]] }).length;
+    // Le cadre pointillé (1,5 px) est tracé AUTOUR de la zone : il ne prend pas de place au texte
+    const border = 1.5;
     return {
-      left: textEdit.x * v.scale + v.tx,
-      top: (sheet.top + textEdit.y) * v.scale + v.ty,
-      width: textEdit.width * v.scale,
-      minHeight: textBoxHeight(lines, textEdit.size) * v.scale,
+      left: textEdit.x * v.scale + v.tx - border,
+      top: (sheet.top + textEdit.y) * v.scale + v.ty - border,
+      width: textEdit.width * v.scale + 2 * border,
+      minHeight: textBoxHeight(lines, textEdit.size) * v.scale + 2 * border,
       fontSize: textEdit.size * v.scale,
       padding: textPadding(textEdit.size) * v.scale,
     };
