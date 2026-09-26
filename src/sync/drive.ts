@@ -1,3 +1,5 @@
+import { multipartFrame, uploadMode } from './driveUpload';
+
 /**
  * Accès à Google Drive depuis le navigateur, sans serveur :
  * - connexion avec Google Identity Services (jeton valable 1 h) ;
@@ -201,35 +203,57 @@ export async function listFiles(token: string, folderId: string): Promise<DriveF
   return files;
 }
 
-export async function uploadFile(token: string, folderId: string, name: string, blob: Blob, existingId?: string): Promise<string> {
-  const type = blob.type || 'application/octet-stream';
-  if (existingId) {
-    const res = await call(token, `${UPLOAD}/files/${existingId}?uploadType=media&fields=id`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': type },
-      body: blob,
-    });
-    return ((await res.json()) as { id: string }).id;
-  }
-  const boundary = `notes-maths-${Math.random().toString(36).slice(2)}`;
-  const body = new Blob([
-    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify({ name, parents: [folderId] })}\r\n`,
-    `--${boundary}\r\nContent-Type: ${type}\r\n\r\n`,
-    blob,
-    `\r\n--${boundary}--`,
-  ]);
-  const res = await call(token, `${UPLOAD}/files?uploadType=multipart&fields=id`, {
-    method: 'POST',
-    headers: { 'Content-Type': `multipart/related; boundary=${boundary}` },
-    body,
-  });
-  return ((await res.json()) as { id: string }).id;
-}
-
-export async function downloadFile(token: string, id: string): Promise<Blob> {
-  return (await call(token, `${API}/files/${id}?alt=media`)).blob();
-}
-
 export async function deleteFile(token: string, id: string) {
   await call(token, `${API}/files/${id}`, { method: 'DELETE' });
+}
+
+// ------------------------------------------------------------------ copie de sauvegarde en un seul fichier
+
+/** Une requête XHR (la seule qui donne l'avancement de l'ENVOI) ; 401 → reconnexion, autre échec → erreur claire */
+function xhr(method: string, url: string, token: string, headers: Record<string, string>, body: Blob | string, onProgress?: (sent: number, total: number) => void): Promise<XMLHttpRequest> {
+  return new Promise((resolve, reject) => {
+    const req = new XMLHttpRequest();
+    req.open(method, url);
+    req.setRequestHeader('Authorization', `Bearer ${token}`);
+    for (const [k, v] of Object.entries(headers)) req.setRequestHeader(k, v);
+    if (onProgress) req.upload.onprogress = (e) => e.lengthComputable && onProgress(e.loaded, e.total);
+    req.onload = () => {
+      if (req.status === 401) {
+        saveToken(null);
+        reject(new DriveAuthError('Session Google expirée : reconnecte-toi.'));
+      } else if (req.status >= 200 && req.status < 300) resolve(req);
+      else reject(new Error(`Google Drive a répondu ${req.status} : ${req.responseText.slice(0, 200)}`));
+    };
+    req.onerror = () => reject(new Error(navigator.onLine ? 'Envoi interrompu (réseau).' : 'Pas de réseau : la copie repartira au retour de la connexion.'));
+    req.send(body);
+  });
+}
+
+/**
+ * Envoie la sauvegarde (UN fichier) dans `folderId` sous le nom `name`, en remplaçant le fichier de même nom s'il
+ * existe. Jusqu'à 5 Mo : une seule requête multipart (métadonnées + contenu). Au-delà : session reprenable ouverte
+ * par une courte requête, puis TOUT le contenu dans une seule requête. `onProgress` suit l'envoi du fichier.
+ */
+export async function uploadBackupFile(token: string, folderId: string, name: string, blob: Blob, existingId: string | null, onProgress: (sent: number, total: number) => void): Promise<string> {
+  const type = blob.type || 'application/json';
+  const metadata = existingId ? { name } : { name, parents: [folderId] };
+  const target = existingId ? `${UPLOAD}/files/${existingId}` : `${UPLOAD}/files`;
+  const method = existingId ? 'PATCH' : 'POST';
+  if (uploadMode(blob.size) === 'multipart') {
+    const boundary = `notes-maths-${Math.random().toString(36).slice(2)}`;
+    const [head, tail] = multipartFrame(metadata, type, boundary);
+    const req = await xhr(method, `${target}?uploadType=multipart&fields=id`, token, { 'Content-Type': `multipart/related; boundary=${boundary}` }, new Blob([head, blob, tail]), (sent) =>
+      onProgress(Math.min(blob.size, Math.max(0, sent - head.length)), blob.size),
+    );
+    return (JSON.parse(req.responseText) as { id: string }).id;
+  }
+  const session = await xhr(method, `${target}?uploadType=resumable&fields=id`, token, {
+    'Content-Type': 'application/json; charset=UTF-8',
+    'X-Upload-Content-Type': type,
+    'X-Upload-Content-Length': String(blob.size),
+  }, JSON.stringify(metadata));
+  const location = session.getResponseHeader('Location');
+  if (!location) throw new Error('Google Drive n’a pas ouvert la session d’envoi.');
+  const req = await xhr('PUT', location, token, { 'Content-Type': type }, blob, onProgress);
+  return (JSON.parse(req.responseText) as { id: string }).id;
 }
