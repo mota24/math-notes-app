@@ -112,6 +112,7 @@ autorisé (`src/auth/access.ts`).
 
 - **Par défaut**, le premier compte qui se connecte sur un appareil en devient le propriétaire ; tout autre compte (même
   un compte Google valide) y est refusé et déconnecté. Aucune synchronisation ne démarre avant cette vérification.
+  Seule exception : la même adresse, vérifiée (compte supprimé puis recréé), reprend l'appareil.
 - **Liste blanche** (recommandé) : dans Vercel, ajoute la variable `VITE_ALLOWED_EMAILS` avec ton adresse (plusieurs
   adresses séparées par des virgules), puis redéploie. Seuls ces comptes peuvent alors entrer, sur tous les appareils.
 - **Adresse vérifiée obligatoire** : un compte e-mail/mot de passe n'entre pas (et ne peut rien lire ni écrire dans
@@ -129,6 +130,16 @@ l'appareil et les outils de développement.
   mot de passe »** ouvre le compte par Google et lui ajoute le mot de passe tapé ;
 - Google refusé parce que l'adresse a déjà un compte e-mail : le mot de passe ouvre le compte, et Google y est relié ;
 - dans **Réglages → Compte et connexion** : « Ajouter un mot de passe » ou « Relier Google » (même adresse).
+- sans Google du tout : « Mot de passe oublié ? » envoie un lien qui donne un mot de passe au compte, même créé avec
+  Google.
+
+**Connexion Google (une fois, ~2 minutes).** Sur le site en production, les pages de connexion Google sont servies par
+le site lui-même (`/__/auth/…`, relayé vers Firebase par `vercel.json`) : c'est ce qui fait marcher Google dans l'appli
+installée sur la tablette et sur les navigateurs qui bloquent les domaines tiers. Google doit accepter cette adresse
+de retour : [console Google Cloud](https://console.cloud.google.com/apis/credentials?project=math-notes-pwa) →
+*Identifiants* → *ID clients OAuth 2.0* → **Web client (auto created by Google Service)** → *URI de redirection
+autorisés* → **Ajouter un URI** : `https://math-notes-app-indol.vercel.app/__/auth/handler` → *Enregistrer* (effet
+en quelques minutes). Sans cet URI, Google répond « Erreur 400 : redirect_uri_mismatch ».
 
 **Supprimer mon compte** (Réglages, tout en bas) : après avoir recopié `SUPPRIMER` et confirmé son identité (Google ou
 mot de passe), l'appli déconnecte la sauvegarde Google Drive (autorisation révoquée), efface tout ce que le compte a

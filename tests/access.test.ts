@@ -48,6 +48,15 @@ const cases: [string, () => void][] = [
     () => {
       // même adresse affichée, autre compte : refusé
       assert.equal(decideAccess({ uid: 'u-imposteur', email: owner.email }, [], owner).ok, false);
+      assert.equal(decideAccess({ uid: 'u-imposteur', email: owner.email, emailVerified: false }, [], owner).ok, false);
+    },
+  ],
+  [
+    'compte recréé (autre identifiant) avec la même adresse VÉRIFIÉE : il reprend l’appareil',
+    () => {
+      assert.deepEqual(decideAccess({ uid: 'u-nouveau', email: 'Moi@Exemple.fr ', emailVerified: true }, [], owner), { ok: true, claim: true });
+      assert.equal(decideAccess({ uid: 'u-nouveau', email: 'autre@exemple.fr', emailVerified: true }, [], owner).ok, false);
+      assert.equal(decideAccess({ uid: 'u-nouveau', email: null, emailVerified: true }, [], { uid: 'u-proprio', email: null }).ok, false);
     },
   ],
   [

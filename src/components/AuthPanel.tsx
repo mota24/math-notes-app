@@ -84,8 +84,13 @@ function Oeil({ barre }: { barre: boolean }) {
   );
 }
 
+/** Ouverte depuis l'écran d'accueil (appli installée), et non dans un onglet du navigateur */
+function appliInstallee(): boolean {
+  return window.matchMedia?.('(display-mode: standalone)').matches === true || (navigator as Navigator & { standalone?: boolean }).standalone === true;
+}
+
 const COMPTE_GOOGLE =
-  'Compte créé avec Google ? Le bouton ci-dessous t’y connecte et lui ajoute ce mot de passe : ensuite, l’un ou l’autre suffira.';
+  'Compte créé avec Google ? Le bouton ci-dessous t’y connecte et lui ajoute ce mot de passe. Sans Google : « Mot de passe oublié ? » t’envoie un lien pour en choisir un.';
 
 /** Erreurs après lesquelles « Continuer avec Google et ajouter ce mot de passe » peut débloquer la situation */
 const RELIABLE = /invalid-credential|invalid-login-credentials|wrong-password|user-not-found|email-already-in-use/;
@@ -274,6 +279,13 @@ export function AuthPanel({ refus = null }: { refus?: string | null }) {
     if (busy) return;
     void lancer('google', async () => {
       const fournisseur = googleProvider();
+      // Appli installée (écran d'accueil) : la fenêtre Google s'y ouvre hors de l'appli et ne sait pas lui rendre
+      // la main. On passe par une redirection, qui revient dans l'appli, dès que les pages de connexion sont
+      // servies par le site lui-même.
+      if (authMemeOrigine && appliInstallee()) {
+        await signInWithRedirect(auth, fournisseur);
+        return;
+      }
       try {
         await signInWithPopup(auth, fournisseur);
       } catch (e) {
@@ -472,11 +484,12 @@ export function AuthPanel({ refus = null }: { refus?: string | null }) {
               {erreur}
             </p>
           )}
-          {proposerGoogle && mode !== 'oubli' && adresse && motDePasse && (
+          {/* Toujours là après l'erreur qui l'annonce (« le bouton ci-dessous ») ; actif dès qu'un mot de passe est tapé */}
+          {proposerGoogle && mode !== 'oubli' && adresse && (
             <button
               type="button"
               onClick={googleEtMotDePasse}
-              disabled={busy !== null}
+              disabled={busy !== null || !motDePasse}
               className={boutonSecondaire}
             >
               {busy === 'liaison' ? 'Fenêtre Google ouverte…' : 'Continuer avec Google et ajouter ce mot de passe'}

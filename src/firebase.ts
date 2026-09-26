@@ -32,9 +32,20 @@ const CLE_PROJET = 'AIzaSyCSnqte3h5U224vLL_9jWX1tolKvTphBH0';
 const cleEnv = texte(env.VITE_FIREBASE_API_KEY, '');
 const cleValide = /^AIza[\w-]{30,}$/.test(cleEnv);
 
+/**
+ * Domaine des pages de connexion Google. Sur le site de production, le site lui-même : vercel.json relaie
+ * /__/auth/… vers firebaseapp.com, et la connexion devient « même origine ». C'est la seule qui marche partout :
+ * avec firebaseapp.com (domaine tiers), les navigateurs qui cloisonnent les domaines tiers et l'appli installée
+ * sur Android (la fenêtre Google s'y ouvre à part et ne sait pas rendre la main) laissaient l'utilisateur dehors.
+ * Condition : https://<site>/__/auth/handler figure dans les URI de redirection autorisés du client OAuth Google
+ * (README, « Connexion Google »). Ailleurs (aperçus Vercel, développement) : firebaseapp.com.
+ */
+const SITE = texte(env.VITE_VERCEL_PROJECT_PRODUCTION_URL, '');
+const surLeSite = typeof location !== 'undefined' && SITE !== '' && location.host === SITE;
+
 const firebaseConfig = {
   apiKey: cleValide ? cleEnv : CLE_PROJET,
-  authDomain: texte(env.VITE_FIREBASE_AUTH_DOMAIN, 'math-notes-pwa.firebaseapp.com'),
+  authDomain: texte(env.VITE_FIREBASE_AUTH_DOMAIN, surLeSite ? SITE : 'math-notes-pwa.firebaseapp.com'),
   projectId: texte(env.VITE_FIREBASE_PROJECT_ID, 'math-notes-pwa'),
   storageBucket: texte(env.VITE_FIREBASE_STORAGE_BUCKET, 'math-notes-pwa.firebasestorage.app'),
   messagingSenderId: texte(env.VITE_FIREBASE_MESSAGING_SENDER_ID, '519312910632'),

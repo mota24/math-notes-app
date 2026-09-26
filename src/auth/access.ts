@@ -11,8 +11,8 @@
  *     Les règles Firestore exigent la même chose : un compte non vérifié ne lit ni n'écrit rien dans le cloud.
  *  1. Liste blanche (VITE_ALLOWED_EMAILS, dans Vercel) : si elle est remplie, seuls ces comptes entrent.
  *  2. Sinon, « propriétaire de l'appareil » : le premier compte connecté sur un appareil en devient le
- *     propriétaire, et tout autre compte y est refusé. Protégé par défaut, sans rien configurer, et sans
- *     risque de s'enfermer dehors à cause d'une variable mal remplie.
+ *     propriétaire, et tout autre compte y est refusé (sauf la même adresse, vérifiée : compte recréé). Protégé
+ *     par défaut, sans rien configurer, et sans risque de s'enfermer dehors à cause d'une variable mal remplie.
  */
 
 export interface Account {
@@ -49,6 +49,11 @@ export function decideAccess(user: Account, allowlist: string[], owner: Account 
   }
   if (!owner) return { ok: true, claim: true };
   if (owner.uid === user.uid) return { ok: true, claim: false };
+  // Même adresse que le propriétaire, VÉRIFIÉE (Google, ou lien reçu par e-mail) : c'est lui, avec un compte
+  // recréé (supprimé puis rouvert). Il reprend l'appareil ; sans cela il en restait exclu pour toujours, sauf à
+  // effacer les données du site… et ses cahiers avec.
+  const email = (user.email ?? '').trim().toLowerCase();
+  if (user.emailVerified === true && email && email === (owner.email ?? '').trim().toLowerCase()) return { ok: true, claim: true };
   return {
     ok: false,
     reason: `Cet appareil est réservé au compte ${owner.email ?? 'qui s’y est connecté en premier'}. Connecte-toi avec ce compte.`,
